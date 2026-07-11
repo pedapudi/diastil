@@ -25,5 +25,7 @@ four candidate editor designs are in
 3. **Conversion is verified, not trusted.** Ingest proves fidelity with
    a per-slide visual diff against the original, and falls back to
    preserving regions verbatim rather than silently mangling them.
-4. **Zero runtime dependencies.** Dev tooling only (vite, typescript);
-   the shipped editor and the embedded deck runtime import nothing.
+4. **Zero runtime dependencies in the document path.** The editor bundle
+   and the embedded deck runtime import nothing. Inference lives in a
+   separate local service (`dia serve`, ADK-based) that the editor talks
+   to — optional, and never a dependency of the deck itself.

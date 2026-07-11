@@ -223,27 +223,48 @@ migrates old decks forward explicitly).
   diff, accept/reject; accepted ops join the same undo history. Chat is
   session state, never document state.
 
-## 7. Inference layer
+## 7. Inference layer — the dia service (ADK)
 
-One interface: `infer(request, schema) → validated JSON`, plus a
-streaming variant for chat. Thin first-party adapters behind it:
+Inference lives in a local Python service built on ADK, hosted by the
+CLI (`dia serve`, and implicitly by `dia <deck.html>`). The browser
+editor talks to it over HTTP/SSE and never calls a model endpoint
+directly. Without the service the editor is fully functional minus
+inference (invariant 1); with it, ingest and the copilot light up.
 
-- **openai-compatible** (covers OpenAI, OpenRouter, Together, Groq, vLLM,
-  LM Studio, Ollama, …);
-- **messages-style** APIs;
-- **generic HTTP** template adapter (user-supplied request/response
-  mapping) for anything else.
+What ADK owns:
 
-Config = base URL + model id + key + headers, stored locally. Structured
-output uses the endpoint's schema mode when present, else
-prompt-and-parse with one repair retry. Ingest results cache by content
-hash. No agent framework and no provider SDK: call shapes here are
-single-shot schema-constrained translations inside *deterministic*
-first-party loops (the fidelity loop owns control flow, not the model),
-so a framework would add a server, dependencies, and abstractions without
-removing any code. Revisit only if the copilot grows genuine multi-step
-tool use, and even then tool-call support lands in the adapters, not as a
-framework import.
+- **Sessions & state.** One session per deck: the copilot conversation,
+  ingest run state, accepted/rejected op history as context, fidelity
+  reports. Consistency across a whole editing session — the copilot on
+  turn 30 knows what it proposed on turn 3 — comes from the framework
+  instead of hand-rolled state.
+- **Endpoint selection.** The model registry is configuration, not code:
+  any endpoint (hosted APIs, OpenRouter, vLLM, LM Studio, Ollama, …) via
+  ADK's model abstraction + LiteLLM, selectable per skill — a heavyweight
+  model for translation and lifting, a fast local one for repair
+  iterations, whatever the user configures for chat. Per-skill routing is
+  a config file the user owns.
+- **Skills as agents.** Each call site from §3–§6 is a named ADK agent
+  with a versioned instruction file (`service/skills/`):
+  `translate-slide`, `repair-fidelity`, `lift-diagram`,
+  `discover-island-params`, `copilot`. Prompts are managed artifacts —
+  reviewed, diffed, and evaluated like code, not strings inlined at call
+  sites. The copilot agent gets tools (emit-ops, read-selection,
+  read-tokens, query-deck) and is the one genuinely agentic skill.
+- **Evaluation.** The ingest fixture corpus (§9) runs as ADK evals:
+  every skill has golden cases; a prompt or model change is a measurable
+  diff in fidelity scores, not a vibe.
+
+Control flow stays ours: the fidelity loop, caching (content-hash),
+schema validation, and op application are deterministic service code
+that *invokes* skills — the model never owns the loop. Structured
+output is schema-enforced at the boundary regardless of endpoint.
+
+Scope of the zero-dependency invariant, restated: it covers the editor
+bundle and the embedded deck runtime (what ships inside documents and
+the browser app). The service is a separate Python package with pinned
+dependencies in its own venv, installed only by users who want
+inference.
 
 ## 8. UI
 
@@ -273,14 +294,17 @@ possibly a hybrid — gets locked in `design/DECISION.md` before M2.
   dialect-native decks. *The editor is usable for born-dia decks here.*
 - **M3 — scene layer.** Diagram model, edge routing, full direct
   manipulation, behaviors in the runtime. *The headline demo.*
-- **M4 — ingest v1.** Execute + deterministic pass + translation +
-  fidelity loop for the top input classes (semantic HTML, reveal/Marp,
-  static SVG diagrams); islands; fidelity report UI.
-- **M5 — copilot + inference config.** Adapters, endpoint settings, chat
-  rail emitting op-diffs; diagram lifting for JS-generated SVG.
-- **M6 — CLI host.** `dia <deck.html>` opens the editor on a local file,
-  watches, writes back; `dia present`, `dia validate`, `dia ingest`
-  headless.
+- **M4 — dia service + ingest v1.** The ADK service skeleton (sessions,
+  model registry, skill layout) plus execute + deterministic pass +
+  `translate-slide` + fidelity loop for the top input classes (semantic
+  HTML, reveal/Marp, static SVG diagrams); islands; fidelity report UI;
+  first eval fixtures.
+- **M5 — copilot + lifting.** The `copilot` agent with op-emitting
+  tools, chat rail with op-diff accept/reject; `lift-diagram` for static
+  and JS-generated SVG; per-skill endpoint routing config.
+- **M6 — CLI polish.** `dia <deck.html>` opens the editor on a local
+  file, watches, writes back; `dia present`, `dia validate`,
+  `dia ingest` headless (batch, service-side).
 
 Each milestone lands with tests (golden round-trips, op-log property
 tests, fidelity-loop fixtures from real agent decks — a corpus we start

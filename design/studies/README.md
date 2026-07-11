@@ -12,6 +12,7 @@ slide + diagram, so only the information architecture differs.
 | [02-console](02-console.html) | structure made visible: tree + op log + fidelity | trust after ingest; auditability; complex decks | chrome-heavy; properties lack a fixed home |
 | [03-stage](03-stage.html) | canvas-first, transient chrome at the selection | diagramming; maximum canvas; demo quality | discoverability; where does write-target live |
 | [04-lichttisch](04-lichttisch.html) | the deck as a sequence, edited in flow | deck-wide rhythm; cross-slide copilot asks | single-diagram deep work needs a zoom mode |
+| [05-lichtbühne](05-lichtbuehne.html) | 04 × 03: one surface, two altitudes (table ⇄ stage) | each altitude hands off at the other's failure point | every affordance needs two homes; the lift must be a real zoom |
 
 Shared ideas that appear in every study (candidates for "keep regardless
 of direction"):
