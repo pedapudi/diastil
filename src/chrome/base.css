@@ -1,0 +1,68 @@
+/* Shared chrome idioms — token-only, per the design language.
+ * Panels: 1px var(--rule) border, radius 4px, background var(--panel).
+ * Buttons: mono, outline-first, accent fill on hover.
+ * One accent; good/bad earned by direction; no decorative color. */
+
+.dn-panel {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+}
+
+.dn-btn {
+  font-family: var(--mono);
+  font-size: calc(11px * var(--dt-font-scale, 1));
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-soft);
+  padding: 3px 11px;
+  cursor: pointer;
+}
+.dn-btn:hover { background: var(--rule-soft); color: var(--ink); }
+.dn-btn.dn-btn-accent { border-color: var(--accent); color: var(--accent); }
+.dn-btn.dn-btn-accent:hover { background: var(--accent); color: var(--paper); }
+.dn-btn:disabled { opacity: .45; cursor: default; }
+.dn-btn.dn-btn-on { background: var(--accent); color: var(--paper); border-color: var(--accent); }
+
+.dn-seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 5px; overflow: hidden; }
+.dn-seg button {
+  font-family: var(--mono); font-size: calc(11px * var(--dt-font-scale, 1));
+  border: 0; background: transparent; color: var(--ink-soft);
+  padding: 4px 12px; cursor: pointer;
+}
+.dn-seg button.dn-on { background: var(--accent); color: var(--paper); }
+
+.dn-input {
+  font-family: var(--sans);
+  font-size: calc(11.5px * var(--dt-font-scale, 1));
+  background: var(--paper); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: 5px;
+  padding: 6px 9px;
+}
+
+.dn-subhead {
+  font-family: var(--mono);
+  font-size: calc(10px * var(--dt-font-scale, 1));
+  letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ink-faint); font-weight: 600;
+}
+
+.dn-kv { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 0; }
+.dn-kv .k { color: var(--ink-soft); font-size: calc(12px * var(--dt-font-scale, 1)); }
+.dn-kv .v { font-family: var(--mono); font-size: calc(11.5px * var(--dt-font-scale, 1)); color: var(--ink); }
+
+.dn-mono { font-family: var(--mono); }
+.dn-num { font-variant-numeric: tabular-nums; }
+
+/* the singleton hovercard (mounted by chrome/hovercard.ts) */
+.dn-hovercard {
+  position: fixed; z-index: 100; max-width: 320px;
+  background: var(--panel); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: 6px;
+  padding: 7px 10px;
+  font-family: var(--mono); font-size: calc(10.5px * var(--dt-font-scale, 1));
+  line-height: 1.55; pointer-events: none;
+  opacity: 0; transition: opacity 120ms ease;
+}
+.dn-hovercard.dn-hovercard-on { opacity: 1; }
