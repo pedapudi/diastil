@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>diastil · study 04 — the light table</title>
+<style>
+/* ============ diastil chrome tokens (zicato role contract) ============ */
+:root {
+  --paper:#f2eede; --panel:#f8f4e6; --ink:#1a1a1a; --ink-soft:#4a4a42;
+  --ink-faint:#8a8776; --rule:#d8d2bd; --rule-soft:#e6e0cb;
+  --good:#216609; --bad:#cc3e28; --caution:#8a6d00; --accent:#1e6fcc;
+  --flat:#75715e;
+  --mono:"JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --prose:"iA Writer Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --paper:#1e1f1c; --panel:#272822; --ink:#f8f8f2; --ink-soft:#c9cabf;
+  --ink-faint:#8f908a; --rule:#3a3b34; --rule-soft:#2f302a;
+  --good:#a6e22e; --bad:#f92672; --caution:#e6db74; --accent:#66d9ef;
+  --flat:#75715e;
+}}
+* { box-sizing:border-box; }
+html,body { margin:0; height:100%; background:var(--paper); color:var(--ink);
+  font-family:var(--prose); font-size:13px; }
+body { display:flex; flex-direction:column; }
+
+/* ============ top bar ============ */
+.topbar { display:flex; align-items:center; gap:14px; padding:8px 14px;
+  border-bottom:1px solid var(--rule); position:sticky; top:0; z-index:6;
+  background:var(--paper); }
+.brand { font-family:var(--mono); font-weight:700; }
+.brand .dot { color:var(--accent); }
+.brand-tag { font-size:10px; color:var(--ink-faint); border:1px solid var(--rule);
+  border-radius:8px; padding:1px 7px; }
+.crumbs { font-family:var(--mono); font-size:11.5px; color:var(--ink-faint); }
+.spacer { flex:1; }
+.viewtgl { display:flex; border:1px solid var(--rule); border-radius:5px; overflow:hidden; }
+.viewtgl button { font:inherit; font-family:var(--mono); font-size:11px; border:0;
+  background:transparent; color:var(--ink-soft); padding:4px 12px; cursor:pointer; }
+.viewtgl button.on { background:var(--accent); color:var(--paper); }
+.status { display:flex; align-items:center; gap:6px; font-family:var(--mono);
+  font-size:11px; color:var(--ink-faint); }
+.status .sdot { width:7px; height:7px; border-radius:50%; background:var(--good); }
+
+/* ============ table + rail ============ */
+.wrap { flex:1; display:grid; grid-template-columns:minmax(0,1fr) 300px; min-height:0; }
+.table { overflow-y:auto; padding:30px 40px 60px; }
+.row { display:grid; grid-template-columns:120px minmax(0,880px); gap:20px;
+  margin:0 auto 34px; max-width:1030px; }
+
+/* margin gutter */
+.gut { text-align:right; font-family:var(--mono); font-size:10.5px;
+  color:var(--ink-faint); padding-top:6px; line-height:2; }
+.gut .num { font-size:15px; color:var(--ink-soft); }
+.gut .fid { color:var(--good); }
+.gut .fid.warn { color:var(--caution); }
+.gut .note { border:1px solid var(--rule); border-radius:4px; background:var(--panel);
+  padding:4px 7px; text-align:left; line-height:1.5; margin-top:8px; font-size:10px; }
+.gut .island { color:var(--caution); }
+
+/* slides (deck's own styles) */
+.slide { aspect-ratio:16/9; background:#fbfaf6; color:#17242b; border-radius:2px;
+  box-shadow:0 2px 14px rgba(0,0,0,.16); display:grid;
+  grid-template-columns:1.05fr 1fr; gap:24px; padding:44px 48px;
+  font-family:Georgia, "Times New Roman", serif; position:relative; }
+.slide.on { outline:1.5px solid var(--accent); outline-offset:5px; }
+.sl-kicker { font-family:var(--mono); font-size:10px; letter-spacing:.14em;
+  color:#b4552d; text-transform:uppercase; margin-bottom:10px; }
+.sl-title { font-size:30px; line-height:1.14; font-weight:700; margin:0 0 14px; }
+.sl-body { font-size:13.5px; line-height:1.55; color:#3d4a52; }
+.sl-body p { margin:0 0 9px; }
+.caret { border-right:1.5px solid var(--accent); animation:blink 1.1s steps(1) infinite; }
+@keyframes blink { 50% { border-color:transparent; } }
+@media (prefers-reduced-motion: reduce) { .caret { animation:none; } }
+.sl-fig { align-self:center; }
+.dg-node { fill:#fbfaf6; stroke:#17242b; stroke-width:1.3; }
+.dg-label { font:11.5px Georgia, serif; fill:#17242b; }
+.dg-edge { stroke:#17242b; stroke-width:1.2; fill:none; }
+.dg-arrow { fill:#17242b; }
+.slide.cover { grid-template-columns:1fr; align-content:center; text-align:left; }
+.slide.cover .sl-title { font-size:44px; max-width:16ch; }
+
+/* ============ right rail: tabs ============ */
+.rail { border-left:1px solid var(--rule); display:flex; flex-direction:column;
+  background:var(--panel); min-height:0; }
+.tabs { display:flex; border-bottom:1px solid var(--rule); }
+.tabs button { flex:1; font:inherit; font-family:var(--mono); font-size:10.5px;
+  letter-spacing:.04em; border:0; background:transparent; color:var(--ink-faint);
+  padding:8px 0; cursor:pointer; border-bottom:2px solid transparent; }
+.tabs button.on { color:var(--accent); border-bottom-color:var(--accent); }
+.ctx { font-family:var(--mono); font-size:10px; color:var(--ink-faint);
+  padding:7px 12px; border-bottom:1px solid var(--rule-soft); line-height:1.6; }
+.ctx b { color:var(--ink-soft); font-weight:500; }
+.plog { flex:1; overflow-y:auto; padding:10px 12px; display:flex;
+  flex-direction:column; gap:8px; }
+.bub { max-width:90%; border-radius:6px; padding:7px 10px; font-size:11.5px; line-height:1.5; }
+.bub.user { align-self:flex-end; background:var(--accent); color:var(--paper); }
+.bub.asst { align-self:flex-start; background:var(--rule-soft); }
+.opdiff { border:1px solid var(--rule); border-radius:5px; background:var(--paper);
+  font-family:var(--mono); font-size:10.5px; padding:7px 9px; line-height:1.7; }
+.opdiff .val { color:var(--accent); }
+.opdiff .muted { color:var(--ink-faint); }
+.opdiff .acts { display:flex; gap:6px; margin-top:6px; }
+.opdiff .acts button { font:inherit; font-family:var(--mono); font-size:10px;
+  border:1px solid var(--rule); background:transparent; color:var(--ink-soft);
+  border-radius:4px; padding:2px 9px; cursor:pointer; }
+.opdiff .acts button.yes { border-color:var(--good); color:var(--good); }
+.composer { display:flex; gap:8px; padding:9px 12px; border-top:1px solid var(--rule-soft); }
+.composer input { flex:1; font:inherit; font-family:var(--prose); font-size:11.5px;
+  background:var(--paper); color:var(--ink); border:1px solid var(--rule);
+  border-radius:5px; padding:6px 9px; }
+.composer button { font:inherit; font-family:var(--mono); font-size:11px;
+  border:1px solid var(--accent); color:var(--accent); background:transparent;
+  border-radius:5px; padding:0 12px; cursor:pointer; }
+
+/* ============ study notes ============ */
+.notes { border-top:1px solid var(--rule); background:var(--panel);
+  padding:18px 22px 22px; font-size:12.5px; line-height:1.6; color:var(--ink-soft); }
+.notes h2 { font-family:var(--mono); font-size:11px; letter-spacing:.08em;
+  text-transform:uppercase; color:var(--ink-faint); margin:0 0 8px; }
+.notes .cols { display:grid; grid-template-columns:repeat(3, minmax(220px,1fr));
+  gap:22px; max-width:1100px; }
+.notes b { color:var(--ink); font-weight:600; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="brand">d<span class="dot">i</span>astil</span>
+  <span class="brand-tag">light table</span>
+  <span class="crumbs">quarterly-review.html · 12 slides · saved</span>
+  <span class="spacer"></span>
+  <span class="viewtgl"><button class="on">flow</button><button>grid</button><button>present</button></span>
+  <span class="status"><span class="sdot"></span>valid · v0</span>
+</div>
+
+<div class="wrap">
+  <div class="table">
+
+    <div class="row">
+      <div class="gut">
+        <div class="num">3</div>
+        <div class="fid">fidelity 0.99</div>
+      </div>
+      <div class="slide cover">
+        <div>
+          <div class="sl-kicker">Section</div>
+          <h1 class="sl-title">What ingest actually does</h1>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="gut">
+        <div class="num">4</div>
+        <div class="fid">fidelity 0.98</div>
+        <div class="note">editing <b>dia-body</b> in place — structure ops stay on the op log, text flows freely</div>
+      </div>
+      <div class="slide on">
+        <div>
+          <div class="sl-kicker">Ingest pipeline</div>
+          <h1 class="sl-title">Every deck compiles to a verified dialect</h1>
+          <div class="sl-body">
+            <p>Foreign decks execute in a sandbox; the rendered DOM is ground truth.</p>
+            <p>Translation is schema-constrained and content is copied, never regenerated<span class="caret">&nbsp;</span></p>
+            <p>A per-slide pixel diff proves the conversion — or the region is preserved verbatim.</p>
+          </div>
+        </div>
+        <div class="sl-fig">
+          <svg viewBox="0 0 340 240" width="100%" role="img" aria-label="pipeline diagram">
+            <defs><marker id="a1" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="dg-arrow"/></marker></defs>
+            <rect class="dg-node" x="20" y="18" width="120" height="40" rx="6"/>
+            <text class="dg-label" x="80" y="42" text-anchor="middle">original.html</text>
+            <rect class="dg-node" x="200" y="18" width="120" height="40" rx="6"/>
+            <text class="dg-label" x="260" y="42" text-anchor="middle">execute</text>
+            <rect class="dg-node" x="200" y="108" width="120" height="40" rx="6"/>
+            <text class="dg-label" x="260" y="132" text-anchor="middle">translate</text>
+            <rect class="dg-node" x="20" y="180" width="120" height="40" rx="6"/>
+            <text class="dg-label" x="80" y="204" text-anchor="middle">verified deck</text>
+            <path class="dg-edge" d="M140,38 H196" marker-end="url(#a1)"/>
+            <path class="dg-edge" d="M260,58 V104" marker-end="url(#a1)"/>
+            <path class="dg-edge" d="M200,128 H80 V176" marker-end="url(#a1)"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="gut">
+        <div class="num">5</div>
+        <div class="fid warn">fidelity 0.91</div>
+        <div class="note island">island: live chart kept verbatim · <b>lift?</b></div>
+      </div>
+      <div class="slide">
+        <div>
+          <div class="sl-kicker">Coverage</div>
+          <h1 class="sl-title">Live regions stay live</h1>
+          <div class="sl-body">
+            <p>Interactive originals are preserved, sandboxed, and editable as parameters.</p>
+          </div>
+        </div>
+        <div class="sl-fig" style="border:1px dashed var(--caution); border-radius:4px; aspect-ratio:4/3; display:grid; place-items:center; font-family:var(--mono); font-size:11px; color:var(--caution);">island · chart.js scatter</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- right rail -->
+  <div class="rail">
+    <div class="tabs"><button>inspect</button><button class="on">copilot</button><button>tokens</button></div>
+    <div class="ctx">sees: <b>slide 4 › body</b> + neighbors 3–5 (flow context)</div>
+    <div class="plog">
+      <div class="bub user">slides 3–5 read like three different decks. unify the rhythm</div>
+      <div class="bub asst">The section cover uses step 7 while body slides use 5, and slide 5's
+        kicker is tracked wider. Three token-level edits:</div>
+      <div class="opdiff">
+        SetToken <span class="val">--dia-scale-7: 40px</span> <span class="muted">(covers, was 44)</span><br>
+        SetToken <span class="val">--dia-track-kicker: .14em</span> <span class="muted">(all kickers)</span><br>
+        SetProp <span class="val">slide-5/figure: margin-block align to grid</span>
+        <div class="acts"><button class="yes">apply</button><button>preview all 3</button><button>reject</button></div>
+      </div>
+    </div>
+    <div class="composer"><input placeholder="ask across slides…"><button>send</button></div>
+  </div>
+</div>
+
+<div class="notes">
+  <h2>Study 04 — the light table · continuous flow</h2>
+  <div class="cols">
+    <div><b>The bet.</b> A deck is a <b>sequence</b>, and most editing sins are
+      sequence sins — rhythm breaks, inconsistent scale, a diagram that
+      contradicts its neighbor. Slides flow vertically at reading size, edited
+      in place; the margin gutter carries each slide's metadata (number,
+      fidelity, island flags, notes) like a proof sheet. Grid mode zooms out to
+      the sorting view.</div>
+    <div><b>What it optimizes.</b> Typesetting across the whole deck — you see
+      three slides at once, so token edits are judged in context. Ingest honesty
+      rides in the margin, per slide, without a tree. The copilot naturally gets
+      flow context ("sees slides 3–5") — cross-slide asks are its best use.</div>
+    <div><b>What it costs.</b> Never more than ~1.5 slides tall on a laptop —
+      fine-grained diagram work wants a zoomed single-slide mode (click a figure
+      → it takes the viewport, stage-style). Present-order dragging happens in
+      grid mode, not here. In-place editing across many mounted slides needs
+      careful virtualization to stay 60fps.</div>
+  </div>
+</div>
+
+</body>
+</html>

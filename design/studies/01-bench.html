@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>diastil · study 01 — the bench</title>
+<style>
+/* ============ diastil chrome tokens (zicato role contract) ============ */
+:root {
+  --paper:#f2eede; --panel:#f8f4e6; --ink:#1a1a1a; --ink-soft:#4a4a42;
+  --ink-faint:#8a8776; --rule:#d8d2bd; --rule-soft:#e6e0cb;
+  --good:#216609; --bad:#cc3e28; --caution:#8a6d00; --accent:#1e6fcc;
+  --flat:#75715e;
+  --mono:"JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --prose:"iA Writer Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --paper:#1e1f1c; --panel:#272822; --ink:#f8f8f2; --ink-soft:#c9cabf;
+  --ink-faint:#8f908a; --rule:#3a3b34; --rule-soft:#2f302a;
+  --good:#a6e22e; --bad:#f92672; --caution:#e6db74; --accent:#66d9ef;
+  --flat:#75715e;
+}}
+* { box-sizing:border-box; }
+html,body { margin:0; height:100%; background:var(--paper); color:var(--ink);
+  font-family:var(--prose); font-size:13px; }
+body { display:flex; flex-direction:column; }
+
+/* ============ top bar ============ */
+.topbar { display:flex; align-items:center; gap:14px; padding:8px 14px;
+  border-bottom:1px solid var(--rule); background:var(--paper);
+  position:sticky; top:0; z-index:5; }
+.brand { font-family:var(--mono); font-weight:700; letter-spacing:.02em; }
+.brand .dot { color:var(--accent); }
+.brand-tag { font-size:10px; color:var(--ink-faint); border:1px solid var(--rule);
+  border-radius:8px; padding:1px 7px; }
+.crumbs { color:var(--ink-faint); font-family:var(--mono); font-size:11.5px; }
+.crumbs b { color:var(--ink-soft); font-weight:500; }
+.spacer { flex:1; }
+.mode { display:flex; border:1px solid var(--rule); border-radius:5px; overflow:hidden; }
+.mode button { font:inherit; font-family:var(--mono); font-size:11px; border:0;
+  background:transparent; color:var(--ink-soft); padding:4px 12px; cursor:pointer; }
+.mode button.on { background:var(--accent); color:var(--paper); }
+.status { display:flex; align-items:center; gap:6px; font-family:var(--mono);
+  font-size:11px; color:var(--ink-faint); }
+.status .sdot { width:7px; height:7px; border-radius:50%; background:var(--good); }
+
+/* ============ 3-pane body ============ */
+.bench { flex:1; display:grid; grid-template-columns:148px minmax(0,1fr) 300px;
+  min-height:0; }
+
+/* filmstrip */
+.strip { border-right:1px solid var(--rule); padding:12px 10px; overflow-y:auto;
+  display:flex; flex-direction:column; gap:10px; }
+.thumb { position:relative; border:1px solid var(--rule); border-radius:4px;
+  aspect-ratio:16/9; background:var(--panel); cursor:pointer; flex:none; }
+.thumb.current { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
+.thumb .n { position:absolute; left:-2px; top:2px; transform:translateX(-100%);
+  font-family:var(--mono); font-size:9.5px; color:var(--ink-faint); padding-right:5px; }
+.thumb .mini { position:absolute; inset:0; padding:7px; }
+.mini .l1 { height:3px; width:55%; background:var(--ink-faint); opacity:.7; border-radius:1px; }
+.mini .l2 { height:2px; width:80%; background:var(--ink-faint); opacity:.35;
+  border-radius:1px; margin-top:4px; }
+.mini .l3 { height:2px; width:70%; background:var(--ink-faint); opacity:.35;
+  border-radius:1px; margin-top:2px; }
+.mini .fig { position:absolute; right:7px; bottom:6px; width:34%; height:40%;
+  border:1px solid var(--ink-faint); opacity:.4; border-radius:2px; }
+.strip .add { border:1px dashed var(--rule); border-radius:4px; color:var(--ink-faint);
+  font-family:var(--mono); font-size:11px; text-align:center; padding:8px 0; cursor:pointer; }
+
+/* canvas */
+.canvas { position:relative; display:flex; align-items:center; justify-content:center;
+  padding:34px; overflow:hidden; background:
+  radial-gradient(circle at 1px 1px, var(--rule-soft) 1px, transparent 0) 0 0/22px 22px; }
+.zoom { position:absolute; bottom:12px; left:50%; transform:translateX(-50%);
+  font-family:var(--mono); font-size:10.5px; color:var(--ink-faint);
+  border:1px solid var(--rule); background:var(--panel); border-radius:10px;
+  padding:2px 10px; }
+
+/* ============ the slide being edited (deck's own styles, not chrome) ============ */
+.slide { width:min(100%, 880px); aspect-ratio:16/9; background:#fbfaf6; color:#17242b;
+  border-radius:2px; box-shadow:0 2px 14px rgba(0,0,0,.18);
+  display:grid; grid-template-columns:1.05fr 1fr; gap:24px; padding:44px 48px;
+  font-family:Georgia, "Times New Roman", serif; }
+.sl-kicker { font-family:var(--mono); font-size:10px; letter-spacing:.14em;
+  color:#b4552d; text-transform:uppercase; margin-bottom:10px; }
+.sl-title { font-size:30px; line-height:1.14; font-weight:700; margin:0 0 14px; }
+.sl-body { font-size:13.5px; line-height:1.55; color:#3d4a52; }
+.sl-body p { margin:0 0 9px; }
+.sl-fig { align-self:center; }
+/* selected title: op-target ring */
+.sel { outline:1.5px solid var(--accent); outline-offset:4px; position:relative; }
+.sel-tag { position:absolute; top:-22px; left:-5px; font-family:var(--mono);
+  font-size:9.5px; color:var(--paper); background:var(--accent); border-radius:3px;
+  padding:1px 6px; letter-spacing:.02em; }
+
+/* diagram inside slide */
+.dg-node { fill:#fbfaf6; stroke:#17242b; stroke-width:1.3; rx:6; }
+.dg-label { font:11.5px Georgia, serif; fill:#17242b; }
+.dg-edge { stroke:#17242b; stroke-width:1.2; fill:none; }
+.dg-arrow { fill:#17242b; }
+
+/* ============ right column: inspector + copilot ============ */
+.rail { border-left:1px solid var(--rule); display:flex; flex-direction:column; min-height:0; }
+.insp { padding:14px; overflow-y:auto; }
+.insp h3 { font-family:var(--mono); font-size:10px; letter-spacing:.08em;
+  text-transform:uppercase; color:var(--ink-faint); margin:0 0 10px; font-weight:600; }
+.row { display:flex; align-items:center; justify-content:space-between; gap:8px;
+  padding:5px 0; font-size:12px; }
+.row .k { color:var(--ink-soft); }
+.row .v { font-family:var(--mono); font-size:11.5px; color:var(--ink); }
+.chip { font-family:var(--mono); font-size:10px; border:1px solid var(--rule);
+  border-radius:8px; padding:1px 7px; color:var(--ink-soft); background:var(--panel); }
+.chip.bound { border-color:var(--accent); color:var(--accent); }
+.stepper { display:flex; align-items:center; gap:6px; }
+.stepper button { font:inherit; font-family:var(--mono); border:1px solid var(--rule);
+  background:var(--panel); color:var(--ink-soft); border-radius:4px; width:20px; height:20px;
+  cursor:pointer; line-height:1; }
+.target { margin-top:12px; border-top:1px solid var(--rule-soft); padding-top:10px;
+  font-family:var(--mono); font-size:10.5px; color:var(--ink-faint); line-height:1.6; }
+.target b { color:var(--accent); font-weight:500; }
+.sect { border-top:1px solid var(--rule); padding:12px 14px 4px; }
+.sect summary { font-family:var(--mono); font-size:10px; letter-spacing:.08em;
+  text-transform:uppercase; color:var(--ink-faint); cursor:pointer; list-style:none;
+  padding-bottom:10px; }
+.sect summary::before { content:"▸ "; }
+.sect[open] summary::before { content:"▾ "; }
+
+/* copilot dock */
+.pilot { border-top:1px solid var(--rule); display:flex; flex-direction:column;
+  height:290px; flex:none; background:var(--panel); }
+.pilot-head { display:flex; align-items:center; gap:8px; padding:7px 12px;
+  border-bottom:1px solid var(--rule-soft); font-family:var(--mono); font-size:11px; }
+.pilot-head .t { font-weight:600; }
+.pilot-head .m { color:var(--ink-faint); font-size:10px; margin-left:auto; }
+.plog { flex:1; overflow-y:auto; padding:10px 12px; display:flex;
+  flex-direction:column; gap:8px; }
+.bub { max-width:88%; border-radius:6px; padding:7px 10px; font-size:11.5px; line-height:1.5; }
+.bub.user { align-self:flex-end; background:var(--accent); color:var(--paper); }
+.bub.asst { align-self:flex-start; background:var(--rule-soft); color:var(--ink); }
+.opdiff { border:1px solid var(--rule); border-radius:5px; background:var(--paper);
+  font-family:var(--mono); font-size:10.5px; padding:7px 9px; line-height:1.7; }
+.opdiff .op { color:var(--ink-soft); }
+.opdiff .val { color:var(--accent); }
+.opdiff .acts { display:flex; gap:6px; margin-top:6px; }
+.opdiff .acts button { font:inherit; font-family:var(--mono); font-size:10px;
+  border:1px solid var(--rule); background:transparent; color:var(--ink-soft);
+  border-radius:4px; padding:2px 9px; cursor:pointer; }
+.opdiff .acts button.yes { border-color:var(--good); color:var(--good); }
+.composer { display:flex; gap:8px; padding:9px 12px; border-top:1px solid var(--rule-soft); }
+.composer input { flex:1; font:inherit; font-family:var(--prose); font-size:11.5px;
+  background:var(--paper); color:var(--ink); border:1px solid var(--rule);
+  border-radius:5px; padding:6px 9px; }
+.composer button { font:inherit; font-family:var(--mono); font-size:11px;
+  border:1px solid var(--accent); color:var(--accent); background:transparent;
+  border-radius:5px; padding:0 12px; cursor:pointer; }
+
+/* ============ study notes ============ */
+.notes { border-top:1px solid var(--rule); background:var(--panel);
+  padding:18px 22px 22px; font-size:12.5px; line-height:1.6; color:var(--ink-soft); }
+.notes h2 { font-family:var(--mono); font-size:11px; letter-spacing:.08em;
+  text-transform:uppercase; color:var(--ink-faint); margin:0 0 8px; }
+.notes .cols { display:grid; grid-template-columns:repeat(3, minmax(220px,1fr));
+  gap:22px; max-width:1100px; }
+.notes b { color:var(--ink); font-weight:600; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="brand">d<span class="dot">i</span>astil</span>
+  <span class="brand-tag">bench</span>
+  <span class="crumbs">quarterly-review.html · <b>slide 4 / 12</b> · saved</span>
+  <span class="spacer"></span>
+  <span class="mode"><button class="on">design</button><button>present</button></span>
+  <span class="status"><span class="sdot"></span>deck valid · dialect v0</span>
+</div>
+
+<div class="bench">
+  <!-- filmstrip -->
+  <div class="strip">
+    <div class="thumb"><span class="n">1</span><div class="mini"><div class="l1" style="width:70%"></div></div></div>
+    <div class="thumb"><span class="n">2</span><div class="mini"><div class="l1"></div><div class="l2"></div><div class="l3"></div></div></div>
+    <div class="thumb"><span class="n">3</span><div class="mini"><div class="l1"></div><div class="l2"></div><div class="fig"></div></div></div>
+    <div class="thumb current"><span class="n">4</span><div class="mini"><div class="l1"></div><div class="l2"></div><div class="l3"></div><div class="fig"></div></div></div>
+    <div class="thumb"><span class="n">5</span><div class="mini"><div class="l1" style="width:45%"></div><div class="fig" style="width:60%;right:auto;left:7px"></div></div></div>
+    <div class="add">+ slide</div>
+  </div>
+
+  <!-- canvas -->
+  <div class="canvas">
+    <div class="slide">
+      <div>
+        <div class="sl-kicker">Ingest pipeline</div>
+        <h1 class="sl-title sel">Every deck compiles to a verified dialect<span class="sel-tag">dia-title · h1</span></h1>
+        <div class="sl-body">
+          <p>Foreign decks execute in a sandbox; the rendered DOM is ground truth.</p>
+          <p>Translation is schema-constrained and content is copied, never regenerated.</p>
+          <p>A per-slide pixel diff proves the conversion — or the region is preserved verbatim.</p>
+        </div>
+      </div>
+      <div class="sl-fig">
+        <svg viewBox="0 0 340 240" width="100%" role="img" aria-label="pipeline diagram">
+          <defs><marker id="a1" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="dg-arrow"/></marker></defs>
+          <rect class="dg-node" x="20" y="18" width="120" height="40" rx="6"/>
+          <text class="dg-label" x="80" y="42" text-anchor="middle">original.html</text>
+          <rect class="dg-node" x="200" y="18" width="120" height="40" rx="6"/>
+          <text class="dg-label" x="260" y="42" text-anchor="middle">execute</text>
+          <rect class="dg-node" x="200" y="108" width="120" height="40" rx="6"/>
+          <text class="dg-label" x="260" y="132" text-anchor="middle">translate</text>
+          <rect class="dg-node" x="20" y="180" width="120" height="40" rx="6"/>
+          <text class="dg-label" x="80" y="204" text-anchor="middle">verified deck</text>
+          <path class="dg-edge" d="M140,38 H196" marker-end="url(#a1)"/>
+          <path class="dg-edge" d="M260,58 V104" marker-end="url(#a1)"/>
+          <path class="dg-edge" d="M200,128 H80 V176" marker-end="url(#a1)"/>
+        </svg>
+      </div>
+    </div>
+    <div class="zoom">86% · fit</div>
+  </div>
+
+  <!-- inspector + copilot -->
+  <div class="rail">
+    <div class="insp">
+      <h3>Type · dia-title</h3>
+      <div class="row"><span class="k">size</span>
+        <span class="stepper"><button>−</button><span class="v">step 5 · 30px</span><button>+</button></span></div>
+      <div class="row"><span class="k">bound to</span><span class="chip bound">--dia-scale-5</span></div>
+      <div class="row"><span class="k">face</span><span class="v">display serif</span></div>
+      <div class="row"><span class="k">leading</span><span class="v">1.14</span></div>
+      <div class="row"><span class="k">tracking</span><span class="v">0</span></div>
+      <div class="row"><span class="k">measure</span><span class="v">18ch</span></div>
+      <div class="row"><span class="k">hang punctuation</span><span class="v">on</span></div>
+      <div class="target">edit writes to <b>token --dia-scale-5</b> (all 7 titles)<br>⌥ drag → this element only</div>
+    </div>
+    <details class="sect"><summary>Theme tokens</summary></details>
+    <details class="sect"><summary>Slide layout</summary></details>
+    <div class="spacer"></div>
+    <div class="pilot">
+      <div class="pilot-head"><span class="t">copilot</span><span class="m">local · qwen-72b</span></div>
+      <div class="plog">
+        <div class="bub user">tighten the title, it wraps to three lines on slide 9</div>
+        <div class="bub asst">Step 5 at 30px wraps on 9 and 11. Proposing one token edit:</div>
+        <div class="opdiff">
+          <div class="op">SetToken <span class="val">--dia-scale-5: 28px</span></div>
+          <div class="op">SetProp <span class="val">dia-title/leading: 1.18</span></div>
+          <div class="acts"><button class="yes">apply</button><button>preview</button><button>reject</button></div>
+        </div>
+      </div>
+      <div class="composer"><input placeholder="ask about the selection…"><button>send</button></div>
+    </div>
+  </div>
+</div>
+
+<div class="notes">
+  <h2>Study 01 — the bench · classic three-pane</h2>
+  <div class="cols">
+    <div><b>The bet.</b> Familiarity. Filmstrip left, canvas center, inspector right
+      is the grammar every deck editor since 1997 has taught; nothing needs
+      explaining. The inspector leads with the <b>write-target line</b> — the one
+      diastil-specific idea here: you always see whether an edit lands on a token,
+      a rule, or this element, before it lands.</div>
+    <div><b>What it optimizes.</b> Typesetting flow: persistent type controls,
+      token bindings visible as chips, copilot always docked but subordinate
+      (fixed height, below the inspector). Deck-wide edits feel safe because the
+      target is declared.</div>
+    <div><b>What it costs.</b> The right rail is contested — inspector and copilot
+      split it, both cramped. Diagram tools have nowhere natural to live (they'd
+      swap into the inspector on selection). Structure (roles, islands, ops) is
+      invisible; you trust the canvas. Least distinctive of the four.</div>
+  </div>
+</div>
+
+</body>
+</html>

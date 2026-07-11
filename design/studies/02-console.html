@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>diastil · study 02 — the console</title>
+<style>
+/* ============ diastil chrome tokens (zicato role contract) ============ */
+:root {
+  --paper:#f2eede; --panel:#f8f4e6; --ink:#1a1a1a; --ink-soft:#4a4a42;
+  --ink-faint:#8a8776; --rule:#d8d2bd; --rule-soft:#e6e0cb;
+  --good:#216609; --bad:#cc3e28; --caution:#8a6d00; --accent:#1e6fcc;
+  --flat:#75715e;
+  --mono:"JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --prose:"iA Writer Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --paper:#1e1f1c; --panel:#272822; --ink:#f8f8f2; --ink-soft:#c9cabf;
+  --ink-faint:#8f908a; --rule:#3a3b34; --rule-soft:#2f302a;
+  --good:#a6e22e; --bad:#f92672; --caution:#e6db74; --accent:#66d9ef;
+  --flat:#75715e;
+}}
+* { box-sizing:border-box; }
+html,body { margin:0; height:100%; background:var(--paper); color:var(--ink);
+  font-family:var(--prose); font-size:13px; }
+body { display:flex; flex-direction:column; }
+
+/* ============ top bar ============ */
+.topbar { display:flex; align-items:center; gap:14px; padding:8px 14px;
+  border-bottom:1px solid var(--rule); position:sticky; top:0; z-index:5;
+  background:var(--paper); }
+.brand { font-family:var(--mono); font-weight:700; }
+.brand .dot { color:var(--accent); }
+.brand-tag { font-size:10px; color:var(--ink-faint); border:1px solid var(--rule);
+  border-radius:8px; padding:1px 7px; }
+.crumbs { font-family:var(--mono); font-size:11.5px; color:var(--ink-faint); }
+.crumbs a { color:var(--ink-soft); text-decoration:none; }
+.crumbs .sep { opacity:.5; padding:0 4px; }
+.crumbs .here { color:var(--accent); }
+.spacer { flex:1; }
+.fidelity { font-family:var(--mono); font-size:10.5px; color:var(--good);
+  border:1px solid var(--rule); border-radius:9px; padding:2px 9px; }
+.status { display:flex; align-items:center; gap:6px; font-family:var(--mono);
+  font-size:11px; color:var(--ink-faint); }
+.status .sdot { width:7px; height:7px; border-radius:50%; background:var(--good); }
+
+/* ============ grid: tree | canvas+ops | copilot ============ */
+.console { flex:1; display:grid; grid-template-columns:250px minmax(0,1fr) 300px;
+  min-height:0; }
+
+/* structure tree */
+.tree { border-right:1px solid var(--rule); overflow-y:auto; padding:10px 0; }
+.tree h3 { font-family:var(--mono); font-size:10px; letter-spacing:.08em;
+  text-transform:uppercase; color:var(--ink-faint); margin:0; padding:4px 14px 8px; }
+.tnode { display:flex; align-items:center; gap:7px; padding:3.5px 14px;
+  font-family:var(--mono); font-size:11.5px; color:var(--ink-soft); cursor:pointer;
+  white-space:nowrap; }
+.tnode:hover { background:var(--rule-soft); }
+.tnode.on { color:var(--accent); }
+.tnode .role { margin-left:auto; font-size:9px; color:var(--ink-faint); }
+.tnode .glyph { width:14px; text-align:center; color:var(--ink-faint); flex:none; }
+.d1 { padding-left:28px; } .d2 { padding-left:44px; }
+.island-tag { font-size:9px; color:var(--caution); border:1px solid var(--caution);
+  border-radius:7px; padding:0 5px; margin-left:auto; }
+.fid { font-size:9px; margin-left:auto; }
+.fid.ok { color:var(--good); } .fid.warn { color:var(--caution); }
+
+/* canvas + ops log */
+.mid { display:flex; flex-direction:column; min-width:0; }
+.canvas { flex:1; position:relative; display:flex; align-items:center;
+  justify-content:center; padding:30px; overflow:hidden; background:
+  radial-gradient(circle at 1px 1px, var(--rule-soft) 1px, transparent 0) 0 0/22px 22px; }
+.zoom { position:absolute; bottom:12px; left:50%; transform:translateX(-50%);
+  font-family:var(--mono); font-size:10.5px; color:var(--ink-faint);
+  border:1px solid var(--rule); background:var(--panel); border-radius:10px; padding:2px 10px; }
+
+/* ops log strip */
+.ops { border-top:1px solid var(--rule); background:var(--panel); flex:none;
+  font-family:var(--mono); font-size:10.5px; }
+.ops-head { display:flex; gap:10px; padding:5px 14px; color:var(--ink-faint);
+  border-bottom:1px solid var(--rule-soft); font-size:10px; letter-spacing:.08em;
+  text-transform:uppercase; }
+.ops-head .undo { margin-left:auto; color:var(--ink-soft); }
+.oprow { display:flex; gap:12px; padding:3px 14px; color:var(--ink-soft); }
+.oprow .t { color:var(--ink-faint); width:52px; flex:none; }
+.oprow .who { width:52px; flex:none; color:var(--ink-faint); }
+.oprow .who.ai { color:var(--accent); }
+.oprow.head-op { background:var(--rule-soft); }
+.oprow .val { color:var(--accent); }
+
+/* ============ the slide (deck's own styles) ============ */
+.slide { width:min(100%, 840px); aspect-ratio:16/9; background:#fbfaf6; color:#17242b;
+  border-radius:2px; box-shadow:0 2px 14px rgba(0,0,0,.18);
+  display:grid; grid-template-columns:1.05fr 1fr; gap:24px; padding:42px 46px;
+  font-family:Georgia, "Times New Roman", serif; }
+.sl-kicker { font-family:var(--mono); font-size:10px; letter-spacing:.14em;
+  color:#b4552d; text-transform:uppercase; margin-bottom:10px; }
+.sl-title { font-size:29px; line-height:1.14; font-weight:700; margin:0 0 13px; }
+.sl-body { font-size:13px; line-height:1.55; color:#3d4a52; }
+.sl-body p { margin:0 0 9px; }
+.sl-fig { align-self:center; position:relative; }
+.sel-fig { outline:1.5px solid var(--accent); outline-offset:6px; }
+.sel-tag { position:absolute; top:-26px; left:-6px; font-family:var(--mono);
+  font-size:9.5px; color:var(--paper); background:var(--accent); border-radius:3px;
+  padding:1px 6px; }
+.dg-node { fill:#fbfaf6; stroke:#17242b; stroke-width:1.3; }
+.dg-label { font:11.5px Georgia, serif; fill:#17242b; }
+.dg-edge { stroke:#17242b; stroke-width:1.2; fill:none; }
+.dg-arrow { fill:#17242b; }
+
+/* ============ copilot rail ============ */
+.pilot { border-left:1px solid var(--rule); display:flex; flex-direction:column;
+  background:var(--panel); min-height:0; }
+.pilot-head { display:flex; align-items:center; gap:8px; padding:8px 12px;
+  border-bottom:1px solid var(--rule-soft); font-family:var(--mono); font-size:11px; }
+.pilot-head .t { font-weight:600; }
+.pilot-head .m { color:var(--ink-faint); font-size:10px; margin-left:auto; }
+.ctx { font-family:var(--mono); font-size:10px; color:var(--ink-faint);
+  padding:7px 12px; border-bottom:1px solid var(--rule-soft); line-height:1.6; }
+.ctx b { color:var(--ink-soft); font-weight:500; }
+.plog { flex:1; overflow-y:auto; padding:10px 12px; display:flex;
+  flex-direction:column; gap:8px; }
+.bub { max-width:90%; border-radius:6px; padding:7px 10px; font-size:11.5px; line-height:1.5; }
+.bub.user { align-self:flex-end; background:var(--accent); color:var(--paper); }
+.bub.asst { align-self:flex-start; background:var(--rule-soft); }
+.opdiff { border:1px solid var(--rule); border-radius:5px; background:var(--paper);
+  font-family:var(--mono); font-size:10.5px; padding:7px 9px; line-height:1.7; }
+.opdiff .val { color:var(--accent); }
+.opdiff .acts { display:flex; gap:6px; margin-top:6px; }
+.opdiff .acts button { font:inherit; font-family:var(--mono); font-size:10px;
+  border:1px solid var(--rule); background:transparent; color:var(--ink-soft);
+  border-radius:4px; padding:2px 9px; cursor:pointer; }
+.opdiff .acts button.yes { border-color:var(--good); color:var(--good); }
+.composer { display:flex; gap:8px; padding:9px 12px; border-top:1px solid var(--rule-soft); }
+.composer input { flex:1; font:inherit; font-family:var(--prose); font-size:11.5px;
+  background:var(--paper); color:var(--ink); border:1px solid var(--rule);
+  border-radius:5px; padding:6px 9px; }
+.composer button { font:inherit; font-family:var(--mono); font-size:11px;
+  border:1px solid var(--accent); color:var(--accent); background:transparent;
+  border-radius:5px; padding:0 12px; cursor:pointer; }
+
+/* ============ study notes ============ */
+.notes { border-top:1px solid var(--rule); background:var(--panel);
+  padding:18px 22px 22px; font-size:12.5px; line-height:1.6; color:var(--ink-soft); }
+.notes h2 { font-family:var(--mono); font-size:11px; letter-spacing:.08em;
+  text-transform:uppercase; color:var(--ink-faint); margin:0 0 8px; }
+.notes .cols { display:grid; grid-template-columns:repeat(3, minmax(220px,1fr));
+  gap:22px; max-width:1100px; }
+.notes b { color:var(--ink); font-weight:600; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="brand">d<span class="dot">i</span>astil</span>
+  <span class="brand-tag">console</span>
+  <span class="crumbs"><a>quarterly-review</a><span class="sep">›</span><a>slide 4</a><span class="sep">›</span><span class="here">figure</span></span>
+  <span class="spacer"></span>
+  <span class="fidelity">ingest fidelity 0.97 · 1 island</span>
+  <span class="status"><span class="sdot"></span>valid · v0</span>
+</div>
+
+<div class="console">
+  <!-- structure tree -->
+  <div class="tree">
+    <h3>Deck structure</h3>
+    <div class="tnode"><span class="glyph">▸</span>slide 1 · cover<span class="fid ok">1.00</span></div>
+    <div class="tnode"><span class="glyph">▸</span>slide 2 · agenda<span class="fid ok">1.00</span></div>
+    <div class="tnode"><span class="glyph">▸</span>slide 3<span class="fid ok">0.99</span></div>
+    <div class="tnode on"><span class="glyph">▾</span>slide 4<span class="fid ok">0.98</span></div>
+    <div class="tnode d1"><span class="glyph">t</span>title<span class="role">dia-title</span></div>
+    <div class="tnode d1"><span class="glyph">¶</span>body ×3<span class="role">dia-body</span></div>
+    <div class="tnode d1 on"><span class="glyph">◇</span>figure<span class="role">scene · 4n 3e</span></div>
+    <div class="tnode d2"><span class="glyph">□</span>node original</div>
+    <div class="tnode d2"><span class="glyph">□</span>node execute</div>
+    <div class="tnode d2"><span class="glyph">□</span>node translate</div>
+    <div class="tnode d2"><span class="glyph">□</span>node verified</div>
+    <div class="tnode"><span class="glyph">▸</span>slide 5<span class="fid ok">1.00</span></div>
+    <div class="tnode"><span class="glyph">▸</span>slide 6 · live chart<span class="island-tag">island</span></div>
+    <div class="tnode"><span class="glyph">▸</span>slide 7<span class="fid warn">0.91</span></div>
+    <div class="tnode"><span class="glyph">▸</span>slides 8–12</div>
+  </div>
+
+  <!-- canvas + ops -->
+  <div class="mid">
+    <div class="canvas">
+      <div class="slide">
+        <div>
+          <div class="sl-kicker">Ingest pipeline</div>
+          <h1 class="sl-title">Every deck compiles to a verified dialect</h1>
+          <div class="sl-body">
+            <p>Foreign decks execute in a sandbox; the rendered DOM is ground truth.</p>
+            <p>Translation is schema-constrained and content is copied, never regenerated.</p>
+            <p>A per-slide pixel diff proves the conversion — or the region is preserved verbatim.</p>
+          </div>
+        </div>
+        <div class="sl-fig sel-fig">
+          <span class="sel-tag">scene · 4 nodes 3 edges</span>
+          <svg viewBox="0 0 340 240" width="100%" role="img" aria-label="pipeline diagram">
+            <defs><marker id="a1" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="dg-arrow"/></marker></defs>
+            <rect class="dg-node" x="20" y="18" width="120" height="40" rx="6"/>
+            <text class="dg-label" x="80" y="42" text-anchor="middle">original.html</text>
+            <rect class="dg-node" x="200" y="18" width="120" height="40" rx="6"/>
+            <text class="dg-label" x="260" y="42" text-anchor="middle">execute</text>
+            <rect class="dg-node" x="200" y="108" width="120" height="40" rx="6"/>
+            <text class="dg-label" x="260" y="132" text-anchor="middle">translate</text>
+            <rect class="dg-node" x="20" y="180" width="120" height="40" rx="6"/>
+            <text class="dg-label" x="80" y="204" text-anchor="middle">verified deck</text>
+            <path class="dg-edge" d="M140,38 H196" marker-end="url(#a1)"/>
+            <path class="dg-edge" d="M260,58 V104" marker-end="url(#a1)"/>
+            <path class="dg-edge" d="M200,128 H80 V176" marker-end="url(#a1)"/>
+          </svg>
+        </div>
+      </div>
+      <div class="zoom">84% · fit</div>
+    </div>
+    <div class="ops">
+      <div class="ops-head"><span>op log</span><span class="undo">⌘Z rewinds · 14 ops this session</span></div>
+      <div class="oprow head-op"><span class="t">14:02</span><span class="who">you</span><span>MoveNode <span class="val">translate → (200,108)</span> · 2 edges rerouted</span></div>
+      <div class="oprow"><span class="t">14:02</span><span class="who">you</span><span>SetText <span class="val">node/translate: "translate"</span></span></div>
+      <div class="oprow"><span class="t">14:01</span><span class="who ai">copilot</span><span>SetToken <span class="val">--dia-scale-5: 28px</span> · accepted</span></div>
+      <div class="oprow"><span class="t">13:58</span><span class="who">you</span><span>RetargetEdge <span class="val">execute→translate · anchor S</span></span></div>
+    </div>
+  </div>
+
+  <!-- copilot -->
+  <div class="pilot">
+    <div class="pilot-head"><span class="t">copilot</span><span class="m">local · qwen-72b</span></div>
+    <div class="ctx">sees: <b>slide 4 › figure</b> (4 nodes, 3 edges) + theme tokens</div>
+    <div class="plog">
+      <div class="bub user">this pipeline reads top-down then jumps left. make the flow one direction</div>
+      <div class="bub asst">Rerouting as a single left-to-right rail, verified against the slide margins:</div>
+      <div class="opdiff">
+        MoveNode <span class="val">×4 → y:120, x:20/103/186/269</span><br>
+        RetargetEdge <span class="val">×3 → anchors E→W</span><br>
+        SetProp <span class="val">figure/labels: above</span>
+        <div class="acts"><button class="yes">apply</button><button>preview</button><button>reject</button></div>
+      </div>
+    </div>
+    <div class="composer"><input placeholder="ask about slide 4 › figure…"><button>send</button></div>
+  </div>
+</div>
+
+<div class="notes">
+  <h2>Study 02 — the console · dense observatory</h2>
+  <div class="cols">
+    <div><b>The bet.</b> The document's structure is the product's honesty made
+      visible. The tree shows what ingest actually understood — roles, scene
+      node/edge counts, per-slide fidelity scores, islands flagged in caution —
+      and the op log shows every mutation, yours and the copilot's, in one
+      auditable stream. Nothing the editor believes is hidden.</div>
+    <div><b>What it optimizes.</b> Trust after ingest (the 0.91 slide and the
+      island are one glance away); precision work on complex decks; a power
+      user's sense of place (crumbs: deck › slide › figure). The copilot is a
+      full-height peer, and its accepted ops appear in the same log as manual
+      ones — provenance for free.</div>
+    <div><b>What it costs.</b> Chrome-heavy: the canvas gets ~55% of the width at
+      1440px. Properties have no fixed home — they'd ride in a hovercard/popover
+      near the selection, which is elegant but less discoverable than a docked
+      inspector. Reads as an instrument, which may intimidate the casual
+      "just fix my title" user.</div>
+  </div>
+</div>
+
+</body>
+</html>

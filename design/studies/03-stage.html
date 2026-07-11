@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>diastil · study 03 — the stage</title>
+<style>
+/* ============ diastil chrome tokens (zicato role contract) ============ */
+:root {
+  --paper:#f2eede; --panel:#f8f4e6; --ink:#1a1a1a; --ink-soft:#4a4a42;
+  --ink-faint:#8a8776; --rule:#d8d2bd; --rule-soft:#e6e0cb;
+  --good:#216609; --bad:#cc3e28; --caution:#8a6d00; --accent:#1e6fcc;
+  --flat:#75715e;
+  --mono:"JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --prose:"iA Writer Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --paper:#1e1f1c; --panel:#272822; --ink:#f8f8f2; --ink-soft:#c9cabf;
+  --ink-faint:#8f908a; --rule:#3a3b34; --rule-soft:#2f302a;
+  --good:#a6e22e; --bad:#f92672; --caution:#e6db74; --accent:#66d9ef;
+  --flat:#75715e;
+}}
+* { box-sizing:border-box; }
+html,body { margin:0; height:100%; background:var(--paper); color:var(--ink);
+  font-family:var(--prose); font-size:13px; }
+body { display:flex; flex-direction:column; }
+
+/* ============ slim top strip ============ */
+.topbar { display:flex; align-items:center; gap:12px; padding:6px 14px;
+  border-bottom:1px solid var(--rule); position:sticky; top:0; z-index:6;
+  background:var(--paper); }
+.brand { font-family:var(--mono); font-weight:700; font-size:12px; }
+.brand .dot { color:var(--accent); }
+.crumbs { font-family:var(--mono); font-size:11px; color:var(--ink-faint); }
+.spacer { flex:1; }
+.kbd { font-family:var(--mono); font-size:10px; color:var(--ink-faint);
+  border:1px solid var(--rule); border-radius:4px; padding:1px 6px; }
+.present { font-family:var(--mono); font-size:11px; border:1px solid var(--accent);
+  color:var(--accent); background:transparent; border-radius:5px; padding:3px 12px;
+  cursor:pointer; }
+
+/* ============ the stage ============ */
+.stage { flex:1; position:relative; display:flex; align-items:center;
+  justify-content:center; padding:46px 60px 96px; overflow:hidden; background:
+  radial-gradient(circle at 1px 1px, var(--rule-soft) 1px, transparent 0) 0 0/22px 22px; }
+
+/* the slide (deck's own styles) */
+.slide { width:min(100%,1020px); aspect-ratio:16/9; background:#fbfaf6; color:#17242b;
+  border-radius:2px; box-shadow:0 3px 20px rgba(0,0,0,.2); position:relative;
+  display:grid; grid-template-columns:1.05fr 1fr; gap:26px; padding:50px 54px;
+  font-family:Georgia, "Times New Roman", serif; }
+.sl-kicker { font-family:var(--mono); font-size:11px; letter-spacing:.14em;
+  color:#b4552d; text-transform:uppercase; margin-bottom:12px; }
+.sl-title { font-size:34px; line-height:1.14; font-weight:700; margin:0 0 15px; }
+.sl-body { font-size:14.5px; line-height:1.55; color:#3d4a52; }
+.sl-body p { margin:0 0 10px; }
+.sl-fig { align-self:center; position:relative; }
+.dg-node { fill:#fbfaf6; stroke:#17242b; stroke-width:1.3; }
+.dg-label { font:12.5px Georgia, serif; fill:#17242b; }
+.dg-edge { stroke:#17242b; stroke-width:1.2; fill:none; }
+.dg-arrow { fill:#17242b; }
+
+/* selection: node with handles + live reroute */
+.dg-sel { stroke:var(--accent); stroke-width:1.6; }
+.handle { fill:var(--paper); stroke:var(--accent); stroke-width:1.2; }
+.dg-reroute { stroke:var(--accent); stroke-width:1.3; stroke-dasharray:4 3; fill:none; }
+.anchor { fill:var(--accent); opacity:.9; }
+.guide { stroke:var(--bad); stroke-width:0.8; stroke-dasharray:5 4; }
+.guide-tag { font:9.5px var(--mono); fill:var(--bad); }
+
+/* floating contextual toolbar (selection-anchored) */
+.ctool { position:absolute; display:flex; align-items:center; gap:2px;
+  background:var(--panel); border:1px solid var(--rule); border-radius:6px;
+  box-shadow:0 3px 14px rgba(0,0,0,.14); padding:3px; font-family:var(--mono);
+  font-size:10.5px; z-index:4; }
+.ctool button { font:inherit; border:0; background:transparent; color:var(--ink-soft);
+  border-radius:4px; padding:4px 8px; cursor:pointer; white-space:nowrap; }
+.ctool button:hover { background:var(--rule-soft); }
+.ctool button.on { color:var(--accent); }
+.ctool .div { width:1px; height:16px; background:var(--rule); margin:0 3px; }
+
+/* bottom filmstrip overlay */
+.filmdock { position:absolute; left:50%; transform:translateX(-50%); bottom:14px;
+  display:flex; align-items:flex-end; gap:8px; background:var(--panel);
+  border:1px solid var(--rule); border-radius:8px; padding:8px 12px;
+  box-shadow:0 3px 14px rgba(0,0,0,.14); z-index:4; }
+.fthumb { width:74px; aspect-ratio:16/9; border:1px solid var(--rule);
+  border-radius:3px; background:var(--paper); position:relative; cursor:pointer; }
+.fthumb.current { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
+.fthumb .n { position:absolute; bottom:-15px; left:50%; transform:translateX(-50%);
+  font-family:var(--mono); font-size:8.5px; color:var(--ink-faint); }
+.filmdock .add { align-self:center; font-family:var(--mono); color:var(--ink-faint);
+  border:1px dashed var(--rule); border-radius:3px; width:24px; height:24px;
+  display:grid; place-items:center; cursor:pointer; }
+
+/* collapsed copilot strip + expanded overlay */
+.pilot-strip { position:absolute; right:0; top:0; bottom:0; width:34px;
+  border-left:1px solid var(--rule); background:var(--panel);
+  writing-mode:vertical-rl; display:flex; align-items:center; justify-content:center;
+  gap:10px; font-family:var(--mono); font-size:10.5px; color:var(--ink-faint);
+  cursor:pointer; z-index:3; }
+.pilot-strip .k { color:var(--accent); }
+.pilot-pop { position:absolute; right:46px; bottom:70px; width:300px;
+  background:var(--panel); border:1px solid var(--rule); border-radius:8px;
+  box-shadow:0 6px 24px rgba(0,0,0,.18); z-index:5; overflow:hidden; }
+.pilot-head { display:flex; gap:8px; padding:8px 12px; font-family:var(--mono);
+  font-size:11px; border-bottom:1px solid var(--rule-soft); }
+.pilot-head .t { font-weight:600; }
+.pilot-head .m { margin-left:auto; color:var(--ink-faint); font-size:10px; }
+.plog { padding:10px 12px; display:flex; flex-direction:column; gap:8px;
+  max-height:230px; overflow-y:auto; }
+.bub { max-width:90%; border-radius:6px; padding:7px 10px; font-size:11.5px; line-height:1.5; }
+.bub.user { align-self:flex-end; background:var(--accent); color:var(--paper); }
+.bub.asst { align-self:flex-start; background:var(--rule-soft); }
+.opdiff { border:1px solid var(--rule); border-radius:5px; background:var(--paper);
+  font-family:var(--mono); font-size:10.5px; padding:7px 9px; line-height:1.7; }
+.opdiff .val { color:var(--accent); }
+.opdiff .acts { display:flex; gap:6px; margin-top:6px; }
+.opdiff .acts button { font:inherit; font-family:var(--mono); font-size:10px;
+  border:1px solid var(--rule); background:transparent; color:var(--ink-soft);
+  border-radius:4px; padding:2px 9px; cursor:pointer; }
+.opdiff .acts button.yes { border-color:var(--good); color:var(--good); }
+.composer { display:flex; gap:8px; padding:9px 12px; border-top:1px solid var(--rule-soft); }
+.composer input { flex:1; font:inherit; font-family:var(--prose); font-size:11.5px;
+  background:var(--paper); color:var(--ink); border:1px solid var(--rule);
+  border-radius:5px; padding:6px 9px; }
+.composer button { font:inherit; font-family:var(--mono); font-size:11px;
+  border:1px solid var(--accent); color:var(--accent); background:transparent;
+  border-radius:5px; padding:0 12px; cursor:pointer; }
+
+/* ============ study notes ============ */
+.notes { border-top:1px solid var(--rule); background:var(--panel);
+  padding:18px 22px 22px; font-size:12.5px; line-height:1.6; color:var(--ink-soft); }
+.notes h2 { font-family:var(--mono); font-size:11px; letter-spacing:.08em;
+  text-transform:uppercase; color:var(--ink-faint); margin:0 0 8px; }
+.notes .cols { display:grid; grid-template-columns:repeat(3, minmax(220px,1fr));
+  gap:22px; max-width:1100px; }
+.notes b { color:var(--ink); font-weight:600; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="brand">d<span class="dot">i</span>astil</span>
+  <span class="crumbs">quarterly-review.html · slide 4/12 · saved</span>
+  <span class="spacer"></span>
+  <span class="kbd">⌘K ops</span>
+  <span class="kbd">T tokens</span>
+  <button class="present">present ▸</button>
+</div>
+
+<div class="stage">
+  <div class="slide">
+    <div>
+      <div class="sl-kicker">Ingest pipeline</div>
+      <h1 class="sl-title">Every deck compiles to a verified dialect</h1>
+      <div class="sl-body">
+        <p>Foreign decks execute in a sandbox; the rendered DOM is ground truth.</p>
+        <p>Translation is schema-constrained and content is copied, never regenerated.</p>
+        <p>A per-slide pixel diff proves the conversion — or the region is preserved verbatim.</p>
+      </div>
+    </div>
+    <div class="sl-fig">
+      <svg viewBox="0 0 340 250" width="100%" role="img" aria-label="pipeline diagram, node being moved">
+        <defs><marker id="a1" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="dg-arrow"/></marker></defs>
+        <!-- alignment guide: selected node centers with 'original' -->
+        <line class="guide" x1="80" y1="8" x2="80" y2="244"/>
+        <text class="guide-tag" x="86" y="246">center Δ0 · gap 32 = 32</text>
+        <rect class="dg-node" x="20" y="18" width="120" height="40" rx="6"/>
+        <text class="dg-label" x="80" y="42" text-anchor="middle">original.html</text>
+        <rect class="dg-node" x="200" y="18" width="120" height="40" rx="6"/>
+        <text class="dg-label" x="260" y="42" text-anchor="middle">execute</text>
+        <!-- selected node mid-drag -->
+        <rect class="dg-node dg-sel" x="20" y="108" width="120" height="40" rx="6"/>
+        <text class="dg-label" x="80" y="132" text-anchor="middle">translate</text>
+        <rect class="handle" x="16" y="104" width="7" height="7"/>
+        <rect class="handle" x="136" y="104" width="7" height="7"/>
+        <rect class="handle" x="16" y="144" width="7" height="7"/>
+        <rect class="handle" x="136" y="144" width="7" height="7"/>
+        <circle class="anchor" cx="80" cy="108" r="3"/>
+        <circle class="anchor" cx="140" cy="128" r="3"/>
+        <circle class="anchor" cx="80" cy="148" r="3"/>
+        <rect class="dg-node" x="200" y="190" width="120" height="40" rx="6"/>
+        <text class="dg-label" x="260" y="214" text-anchor="middle">verified deck</text>
+        <path class="dg-edge" d="M140,38 H196" marker-end="url(#a1)"/>
+        <!-- edges rerouting live off the dragged node -->
+        <path class="dg-reroute" d="M260,58 V83 H140 v25" marker-end="url(#a1)"/>
+        <path class="dg-reroute" d="M140,128 H260 V186" marker-end="url(#a1)"/>
+      </svg>
+    </div>
+  </div>
+
+  <!-- contextual toolbar, anchored above the selected node -->
+  <div class="ctool" style="left:56%; top:44%;">
+    <button class="on">rounded</button>
+    <button>pill</button>
+    <button>diamond</button>
+    <span class="div"></span>
+    <button>anchors: auto</button>
+    <button>route: ⌐</button>
+    <span class="div"></span>
+    <button>align</button>
+    <button>distribute</button>
+    <span class="div"></span>
+    <button>+ node</button>
+    <button>⌫</button>
+  </div>
+
+  <!-- bottom filmstrip -->
+  <div class="filmdock">
+    <div class="fthumb"><span class="n">1</span></div>
+    <div class="fthumb"><span class="n">2</span></div>
+    <div class="fthumb"><span class="n">3</span></div>
+    <div class="fthumb current"><span class="n">4</span></div>
+    <div class="fthumb"><span class="n">5</span></div>
+    <div class="fthumb"><span class="n">6</span></div>
+    <div class="add">+</div>
+  </div>
+
+  <!-- copilot: collapsed strip + expanded popover shown -->
+  <div class="pilot-strip"><span>copilot</span><span class="k">·</span><span>⌘.</span></div>
+  <div class="pilot-pop">
+    <div class="pilot-head"><span class="t">copilot</span><span class="m">sees: figure · node "translate"</span></div>
+    <div class="plog">
+      <div class="bub user">add a repair loop back from verify to translate</div>
+      <div class="bub asst">One edge, orthogonal with a west detour so it won't cross the rail:</div>
+      <div class="opdiff">
+        InsertEdge <span class="val">verified→translate · anchors W→S · label "repair ≤N"</span>
+        <div class="acts"><button class="yes">apply</button><button>preview</button><button>reject</button></div>
+      </div>
+    </div>
+    <div class="composer"><input placeholder="describe an edit…"><button>send</button></div>
+  </div>
+</div>
+
+<div class="notes">
+  <h2>Study 03 — the stage · canvas-first, transient chrome</h2>
+  <div class="cols">
+    <div><b>The bet.</b> The slide is the interface. All chrome is transient:
+      tools appear <b>at the selection</b> (the floating toolbar is shape/anchor/
+      route/align for a node, scale-step/face/tracking for text), the filmstrip
+      floats and auto-hides, the copilot lives in a strip until summoned (⌘.),
+      and ⌘K is an op palette for everything else. Mid-drag state is the hero:
+      handles, anchors, live dashed reroutes, red smart guides with the gap math.</div>
+    <div><b>What it optimizes.</b> Diagramming — this is the tldraw/Figma-grade
+      loop the plan promises, with maximum canvas at every screen size. Also the
+      most beautiful demo: the product looks like the decks it makes.</div>
+    <div><b>What it costs.</b> Discoverability. Write-target visibility — the
+      bench's "this edit hits the token" line — has to squeeze into the floating
+      toolbar or a toast, and it matters too much to bury. Structure, fidelity,
+      and islands are invisible unless summoned. Highest interaction-polish tax:
+      floating chrome must never occlude what you're editing.</div>
+  </div>
+</div>
+
+</body>
+</html>
