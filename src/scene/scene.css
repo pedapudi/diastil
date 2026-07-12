@@ -4,6 +4,9 @@
  * Token-only colors; hairline 1px var(--rule) borders; one accent. */
 
 /* floating contextual toolbar (base panel look comes from .dn-panel) */
+/* the class's display:flex would override the UA's [hidden]{display:none} —
+ * without this rule, bar.hidden = true never actually hides the bar */
+.dia-scene-toolbar[hidden] { display: none; }
 .dia-scene-toolbar {
   position: fixed;
   z-index: 60;
