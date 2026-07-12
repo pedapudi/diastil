@@ -45,10 +45,45 @@ const CHROME_SEL = '.controls, .progress, .slide-number, .backgrounds, .speaker-
 /* ---------------- public API ---------------- */
 
 export function convertSlides(ex: Extraction): SlideConversion[] {
-  return ex.slides.map((s, i) => convertSlide(s, i))
+  return ex.slides.map((s, i) => convertSlide(s, i, ex.scalePx, ex.designW))
 }
 
-export function convertSlide(slide: ExtractedSlide, index: number): SlideConversion {
+/** role → default scale step (must match the role rules in the theme) */
+const ROLE_STEP: Array<[string, number]> = [
+  ['dia-title', 5], ['dia-kicker', 1], ['dia-caption', 1], ['dia-body', 2],
+]
+
+/** The role rules quantize every title/body to ONE step, but sources vary
+ * per element (a hero wordmark vs a section title). Rebind elements whose
+ * SOURCE size sits nearer a different harvested step — inline token
+ * references, so the deck stays proportional and in-grammar. */
+function rebindSizes(section: HTMLElement, sample: Ctx['sample'], scalePx: number[], designW: number): void {
+  if (!scalePx.some((v) => v > 0)) return
+  for (const el of section.querySelectorAll<HTMLElement>(`[${STAMP}]`)) {
+    const s = sample(el)
+    if (!s || s.ownChars === 0 || s.fontSizePx <= 0) continue
+    const role = ROLE_STEP.find(([cls]) => el.closest(`.${cls}`))
+    if (!role) continue
+    const defaultStep = role[1]
+    const defPx = scalePx[defaultStep - 1]
+    // only rebind when the role default genuinely misrepresents the source
+    if (defPx > 0 && Math.abs(defPx - s.fontSizePx) / s.fontSizePx <= 0.15) continue
+    let nearest = 0
+    for (let i = 1; i < scalePx.length; i++) {
+      if (Math.abs(scalePx[i] - s.fontSizePx) < Math.abs(scalePx[nearest] - s.fontSizePx)) nearest = i
+    }
+    if (Math.abs(scalePx[nearest] - s.fontSizePx) / s.fontSizePx > 0.15 && designW > 0) {
+      // no step comes close (e.g. a hero wordmark) — exact proportional size
+      el.style.fontSize = `${Math.round((s.fontSizePx / designW) * 10000) / 100}cqw`
+    } else if (nearest + 1 !== defaultStep) {
+      el.style.fontSize = `var(--dia-scale-${nearest + 1})`
+    }
+  }
+}
+
+export function convertSlide(
+  slide: ExtractedSlide, index: number, scalePx: number[] = [], designW = 0,
+): SlideConversion {
   const parsed = new DOMParser().parseFromString(slide.html, 'text/html')
   const srcRoot: HTMLElement = parsed.body.hasAttribute(STAMP)
     ? parsed.body
@@ -70,6 +105,7 @@ export function convertSlide(slide: ExtractedSlide, index: number): SlideConvers
   const section = document.createElement('section')
   section.className = 'dia-slide'
   section.append(...convertContainerChildren(srcRoot, ctx))
+  rebindSizes(section, ctx.sample, scalePx, designW)
 
   return finalize(section, slide, index, ctx.notes, ctx.islands)
 }
@@ -332,13 +368,20 @@ function roleNode(el: Element, cls: string, tag: string): HTMLElement {
   const node = document.createElement(tag)
   node.className = cls
   node.innerHTML = cleanInnerHtml(el)
+  keepStamp(el, node) // rebindSizes reads the source sample; finalize strips
   return node
+}
+
+function keepStamp(from: Element, to: HTMLElement): void {
+  const stamp = from.getAttribute(STAMP)
+  if (stamp) to.setAttribute(STAMP, stamp)
 }
 
 /** lists/tables keep their structure, restyled as body */
 function structuredBody(el: Element): HTMLElement {
   const node = document.createElement(el.tagName.toLowerCase())
   node.className = 'dia-body'
+  keepStamp(el, node)
   node.innerHTML = cleanInnerHtml(el)
   return node
 }

@@ -41,6 +41,10 @@ export interface ExtractedSlide {
   /** self-contained single-slide page (source styles inlined) */
   originalHtml: string
   rect: { x: number; y: number; w: number; h: number }
+  /** layout (untransformed) width — the width the slide's px sizes were
+   * designed against; decks that scale a fixed stage transform the rect
+   * but not the computed font sizes */
+  layoutW: number
   bg: string
   samples: Record<number, ElementSample>
   /** every visible text node, whitespace-normalized — the text-sacred set */
@@ -52,6 +56,11 @@ export interface ExtractedSlide {
 export interface Extraction {
   slides: ExtractedSlide[]
   tokens: Record<string, string>
+  /** harvested scale step values in px (index 0 = --dia-scale-1), kept for
+   * per-element size rebinding after tokens go proportional */
+  scalePx: number[]
+  /** the median slide layout width the px sizes were designed against */
+  designW: number
   warnings: string[]
   method: string
 }
@@ -79,7 +88,39 @@ export function extractSlides(exec: ExecuteResult): Extraction {
   const counter = { n: 0 }
   const slides = roots.map((root, i) => harvestSlide(root, i, doc, win, counter))
   const tokens = harvestTokens(slides)
-  return { slides, tokens, warnings, method }
+  const scalePx = Array.from({ length: 7 }, (_, i) =>
+    parseFloat(tokens[`--dia-scale-${i + 1}`] ?? '') || 0)
+  const designW = makeTypeProportional(tokens, slides)
+  return { slides, tokens, scalePx, designW, warnings, method }
+}
+
+/** Harvested px sizes only match the source at ITS slide width — a 120px
+ * title is 9% of a 1280px design but 12% of a 980px render. Size tokens
+ * become container-relative (cqw against the median layout width), so the
+ * converted deck keeps the original's PROPORTIONS at any render width. */
+function makeTypeProportional(tokens: Record<string, string>, slides: ExtractedSlide[]): number {
+  const widths = slides.map((s) => s.layoutW).filter((w) => w > 100).sort((a, b) => a - b)
+  const designW = widths[Math.floor(widths.length / 2)]
+  if (!designW) return 0
+
+  // two container-query facts shape the units here:
+  // - cqw resolves against the container's CONTENT box, so font ratios must
+  //   divide by the design width MINUS the padding;
+  // - the container's own padding cannot query itself (cqw would fall back
+  //   to the viewport), so padding is a percentage — % padding resolves
+  //   against the containing block, i.e. the slide's full width.
+  const padPx = parseFloat(tokens['--dia-pad'] ?? '') || 0
+  const contentW = Math.max(designW - 2 * padPx, designW * 0.5)
+  for (const [name, value] of Object.entries(tokens)) {
+    const px = /^([\d.]+)px$/.exec(value)
+    if (!px) continue
+    if (name === '--dia-pad') {
+      tokens[name] = `${Math.round((parseFloat(px[1]) / designW) * 10000) / 100}%`
+    } else if (/^--dia-(scale-\d|gap)$/.test(name)) {
+      tokens[name] = `${Math.round((parseFloat(px[1]) / contentW) * 10000) / 100}cqw`
+    }
+  }
+  return contentW
 }
 
 function harvestSlide(
@@ -162,6 +203,7 @@ function harvestVisibleSlide(
     sourceHtml: cleanSubtree(root),
     originalHtml: buildOriginalPage(doc, root),
     rect: { x: r.left + win.scrollX, y: r.top + win.scrollY, w: r.width, h: r.height },
+    layoutW: root.offsetWidth || r.width,
     bg: effectiveBg(root, win),
     samples,
     texts: collectTexts(root, win),

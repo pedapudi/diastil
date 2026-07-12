@@ -109,6 +109,7 @@ export function defaultThemeCss(): string {
 }
 section.dia-slide {
   aspect-ratio: 16 / 9;
+  container-type: inline-size; /* cqw-sized type scales with the slide */
   background: var(--dia-paper);
   color: var(--dia-ink);
   padding: var(--dia-pad);

@@ -14,6 +14,7 @@ function minimalSlide(over: Partial<ExtractedSlide> = {}): ExtractedSlide {
     sourceHtml: '<div>hello</div>',
     originalHtml: '',
     rect: { x: 0, y: 0, w: 1280, h: 720 },
+    layoutW: 1280,
     bg: '#ffffff',
     samples: {},
     texts: ['hello'],
