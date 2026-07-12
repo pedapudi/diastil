@@ -145,7 +145,7 @@ def main(argv: list[str] | None = None) -> None:
     argv = list(sys.argv[1:] if argv is None else argv)
 
     # `dia <deck.html>` sugar: a path as the first arg means edit
-    if argv and argv[0] not in {"edit", "ingest", "present", "validate", "serve", "-h", "--help"}:
+    if argv and argv[0] not in {"edit", "ingest", "present", "validate", "serve", "eval", "-h", "--help"}:
         argv.insert(0, "edit")
 
     parser = argparse.ArgumentParser(prog="dia", description=__doc__,
@@ -156,6 +156,9 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("present", help="open a saved deck in the browser").add_argument("path")
     sub.add_parser("validate", help="profile-validate saved decks").add_argument("paths", nargs="+")
     sub.add_parser("serve", help="run the inference service")
+    ev = sub.add_parser("eval", help="run skill evals against the configured endpoint")
+    ev.add_argument("--skill", default=None)
+    ev.add_argument("--strict", action="store_true")
 
     args = parser.parse_args(argv)
     if args.cmd == "edit":
@@ -166,5 +169,10 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(cmd_present(args.path))
     elif args.cmd == "validate":
         sys.exit(cmd_validate(args.paths))
+    elif args.cmd == "eval":
+        from .evals import main as eval_main
+
+        eval_argv = (["--skill", args.skill] if args.skill else []) + (["--strict"] if args.strict else [])
+        sys.exit(eval_main(eval_argv))
     else:
         sys.exit(cmd_serve())

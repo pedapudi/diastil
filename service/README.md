@@ -51,6 +51,7 @@ dia ingest foreign.html  # open the editor straight into import review
 dia present deck.html    # open a saved deck in the browser (it presents itself)
 dia validate deck.html…  # profile-validate saved decks; exit 1 on errors
 dia serve                # the inference service alone
+dia eval [--skill s]     # run skill evals; scores → evals/results.json
 ```
 
 `dia validate` and `dia present` run on the standard library alone — no
@@ -107,3 +108,12 @@ No telemetry. The only outbound traffic is to the endpoint you configured.
 
 Prompts are managed artifacts in `dia_service/skills/*.md` — versioned,
 reviewed, and diffed like code, never inlined at call sites.
+
+## Evals
+
+`evals/<skill>/<case>/` holds golden cases; `dia eval` runs each against
+the configured endpoint and scores the output with the same deterministic
+gates the pipeline enforces (profile validation, text-sacred coverage,
+scene semantics). Scores land in `evals/results.json`, so a prompt or
+model change is a measurable diff, not a vibe. `--strict` exits non-zero
+on any failure; `--skill <name>` filters.

@@ -1,0 +1,4 @@
+pixel diff: 22% of sampled pixels differ between the source render and the converted render.
+The source lays the two paragraphs out side by side in two equal columns;
+the converted slide stacks them vertically in one column. The right half
+of the converted slide is empty where the source has the second paragraph.

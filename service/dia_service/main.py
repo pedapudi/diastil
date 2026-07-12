@@ -19,7 +19,6 @@ process is not running.
 from __future__ import annotations
 
 import json
-import tomllib
 from pathlib import Path
 from typing import Any, AsyncIterator
 
@@ -45,20 +44,7 @@ INSTALL_HINT = (
 # config
 # ---------------------------------------------------------------------------
 
-def load_config() -> dict[str, Any]:
-    """config.toml from the working directory, then the service directory.
-    Missing config is fine: defaults point at a local endpoint."""
-    for candidate in (
-        Path.cwd() / "config.toml",
-        Path(__file__).parent.parent / "config.toml",
-    ):
-        if candidate.is_file():
-            with candidate.open("rb") as f:
-                return tomllib.load(f)
-    return {}
-
-
-CONFIG = load_config()
+CONFIG = agents.load_config()
 
 app = FastAPI(title="dia service", version="0.1.0")
 app.add_middleware(
@@ -220,45 +206,13 @@ async def chat(req: ChatRequest) -> EventSourceResponse:
 # ---------------------------------------------------------------------------
 
 async def _run_skill(skill: str, prompt: str) -> str:
-    """One skill agent, one fresh session, one prompt, final text out."""
+    """HTTP wrapper over agents.run_skill_once (shared with `dia eval`)."""
     if not agents.ADK_AVAILABLE:
         raise HTTPException(status_code=503, detail=INSTALL_HINT)
-
-    from google.genai import types as genai_types
-
-    agent = agents.make_skill_agent(skill, CONFIG)
-    session_service = agents.make_session_service()
-    runner = agents.Runner(
-        agent=agent, app_name=APP_NAME, session_service=session_service
-    )
-    session = await session_service.create_session(app_name=APP_NAME, user_id=USER_ID)
-
-    content = genai_types.Content(role="user", parts=[genai_types.Part(text=prompt)])
-
-    chunks: list[str] = []
     try:
-        async for event in runner.run_async(
-            user_id=USER_ID, session_id=session.id, new_message=content
-        ):
-            if getattr(event, "partial", False):
-                continue  # collect only final content
-            for part in (event.content.parts if event.content else []) or []:
-                text = getattr(part, "text", None)
-                if text:
-                    chunks.append(text)
+        return await agents.run_skill_once(skill, prompt, CONFIG)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"{skill} failed: {exc}")
-
-    return _strip_fences("".join(chunks).strip())
-
-
-def _strip_fences(text: str) -> str:
-    """Skill prompts demand raw HTML, but smaller models fence anyway."""
-    if text.startswith("```"):
-        first_newline = text.find("\n")
-        if first_newline != -1 and text.rstrip().endswith("```"):
-            return text[first_newline + 1 :].rstrip().removesuffix("```").rstrip()
-    return text
 
 
 @app.post("/skills/translate-slide")

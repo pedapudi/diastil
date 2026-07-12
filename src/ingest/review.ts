@@ -12,6 +12,9 @@ import { EXEC_W, EXEC_H } from './execute'
 import type { Extraction } from './extract'
 import { findSlideRoots } from './extract'
 import { scoreSlideFidelity, REPAIR_THRESHOLD } from './fidelity'
+
+/** cap on automatic service repair rounds per slide (more is manual) */
+const MAX_AUTO_REPAIR_ROUNDS = 3
 import {
   assembleDeck,
   buildReport,
@@ -392,8 +395,9 @@ class ReviewController {
 
   /* ---------- fidelity loop: measure → repair → re-measure ---------- */
 
-  /** Runs once, when both panes are live: score every slide, then spend one
-   * automatic repair round on each slide under threshold (service online). */
+  /** Runs once, when both panes are live: score every slide, then repair
+   * under-threshold slides through the service — up to MAX_AUTO_REPAIR_ROUNDS
+   * per slide, stopping early when a round stops improving (keep-best). */
   private async maybeRunFidelity(): Promise<void> {
     if (this.fidelityRan || !this.origReady || !this.convReady || this.closed) return
     this.fidelityRan = true
@@ -402,10 +406,12 @@ class ReviewController {
     }
     if (!(await this.healthCheck) || this.closed) return
     for (let i = 0; i < this.conversions.length && !this.closed; i++) {
-      const c = this.conversions[i]
-      if (c.fidelity != null && c.fidelity < REPAIR_THRESHOLD && !(c.repairRounds ?? 0)) {
-        this.verdictMsg.textContent = `repairing slide ${i + 1}…`
-        await this.repairSlide(i, true)
+      for (let round = 1; round <= MAX_AUTO_REPAIR_ROUNDS && !this.closed; round++) {
+        const c = this.conversions[i]
+        if (c.fidelity == null || c.fidelity >= REPAIR_THRESHOLD) break
+        this.verdictMsg.textContent = `repairing slide ${i + 1} — round ${round}…`
+        const improved = await this.repairSlide(i, true)
+        if (!improved) break
       }
     }
     this.verdictMsg.textContent = ''
@@ -426,11 +432,13 @@ class ReviewController {
   }
 
   /** One service repair round for slide i; the result is kept only when it
-   * re-measures at least as high as the current candidate. */
-  private async repairSlide(i: number, auto = false): Promise<void> {
+   * re-measures at least as high as the current candidate. Returns true when
+   * the repair improved the score (the auto loop's continue signal). */
+  private async repairSlide(i: number, auto = false): Promise<boolean> {
     const before = this.conversions[i]
     const slide = this.input.extraction.slides[i]
     this.repairBtn.disabled = true
+    let improved = false
     try {
       const html = await service.repairFidelity(
         slide.sourceHtml, before.html, tokensToCss(this.input.extraction.tokens), this.describeMismatch(i))
@@ -439,16 +447,20 @@ class ReviewController {
       this.conversions[i] = repaired
       await this.rebuildAndWait()
       await this.measureSlide(i)
-      if (before.fidelity != null && (this.conversions[i].fidelity ?? -1) < before.fidelity) {
+      const after = this.conversions[i].fidelity
+      if (before.fidelity != null && (after ?? -1) < before.fidelity) {
         this.conversions[i] = { ...before, repairRounds: repaired.repairRounds }
         await this.rebuildAndWait()
         if (!auto) this.verdictMsg.textContent = 'repair scored lower — kept the previous candidate'
+      } else {
+        improved = before.fidelity == null || (after ?? 0) > before.fidelity
       }
     } catch {
       this.conversions[i] = before
       if (!auto) this.verdictMsg.textContent = 'service repair failed — slide unchanged'
     }
     this.renderStrip(); this.renderNotes(); this.renderVerdict()
+    return improved
   }
 
   /** Lift every static (non-scene) SVG on the current slide into the scene
