@@ -10,14 +10,11 @@ const SECTIONS: Array<[string, Array<[string, string]>]> = [
     ['\\', 'show / hide the right rail'],
     ['/', 'this legend'],
   ]],
-  ['table', [
-    ['↓ / j · ↑ / k', 'next · previous slide'],
-    ['Enter', 'lift the current slide to stage'],
+  ['navigate', [
+    ['↓ / j / → · ↑ / k / ←', 'next · previous slide'],
+    ['s · m · l (topbar)', 'zoom the slides (l ≈ detail work)'],
     ['Esc', 'clear selection'],
-  ]],
-  ['stage', [
-    ['→ · ←', 'next · previous slide'],
-    ['Esc', 'back to table (position kept)'],
+    ['⌥-click a minimap slide', 'pin it into the copilot context'],
   ]],
   ['text', [
     ['double-click', 'edit text in place'],

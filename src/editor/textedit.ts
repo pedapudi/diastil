@@ -85,12 +85,9 @@ function onDblClick(e: MouseEvent): void {
     beginEdit(editable)
     return
   }
-  // dblclick with no editable text underneath = lift (navigation contract)
-  if (state.altitude === 'table') {
-    const idx = state.slides().indexOf(slide)
-    if (idx >= 0) state.setCurrentSlide(idx)
-    state.setAltitude('stage')
-  }
+  // dblclick with no editable text: just make the slide current
+  const idx = state.slides().indexOf(slide)
+  if (idx >= 0) state.setCurrentSlide(idx)
 }
 
 function editableFor(target: HTMLElement, slide: HTMLElement): HTMLElement | null {

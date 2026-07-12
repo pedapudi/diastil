@@ -59,6 +59,11 @@ function wire(): void {
   if (!deck) return
   wireAC = new AbortController()
   ensureEditorStyles(deck.root)
+  // self-heal: decks whose theme predates the scene style rules (or whose
+  // scenes came from a model translation without fill attributes) would
+  // render stroke-only connectors FILLED — svg's default fill is black,
+  // which reads as filled lenses on curved/angled paths
+  if (deck.root.querySelector('svg.dia-scene')) ensureSceneStyleRules()
   deck.root.addEventListener('pointerdown', onPointerDown as EventListener, { signal: wireAC.signal })
   deck.root.addEventListener('dblclick', onDblClick as EventListener, { signal: wireAC.signal })
   for (const scene of scenesOf(deck.root)) syncEdgeHits(scene)
@@ -652,7 +657,8 @@ export const SCENE_STYLE_RULES = `
 .dia-scene .dia-node-label { font: 12px var(--dia-face-body); fill: var(--dia-node-ink, var(--dia-ink)); }
 .dia-scene .dia-edge-path { stroke: var(--dia-edge-stroke, var(--dia-ink)); stroke-width: var(--dia-edge-w, 1.2); fill: none; color: var(--dia-edge-stroke, var(--dia-ink)); }
 .dia-scene .dia-edge-label { font: 10px var(--dia-face-label); fill: var(--dia-edge-ink, var(--dia-ink-soft)); }
-.dia-scene [data-dia-emphasis] .dia-node-shape { stroke: var(--dia-accent); stroke-width: 2; }`
+.dia-scene [data-dia-emphasis] .dia-node-shape { stroke: var(--dia-accent); stroke-width: 2; }
+.dia-draw { fill: none; stroke: var(--dia-ink); stroke-linecap: round; stroke-linejoin: round; }`
 
 /** make sure the deck theme can express scene styling (idempotent) */
 export function ensureSceneStyleRules(): void {

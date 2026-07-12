@@ -46,10 +46,17 @@
   color: var(--ink-faint);
   padding: 5px 10px;
   border-bottom: 1px solid var(--rule);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 3px;
+  line-height: 1.5;
 }
+.dia-cop-chip {
+  font-family: var(--mono); font-size: calc(9.5px * var(--dt-font-scale, 1));
+  border: 1px solid var(--rule); border-radius: 3px;
+  background: var(--paper); color: var(--ink-soft);
+  padding: 0 5px; cursor: pointer;
+}
+.dia-cop-chip:hover { color: var(--ink); }
+.dia-cop-chip.is-pinned { border-color: var(--accent); color: var(--accent); }
 
 /* ---------- log ---------- */
 

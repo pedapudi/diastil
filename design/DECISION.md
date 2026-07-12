@@ -1,6 +1,15 @@
 # Design decision
 
-**Direction: study 05 (lichtbühne) + the minimap from study 01.**
+**Revision (2026-07-12, owner call):** the two-altitude model collapsed
+into ONE surface — the table, with an s/m/l zoom control replacing the
+stage's larger working area. In practice the altitudes offered no
+functional difference (every edit worked in both) and the mode switch
+read as ceremony. The stage's remaining value (a big slide for diagram
+work) is the `l` zoom; full-screen viewing is `present`. The navigation
+contract below is retained where it still applies; lift/Esc-altitude
+gestures are gone.
+
+**Original direction: study 05 (lichtbühne) + the minimap from study 01.**
 
 One surface, two altitudes:
 
