@@ -9,9 +9,11 @@ import demoDeckRaw from '../../examples/demo-deck.html?raw'
 import type { Deck } from '../types'
 import { state } from '../state'
 import { loadDeck } from '../model/parse'
-import { insertEl, setStyleProp, setToken } from '../model/ops'
+import { insertEl, setAttr, setStyleProp, setToken } from '../model/ops'
 import { routeAll } from '../scene/route'
-import { ensureSceneStyleRules } from '../scene/interact'
+import {
+  ensureSceneStyleRules, getDrawTool, insertShapeNode, setDrawTool,
+} from '../scene/interact'
 import { assignFreshIds } from './slides'
 import { mountThemePicker, mountTypePicker } from '../chrome/pickers'
 import { mountCopilot } from '../copilot/rail'
@@ -423,16 +425,21 @@ export function mountEditor(host: HTMLElement): void {
     if (slideIdx >= 0) inspectBody.append(kv('slide', String(slideIdx + 1)))
 
     if (sel.kind === 'slide') {
-      const rowEl = h('div', 'de-style-row')
-      rowEl.append(h('span', 'de-style-k', 'insert'))
-      const segEl = h('span', 'dn-seg')
-      const b = h('button', '', '+ diagram')
-      b.type = 'button'
-      b.title = 'add a full-slide diagram layer — shapes anywhere on the slide'
-      b.addEventListener('click', () => insertDiagram(slide))
-      segEl.append(b)
-      rowEl.append(segEl)
-      inspectBody.append(rowEl)
+      const layer = slide.querySelector<SVGSVGElement>(':scope > svg.dia-scene-full')
+      if (layer) {
+        inspectBody.append(...sceneToolRows(layer))
+      } else {
+        const rowEl = h('div', 'de-style-row')
+        rowEl.append(h('span', 'de-style-k', 'insert'))
+        const segEl = h('span', 'dn-seg')
+        const b = h('button', '', '+ diagram')
+        b.type = 'button'
+        b.title = 'add a full-slide diagram layer — shapes anywhere on the slide'
+        b.addEventListener('click', () => { insertDiagram(slide); renderInspect() })
+        segEl.append(b)
+        rowEl.append(segEl)
+        inspectBody.append(rowEl)
+      }
 
       // per-slide background: token options + a free color swatch
       const bgRow = styleSeg('bg', slide, 'background', [
@@ -456,6 +463,13 @@ export function mountEditor(host: HTMLElement): void {
       })
       bgRow.append(swatch)
       inspectBody.append(bgRow)
+    }
+
+    // a selected svg (scene background click) gets CREATION tools here in
+    // the stable rail — floating bars are reserved for concrete selections
+    if (sel.kind === 'element' && (el as unknown as Element) instanceof SVGSVGElement) {
+      inspectBody.append(...sceneToolRows(el as unknown as SVGSVGElement))
+      return
     }
 
     if (sel.kind === 'element') {
@@ -507,6 +521,56 @@ export function mountEditor(host: HTMLElement): void {
       }
       inspectBody.append(wt)
     }
+  }
+
+  /** creation + drawing tools for a scene, rendered in the inspector (stable
+   * chrome — the floating bar is reserved for concrete selections) */
+  function sceneToolRows(scene: SVGSVGElement): HTMLElement[] {
+    const rows: HTMLElement[] = []
+    if (scene.classList.contains('dia-scene')) {
+      const r = h('div', 'de-style-row')
+      r.append(h('span', 'de-style-k', 'insert'))
+      const seg = h('span', 'dn-seg')
+      for (const [labelText, kind] of [['+ node', 'node'], ['+ circle', 'circle'], ['+ square', 'square']] as const) {
+        const b = h('button', '', labelText)
+        b.type = 'button'
+        b.addEventListener('click', () => insertShapeNode(scene, kind))
+        seg.append(b)
+      }
+      r.append(seg)
+      rows.push(r)
+    } else {
+      const r = h('div', 'de-style-row')
+      r.append(h('span', 'de-style-k', 'svg'))
+      const seg = h('span', 'dn-seg')
+      const b = h('button', '', 'make diagram')
+      b.type = 'button'
+      b.title = 'opt this svg into the node/edge vocabulary'
+      b.addEventListener('click', () => {
+        ensureSceneStyleRules()
+        const cls = scene.getAttribute('class') ?? ''
+        state.apply(setAttr(scene, 'class', cls ? `${cls} dia-scene` : 'dia-scene'))
+        renderInspect()
+      })
+      seg.append(b)
+      r.append(seg)
+      rows.push(r)
+    }
+    const dr = h('div', 'de-style-row')
+    dr.append(h('span', 'de-style-k', 'draw'))
+    const seg2 = h('span', 'dn-seg')
+    for (const tool of ['off', 'line', 'pen'] as const) {
+      const b = h('button', (getDrawTool() ?? 'off') === tool ? 'dn-on' : '', tool)
+      b.type = 'button'
+      b.addEventListener('click', () => {
+        setDrawTool(tool === 'off' ? null : tool)
+        renderInspect()
+      })
+      seg2.append(b)
+    }
+    dr.append(seg2)
+    rows.push(dr)
+    return rows
   }
 
   /** add a FULL-SLIDE diagram layer: an absolutely-positioned scene over the

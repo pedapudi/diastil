@@ -79,8 +79,11 @@ the op log, no inference:
   layer (`svg.dia-scene.dia-scene-full`, viewBox 0 0 1280 720, absolutely
   positioned over the whole slide): shapes/nodes/edges/strokes can land
   anywhere, layered with the text. Idle clicks pass through to the text
-  beneath; painted content stays interactive; selecting the slide shows
-  the creation toolbar (`+ node · + circle · + square · draw`)
+  beneath; painted content stays interactive; selecting the slide (or the
+  scene background) puts the creation tools in the INSPECTOR rail
+  (`+ node · + circle · + square · draw · make diagram`). Floating
+  toolbars appear only for concrete selections (node/edge/free element)
+  and disappear with them
 - node toolbar rows: `fill` / `line` / `w` — per-shape color and weight as
   token-scoped properties; edge toolbar rows: `ink` / `w`
 - edges: drag from a selected node's anchor dot to start one; while aiming,

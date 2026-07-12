@@ -8,12 +8,11 @@
 
 import type { EdgeRoute, NodeShape } from '../types'
 import { state } from '../state'
-import { moveEl, setAttr, setStyleProp } from '../model/ops'
+import { moveEl, setStyleProp } from '../model/ops'
 import { getShape } from './route'
 import {
-  contentEndIndex, deleteSceneSelection, ensureSceneStyleRules, getDrawTool,
-  insertShapeNode, setAnchorsOp, setDrawTool, setRouteOp, setShapeOp,
-  spawnConnectedNode, type DrawTool,
+  contentEndIndex, deleteSceneSelection, ensureSceneStyleRules,
+  setAnchorsOp, setRouteOp, setShapeOp, spawnConnectedNode,
 } from './interact'
 
 const SHAPES: [NodeShape, string][] = [
@@ -96,21 +95,18 @@ function selectedScene(): SVGSVGElement | null {
   return el instanceof SVGSVGElement ? el : null
 }
 
-/** a slide's full-slide diagram layer, when it has one */
-function fullSceneOf(slide: HTMLElement): SVGSVGElement | null {
-  return slide.querySelector<SVGSVGElement>(':scope > svg.dia-scene-full')
-}
-
+/* Floating bars appear ONLY for concrete selections (node · edge · free
+ * element) — they die with the selection. Creation tools (+ node/+ circle/
+ * + square, draw toggles, make-diagram) live in the INSPECTOR, which is
+ * stable chrome, not a popup. */
 function refresh(): void {
   const el = ensureBar()
   const sel = state.selection
-  const scene = selectedScene() ??
-    (sel.kind === 'slide' ? fullSceneOf(sel.slide) : null)
   const target =
     sel.kind === 'scene-node' ? sel.node :
     sel.kind === 'scene-edge' ? sel.edge :
     sel.kind === 'scene-free' ? sel.el :
-    scene
+    null
   if (suppressed || !target || !target.isConnected) {
     el.hidden = true
     return
@@ -119,44 +115,8 @@ function refresh(): void {
   if (sel.kind === 'scene-node') buildNodeBar(el, sel.scene, sel.node)
   else if (sel.kind === 'scene-edge') buildEdgeBar(el, sel.scene, sel.edge)
   else if (sel.kind === 'scene-free') buildFreeBar(el, sel.scene, sel.el)
-  else if (scene) buildSceneBar(el, scene)
   el.hidden = false
   position()
-}
-
-function buildSceneBar(el: HTMLDivElement, scene: SVGSVGElement): void {
-  if (scene.classList.contains('dia-scene')) {
-    const r = row(el)
-    r.appendChild(btn('+ node', () => insertShapeNode(scene, 'node')))
-    r.appendChild(btn('+ circle', () => insertShapeNode(scene, 'circle')))
-    r.appendChild(btn('+ square', () => insertShapeNode(scene, 'square')))
-  } else {
-    // a plain imported svg: drawing works everywhere; nodes/edges need the
-    // scene vocabulary — one click opts the svg in
-    const r = row(el)
-    r.appendChild(btn('make diagram', () => {
-      ensureSceneStyleRules()
-      const cls = scene.getAttribute('class') ?? ''
-      state.apply(setAttr(scene, 'class', cls ? `${cls} dia-scene` : 'dia-scene'))
-      refresh()
-    }))
-  }
-  drawRow(el)
-}
-
-/** draw-tool toggles (pen / line); active tool highlighted, Esc exits */
-function drawRow(el: HTMLDivElement): void {
-  const r = row(el)
-  const k = document.createElement('span')
-  k.className = 'dia-tb-k'
-  k.textContent = 'draw'
-  r.appendChild(k)
-  const active = getDrawTool()
-  r.appendChild(seg(
-    [['off', 'off'], ['line', 'line'], ['pen', 'pen']],
-    active ?? 'off',
-    (v) => { setDrawTool(v === 'off' ? null : (v as DrawTool)); refresh() },
-  ))
 }
 
 /* free elements: arbitrary svg content — style, z-order, delete */
@@ -304,7 +264,7 @@ function position(): void {
     sel.kind === 'scene-node' ? sel.node :
     sel.kind === 'scene-edge' ? sel.edge :
     sel.kind === 'scene-free' ? sel.el :
-    selectedScene() ?? (sel.kind === 'slide' ? fullSceneOf(sel.slide) : null)
+    null
   if (!target || !target.isConnected) {
     bar.hidden = true
     return
