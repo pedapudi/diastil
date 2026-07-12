@@ -1,0 +1,62 @@
+/* Scene interactions — document-level chrome (toolbar, toast, label editor).
+ * Artifact styles that live inside the deck shadow root are injected by
+ * overlay.ts as a <style class="dia-editor-artifact"> (stripped on save).
+ * Token-only colors; hairline 1px var(--rule) borders; one accent. */
+
+/* floating contextual toolbar (base panel look comes from .dn-panel) */
+.dia-scene-toolbar {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  font-family: var(--mono);
+  font-size: calc(10.5px * var(--dt-font-scale, 1));
+  color: var(--ink-soft);
+  user-select: none;
+}
+.dia-scene-toolbar .dn-seg button {
+  padding: 2px 7px;
+  font-size: calc(10.5px * var(--dt-font-scale, 1));
+}
+.dia-scene-toolbar .dn-btn {
+  padding: 2px 8px;
+  font-size: calc(10.5px * var(--dt-font-scale, 1));
+}
+
+/* write-target toast, bottom-center while dragging */
+.dia-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 70;
+  background: var(--panel);
+  color: var(--ink-soft);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 5px 12px;
+  font-family: var(--mono);
+  font-size: calc(10.5px * var(--dt-font-scale, 1));
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.dia-toast.dia-toast-on { opacity: 1; }
+
+/* in-place node label editor (positioned over the node; seamless) */
+.dia-label-input {
+  position: fixed;
+  z-index: 65;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: var(--mono);
+  text-align: center;
+  color: var(--ink);
+}

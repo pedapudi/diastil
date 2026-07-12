@@ -6,11 +6,12 @@ import type { Deck } from '../types'
 import { unscopeFromHost } from './parse'
 import runtimeSource from '../runtime/runtime.js?raw'
 
-const EDITOR_ATTRS = ['data-dia-id', 'contenteditable', 'spellcheck', 'data-dia-selected']
+const EDITOR_ATTRS = ['data-dia-id', 'contenteditable', 'spellcheck', 'data-dia-selected', 'data-dia-current', 'data-dia-step-shown']
 
 export function serializeDeck(deck: Deck): string {
   const styles = [...deck.root.querySelectorAll('style')]
     .filter((s) => s.id !== 'dia-editor-base')
+    .filter((s) => !s.classList.contains('dia-editor-artifact'))
     .map((s) => `<style${s.id ? ` id="${s.id}"` : ''}>\n${unscopeFromHost(s.textContent ?? '').trim()}\n</style>`)
     .join('\n')
 
