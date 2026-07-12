@@ -1,0 +1,168 @@
+/* Copilot rail — zicato design language, role tokens only.
+ * One accent, spent on the user's own words and the send affordance.
+ * Assistant text is quiet; op cards are paper-on-panel with hairlines. */
+
+.dia-cop {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--panel);
+  border-left: 1px solid var(--rule);
+}
+
+/* ---------- header ---------- */
+
+.dia-cop-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--rule);
+}
+.dia-cop-title {
+  font-family: var(--mono);
+  font-size: calc(11px * var(--dt-font-scale, 1));
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: .04em;
+}
+.dia-cop-model {
+  font-family: var(--mono);
+  font-size: calc(10px * var(--dt-font-scale, 1));
+  color: var(--ink-faint);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- context line ---------- */
+
+.dia-cop-context {
+  font-family: var(--mono);
+  font-size: calc(10px * var(--dt-font-scale, 1));
+  color: var(--ink-faint);
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--rule);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- log ---------- */
+
+.dia-cop-log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+
+.dia-cop-msg {
+  font-family: var(--sans);
+  font-size: calc(11.5px * var(--dt-font-scale, 1));
+  line-height: 1.5;
+  border-radius: 6px;
+  padding: 6px 9px;
+  max-width: 90%;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.dia-cop-user {
+  background: var(--accent);
+  color: var(--paper);
+  align-self: flex-end;
+}
+.dia-cop-assistant {
+  background: var(--rule-soft);
+  color: var(--ink);
+  align-self: flex-start;
+}
+
+/* quiet informational lines: offline notice, stream errors — never a pill */
+.dia-cop-offline,
+.dia-cop-quiet {
+  font-family: var(--mono);
+  font-size: calc(10.5px * var(--dt-font-scale, 1));
+  line-height: 1.55;
+  color: var(--ink-faint);
+  padding: 2px 1px;
+}
+
+/* ---------- op-diff card ---------- */
+
+.dia-cop-card {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  padding: 7px 9px;
+  max-width: 100%;
+  align-self: stretch;
+}
+.dia-cop-card-ops {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.dia-cop-card-op {
+  font-family: var(--mono);
+  font-size: calc(10.5px * var(--dt-font-scale, 1));
+  color: var(--ink-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dia-cop-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 7px;
+}
+.dia-cop-card .dia-cop-apply {
+  border-color: var(--good);
+  color: var(--good);
+}
+.dia-cop-card .dia-cop-apply:hover {
+  background: var(--good-soft);
+  color: var(--good);
+}
+.dia-cop-card-note {
+  font-family: var(--mono);
+  font-size: calc(10px * var(--dt-font-scale, 1));
+  color: var(--ink-faint);
+  margin-top: 7px;
+}
+
+/* ---------- composer ---------- */
+
+.dia-cop-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--rule);
+}
+.dia-cop-input {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  font-family: var(--sans);
+  font-size: calc(11.5px * var(--dt-font-scale, 1));
+  line-height: 1.45;
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  padding: 5px 8px;
+}
+.dia-cop-input::placeholder { color: var(--ink-faint); }
+.dia-cop-input:disabled { opacity: .45; }
+.dia-cop-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.dia-cop-send { flex: none; }

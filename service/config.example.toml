@@ -1,0 +1,38 @@
+# dia service configuration — copy to config.toml and edit.
+# The service talks to exactly ONE endpoint family: whatever you configure
+# here. Any OpenAI-compatible URL works (hosted APIs, OpenRouter, vLLM,
+# LM Studio, Ollama, ...). No telemetry, no other external calls.
+
+[endpoint]
+# Base URL of an OpenAI-compatible API.
+#   hosted:    https://openrouter.ai/api/v1
+#   vllm:      http://localhost:8000/v1
+#   ollama:    http://localhost:11434/v1
+#   lm studio: http://localhost:1234/v1
+base_url = "http://localhost:11434/v1"
+
+# Model id as the endpoint knows it, prefixed for litellm routing.
+#   "openai/<model>" works for any OpenAI-compatible server.
+model = "openai/qwen2.5-coder:14b"
+
+# Name of the ENVIRONMENT VARIABLE holding the API key (never the key
+# itself). Local servers usually accept any value.
+api_key_env = "DIA_API_KEY"
+
+# ---- optional per-skill overrides ------------------------------------
+# Each skill can route to a different model (heavyweight for translation,
+# something fast for repair iterations). Unset fields inherit [endpoint].
+
+# [skills.translate-slide]
+# model = "openai/qwen3:32b"
+
+# [skills.repair-fidelity]
+# model = "openai/qwen2.5-coder:7b"
+
+# [skills.lift-diagram]
+# base_url = "https://openrouter.ai/api/v1"
+# model = "openai/some-heavyweight"
+# api_key_env = "OPENROUTER_API_KEY"
+
+# [skills.copilot]
+# model = "openai/qwen2.5-coder:14b"
