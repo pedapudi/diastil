@@ -7,6 +7,9 @@ Endpoints:
   POST /skills/translate-slide  -> {slideHtml} (single-shot skill run)
   POST /skills/repair-fidelity  -> {slideHtml} (one fidelity-loop round)
   POST /skills/lift-diagram     -> {sceneHtml} (raw SVG -> scene vocabulary)
+  GET  /file?path=              -> {html, mtime} (CLI-opened files only)
+  PUT  /file                    -> {mtime}       (CLI-opened files only)
+  /editor/*                     -> built editor bundle (mounted by the CLI)
 
 No telemetry. The only outbound traffic is to the endpoint the user
 configured in config.toml. The editor is fully functional when this
@@ -109,6 +112,11 @@ class ChatRequest(BaseModel):
 class TranslateRequest(BaseModel):
     sourceHtml: str
     tokensCss: str = ""
+
+
+class FileWrite(BaseModel):
+    path: str
+    html: str
 
 
 class RepairRequest(BaseModel):
@@ -276,6 +284,44 @@ async def repair_fidelity(req: RepairRequest) -> dict[str, str]:
 @app.post("/skills/lift-diagram")
 async def lift_diagram(req: LiftRequest) -> dict[str, str]:
     return {"sceneHtml": await _run_skill("lift-diagram", req.svgHtml)}
+
+
+# ---------------------------------------------------------------------------
+# /file — local file bridge for the CLI (`dia <deck.html>`)
+# ---------------------------------------------------------------------------
+
+# Only paths the CLI explicitly opened are readable/writable — the service
+# is localhost-only, but a file API still gets an allowlist, not trust.
+OPENED_FILES: set[Path] = set()
+
+
+def _resolve_opened(path: str) -> Path:
+    p = Path(path).resolve()
+    if p not in OPENED_FILES:
+        raise HTTPException(status_code=403, detail="path was not opened by the dia CLI")
+    return p
+
+
+@app.get("/file")
+async def read_file(path: str) -> dict[str, Any]:
+    p = _resolve_opened(path)
+    if not p.is_file():
+        raise HTTPException(status_code=404, detail="file not found")
+    return {"html": p.read_text(encoding="utf-8"), "mtime": p.stat().st_mtime}
+
+
+@app.put("/file")
+async def write_file(req: FileWrite) -> dict[str, Any]:
+    p = _resolve_opened(req.path)
+    p.write_text(req.html, encoding="utf-8")
+    return {"mtime": p.stat().st_mtime}
+
+
+def mount_editor(dist: Path) -> None:
+    """Serve the built editor bundle at /editor (same origin as the API)."""
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/editor", StaticFiles(directory=dist, html=True), name="editor")
 
 
 # ---------------------------------------------------------------------------

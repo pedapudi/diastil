@@ -37,7 +37,26 @@ $EDITOR config.toml
 ```
 
 The service binds to `127.0.0.1:8317` and accepts browser requests only
-from the local editor dev origin (`localhost:5199`).
+from the local editor dev origin (`localhost:5199`) or its own origin
+(the CLI mounts the built editor at `/editor`).
+
+## The `dia` CLI
+
+The package also installs `dia`, the front door for local files:
+
+```sh
+dia deck.html            # open the editor on the file; ⌘S writes back;
+                         # external edits reload when the editor is clean
+dia ingest foreign.html  # open the editor straight into import review
+dia present deck.html    # open a saved deck in the browser (it presents itself)
+dia validate deck.html…  # profile-validate saved decks; exit 1 on errors
+dia serve                # the inference service alone
+```
+
+`dia validate` and `dia present` run on the standard library alone — no
+venv needed. `dia <file>` / `dia ingest` / `dia serve` need the installed
+service; editing also needs the built editor bundle (`npm run build` in
+the repo, or `DIA_EDITOR_DIST=/path/to/dist`).
 
 ## Endpoints (the model kind)
 
@@ -75,6 +94,10 @@ itself never lives in config.
   `google-adk` is not installed — the service still starts and answers).
 - `POST /chat` → SSE stream of ChatEvent frames for the copilot rail.
 - `POST /skills/translate-slide` → `{slideHtml}` single-shot translation.
+- `POST /skills/repair-fidelity` → `{slideHtml}` one fidelity-loop round.
+- `POST /skills/lift-diagram` → `{sceneHtml}` raw SVG → scene vocabulary.
+- `GET/PUT /file` → read/write local files, allowlisted to paths the CLI
+  opened — the editor's save-back channel for `dia <deck.html>`.
 
 ## Privacy
 

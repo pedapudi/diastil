@@ -9,6 +9,7 @@ import { state } from '../state'
 import { loadDeck } from '../model/parse'
 import { serializeDeck } from '../model/serialize'
 import { startImport } from '../ingest/pipeline'
+import { SERVICE_BASE } from '../service/client'
 import { setImportReport } from './table'
 
 /* ---------- File System Access (minimal local typings) ---------- */
@@ -49,12 +50,88 @@ async function pickHtmlFile(): Promise<{ text: string; name: string; handle: DEF
   })
 }
 
+/* ---------- CLI file bridge (`dia <deck.html>`) ---------- */
+
+/* When the editor is launched by the dia CLI it carries ?file= (edit) or
+ * ?import= (ingest) and reads/writes through the service's allowlisted
+ * /file endpoint instead of pickers. A 2s watch reloads the deck when the
+ * file changes on disk and the editor holds no unsaved edits. */
+
+let servicePath: string | null = null
+let serviceMtime = 0
+/** disk content as of the last load/save — the clean-state reference */
+let lastSyncedHtml = ''
+let watchTimer = 0
+
+async function readServiceFile(path: string): Promise<{ html: string; mtime: number } | null> {
+  try {
+    const r = await fetch(`${SERVICE_BASE}/file?path=${encodeURIComponent(path)}`)
+    if (!r.ok) return null
+    return await r.json() as { html: string; mtime: number }
+  } catch {
+    return null
+  }
+}
+
+/** Boot from CLI query params. Returns true when a file was handled. */
+export async function bootFromCli(canvasHost: HTMLElement): Promise<boolean> {
+  const params = new URLSearchParams(window.location.search)
+  const editPath = params.get('file')
+  const importPath = params.get('import')
+  const path = editPath ?? importPath
+  if (!path) return false
+  const file = await readServiceFile(path)
+  if (!file) {
+    console.warn(`dia: could not read ${path} through the service — falling back to the demo deck`)
+    return false
+  }
+  const name = path.split('/').pop() ?? 'deck.html'
+  if (!editPath) {
+    void startImport(file.html, name)
+    return true
+  }
+  servicePath = path
+  serviceMtime = file.mtime
+  lastSyncedHtml = file.html
+  setImportReport(null)
+  const deck = loadDeck(file.html, canvasHost, name)
+  state.deck = deck
+  state.bus.emit({ type: 'deck-loaded' })
+  startWatch(canvasHost)
+  return true
+}
+
+function startWatch(canvasHost: HTMLElement): void {
+  window.clearInterval(watchTimer)
+  watchTimer = window.setInterval(() => void pollDisk(canvasHost), 2000)
+}
+
+async function pollDisk(canvasHost: HTMLElement): Promise<void> {
+  if (!servicePath || !state.deck) return
+  const file = await readServiceFile(servicePath)
+  if (!file || file.mtime <= serviceMtime || file.html === lastSyncedHtml) return
+  // external change on disk: reload only when the editor is clean —
+  // byte-stable serialization makes "clean" checkable exactly
+  if (serializeClean(state.deck) !== lastSyncedHtml) {
+    console.warn('dia: file changed on disk but the editor has unsaved edits — keeping them (save overwrites)')
+    serviceMtime = file.mtime
+    return
+  }
+  serviceMtime = file.mtime
+  lastSyncedHtml = file.html
+  const deck = loadDeck(file.html, canvasHost, state.deck.fileName)
+  state.deck = deck
+  state.bus.emit({ type: 'deck-loaded' })
+}
+
 /* ---------- open / import ---------- */
 
 /** Open: dialect files load directly; anything foreign hands off to ingest. */
 export async function openDeck(canvasHost: HTMLElement): Promise<void> {
   const picked = await pickHtmlFile()
   if (!picked) return
+  servicePath = null
+  window.clearInterval(watchTimer)
   if (picked.text.includes('dia-slide') || picked.text.includes('data-dia-version')) {
     fileHandle = picked.handle
     setImportReport(null)
@@ -72,6 +149,8 @@ export async function importForeign(): Promise<void> {
   const picked = await pickHtmlFile()
   if (!picked) return
   fileHandle = null
+  servicePath = null
+  window.clearInterval(watchTimer)
   startImport(picked.text, picked.name)
 }
 
@@ -96,6 +175,23 @@ function serializeClean(deck: Deck): string {
 
 export async function saveDeck(deck: Deck): Promise<void> {
   const html = serializeClean(deck)
+  if (servicePath) {
+    try {
+      const r = await fetch(`${SERVICE_BASE}/file`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ path: servicePath, html }),
+      })
+      if (r.ok) {
+        const j = await r.json() as { mtime: number }
+        serviceMtime = j.mtime
+        lastSyncedHtml = html
+        return
+      }
+    } catch {
+      /* service gone — fall back to download below */
+    }
+  }
   if (fileHandle) {
     try {
       const w = await fileHandle.createWritable()
