@@ -9,7 +9,7 @@ import demoDeckRaw from '../../examples/demo-deck.html?raw'
 import type { Altitude, Deck } from '../types'
 import { state } from '../state'
 import { loadDeck } from '../model/parse'
-import { setToken } from '../model/ops'
+import { setStyleProp, setToken } from '../model/ops'
 import { routeAll } from '../scene/route'
 import { mountThemePicker, mountTypePicker } from '../chrome/pickers'
 import { mountCopilot } from '../copilot/rail'
@@ -42,13 +42,19 @@ export function mountEditor(host: HTMLElement): void {
 
   const seg = h('div', 'dn-seg')
   const segTable = segButton('table', () => state.setAltitude('table'))
+  segTable.title = 'all slides in a vertical flow — read, reorder, edit in place'
   const segStage = segButton('stage', () => state.setAltitude('stage'))
+  segStage.title = 'one slide fills the view — detail and diagram work (Esc returns)'
   const segPresent = segButton('present', () => { if (state.deck) presentDeck(state.deck) })
+  segPresent.title = 'open the saved deck in a new tab, self-running'
   seg.append(segTable, segStage, segPresent)
 
   const btnOpen = dnButton('open', () => { void openDeck(canvasHost) })
+  btnOpen.title = 'open a deck — diastil files load directly; foreign HTML is converted first'
   const btnImport = dnButton('import', () => { void importForeign() })
+  btnImport.title = 'convert a foreign HTML deck (reveal, Marp, agent output, …) via the review screen'
   const btnSave = dnButton('save', () => { void doSave() })
+  btnSave.title = 'write the deck back as self-contained HTML (⌘S)'
 
   const pickerSlot = h('div')
   pickerSlot.id = 'picker-slot'
@@ -333,6 +339,23 @@ export function mountEditor(host: HTMLElement): void {
       }
       inspectBody.append(chips)
 
+      // per-element typesetting: inline var(--dia-…) references — element
+      // scope, token grammar. 'auto' clears the inline value (role default).
+      inspectBody.append(
+        styleSeg('size', el, 'font-size', [
+          ['auto', ''],
+          ...[1, 2, 3, 4, 5, 6, 7].map((n) => [`${n}`, `var(--dia-scale-${n})`] as [string, string]),
+        ]),
+        styleSeg('face', el, 'font-family', [
+          ['auto', ''], ['display', 'var(--dia-face-display)'],
+          ['body', 'var(--dia-face-body)'], ['label', 'var(--dia-face-label)'],
+        ]),
+        styleSeg('ink', el, 'color', [
+          ['auto', ''], ['ink', 'var(--dia-ink)'],
+          ['soft', 'var(--dia-ink-soft)'], ['accent', 'var(--dia-accent)'],
+        ]),
+      )
+
       // write-target line: computed honestly from the bound token and the
       // number of elements sharing this role class across the deck
       const wt = h('div', 'de-wt')
@@ -342,15 +365,36 @@ export function mountEditor(host: HTMLElement): void {
         const noun = role.replace(/^dia-/, '')
         const plural = count === 1 ? noun : `${noun}s`
         wt.append(
-          document.createTextNode('edit writes to token '),
+          document.createTextNode('controls write to this element as token references · '),
           h('b', '', bound.name),
-          document.createTextNode(` (all ${count} ${plural}) · ⌥ this element only`),
+          document.createTextNode(` styles all ${count} ${plural} — edit its value in the tokens tab`),
         )
       } else {
-        wt.textContent = 'edit writes to this element only (no scale token bound)'
+        wt.textContent = 'controls write to this element only (no scale token bound)'
       }
       inspectBody.append(wt)
     }
+  }
+
+  /** one per-element style control row: current value highlighted, every
+   * change a setStyleProp op (inline token reference), 'auto' clears it */
+  function styleSeg(label: string, el: HTMLElement, prop: string, options: Array<[string, string]>): HTMLElement {
+    const row = h('div', 'de-style-row')
+    row.append(h('span', 'de-style-k', label))
+    const seg = h('span', 'dn-seg')
+    const current = el.style.getPropertyValue(prop).trim()
+    for (const [name, value] of options) {
+      const b = h('button', value === current ? 'dn-on' : '', name)
+      b.type = 'button'
+      b.title = value || 'role default'
+      b.addEventListener('click', () => {
+        if (el.style.getPropertyValue(prop).trim() === value) return
+        state.apply(setStyleProp(el, prop, value))
+      })
+      seg.append(b)
+    }
+    row.append(seg)
+    return row
   }
 
   function kv(k: string, v: string): HTMLElement {

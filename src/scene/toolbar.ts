@@ -126,6 +126,11 @@ function position(): void {
     return
   }
   const rect = target.getBoundingClientRect()
+  if (rect.width < 1 && rect.height < 1) {
+    // target exists but has no rendered box (its slide is hidden) — no anchor
+    bar.hidden = true
+    return
+  }
   const bw = bar.offsetWidth
   const bh = bar.offsetHeight
   let left = rect.left + rect.width / 2 - bw / 2
