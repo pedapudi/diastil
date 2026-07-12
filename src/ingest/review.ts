@@ -11,7 +11,9 @@ import type { ExecuteResult } from './execute'
 import { EXEC_W, EXEC_H } from './execute'
 import type { Extraction } from './extract'
 import { findSlideRoots, forceVisible } from './extract'
-import { scoreSlideFidelity, REPAIR_THRESHOLD } from './fidelity'
+import {
+  scoreSlideFidelity, rasterizeRegion, rasterizeToDataUrl, diffHeatmapDataUrl, REPAIR_THRESHOLD,
+} from './fidelity'
 
 /** cap on automatic service repair rounds per slide (more is manual) */
 const MAX_AUTO_REPAIR_ROUNDS = 3
@@ -504,6 +506,30 @@ class ReviewController {
     if (i === this.current) { this.renderNotes(); this.renderVerdict() }
   }
 
+  /** PNG bundle for a vision-capable repair round: [original render,
+   * candidate render, diff heatmap]. Empty when either side won't rasterize —
+   * the skill call then degrades to text-only, same as before. */
+  private async repairImages(i: number): Promise<string[]> {
+    const orig = this.origRoots[i]
+    const conv = this.convRoots()[i]
+    if (!orig || !conv) return []
+    await this.showOriginal(i)
+    const unforce = !this.oneAtATime() ? forceVisible(orig) : null
+    try {
+      const [origPng, convPng, origBmp, convBmp] = await Promise.all([
+        rasterizeToDataUrl(orig), rasterizeToDataUrl(conv),
+        rasterizeRegion(orig), rasterizeRegion(conv),
+      ])
+      if (!origPng || !convPng) return []
+      const images = [origPng, convPng]
+      const heat = origBmp && convBmp ? diffHeatmapDataUrl(origBmp, convBmp) : null
+      if (heat) images.push(heat)
+      return images
+    } finally {
+      unforce?.()
+    }
+  }
+
   /** One service repair round for slide i; the result is kept only when it
    * re-measures at least as high as the current candidate. Returns true when
    * the repair improved the score (the auto loop's continue signal). */
@@ -514,7 +540,8 @@ class ReviewController {
     let improved = false
     try {
       const html = await service.repairFidelity(
-        slide.sourceHtml, before.html, tokensToCss(this.input.extraction.tokens), this.describeMismatch(i))
+        slide.sourceHtml, before.html, tokensToCss(this.input.extraction.tokens),
+        this.describeMismatch(i), await this.repairImages(i))
       const repaired = revalidateSlide(slide, i, html)
       repaired.repairRounds = (before.repairRounds ?? 0) + 1
       this.conversions[i] = repaired
@@ -549,10 +576,15 @@ class ReviewController {
     if (svgs.length === 0) return
     this.liftBtn.disabled = true
     this.verdictMsg.textContent = `lifting ${svgs.length} diagram${svgs.length > 1 ? 's' : ''}…`
+    // live counterparts in the converted iframe (same filter, same document
+    // order) — rasterized so a vision model sees the diagram it is lifting
+    const liveSvgs = [...(this.convRoots()[i]?.querySelectorAll('svg') ?? [])]
+      .filter((s) => !s.classList.contains('dia-scene') && !s.closest('[data-dia-island]'))
     let lifted = 0
-    for (const svg of svgs) {
+    for (const [k, svg] of svgs.entries()) {
       try {
-        const out = await service.liftDiagram(svg.outerHTML)
+        const png = liveSvgs[k] ? await rasterizeToDataUrl(liveSvgs[k]) : null
+        const out = await service.liftDiagram(svg.outerHTML, png ? [png] : [])
         const scene = new DOMParser().parseFromString(out, 'text/html').querySelector('svg.dia-scene')
         if (!scene || !this.sceneIsValid(scene.outerHTML)) continue
         svg.replaceWith(doc.importNode(scene, true))

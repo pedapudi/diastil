@@ -129,7 +129,7 @@ async def run_case(skill: str, case_dir: Path, config: dict) -> CaseResult:
                 f"<converted-slide>\n{candidate}\n</converted-slide>\n\n"
                 f"<mismatch>\n{mismatch}\n\nRelevant source excerpt:\n{source}\n</mismatch>"
             )
-            out = await agents.run_skill_once(skill, prompt, config)
+            out = await agents.run_skill_once(skill, prompt, config, images=_case_images(case_dir))
             res.checks["single-dia-slide"] = is_single_slide(out)
             res.checks["in-profile"] = profile_ok(out)
             # the repair must restore/keep every source text, not only the candidate's
@@ -137,7 +137,7 @@ async def run_case(skill: str, case_dir: Path, config: dict) -> CaseResult:
 
         elif skill == "lift-diagram":
             svg = (case_dir / "input.svg").read_text(encoding="utf-8")
-            out = await agents.run_skill_once(skill, svg, config)
+            out = await agents.run_skill_once(skill, svg, config, images=_case_images(case_dir))
             meta = _meta(case_dir / "meta.toml")
             nodes, edges = scene_counts(out)
             res.checks["is-dia-scene"] = 'class="dia-scene"' in out or "dia-scene" in out.split(">", 1)[0]
@@ -154,6 +154,18 @@ async def run_case(skill: str, case_dir: Path, config: dict) -> CaseResult:
 
 def _maybe(p: Path) -> str | None:
     return p.read_text(encoding="utf-8") if p.is_file() else None
+
+
+def _case_images(case_dir: Path) -> list[str]:
+    """*.png in the case dir, sorted by name, as data URIs — mirrors the
+    editor's [original, candidate, heatmap] convention (name them 1-*.png,
+    2-*.png, 3-*.png). No pngs -> text-only run, same as before."""
+    import base64
+
+    return [
+        "data:image/png;base64," + base64.b64encode(p.read_bytes()).decode("ascii")
+        for p in sorted(case_dir.glob("*.png"))
+    ]
 
 
 def _meta(p: Path) -> dict:

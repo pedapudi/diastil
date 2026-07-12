@@ -10,6 +10,11 @@ A raw `<svg>` element: boxes, ellipses, text, connecting lines/paths,
 arrowheads — typically an architecture or flow diagram, hand-written or
 tool-generated (draw.io exports, graphviz output, JS-generated SVG).
 
+Optionally, an attached image: the source diagram as rendered. Use it to
+disambiguate what the markup alone leaves unclear — which shapes are
+nodes, where edges attach, what overlapping regions actually look like.
+The lifted scene must match the image's layout, labels, and connections.
+
 ## Output
 
 The SAME `<svg>`, rewritten into the scene vocabulary. Raw SVG only —

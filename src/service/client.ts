@@ -60,19 +60,23 @@ export class ServiceClient {
     return this.skill('translate-slide', { sourceHtml, tokensCss }, 'slideHtml')
   }
 
-  /** one fidelity-loop repair round: corrected slide for a reported mismatch */
+  /** one fidelity-loop repair round: corrected slide for a reported mismatch.
+   * images (PNG data URLs, optional): original render, candidate render,
+   * diff heatmap — a vision model uses them to see the miss directly. */
   async repairFidelity(
     sourceHtml: string,
     candidateHtml: string,
     tokensCss: string,
     mismatch: string,
+    images: string[] = [],
   ): Promise<string> {
-    return this.skill('repair-fidelity', { sourceHtml, candidateHtml, tokensCss, mismatch }, 'slideHtml')
+    return this.skill('repair-fidelity', { sourceHtml, candidateHtml, tokensCss, mismatch, images }, 'slideHtml')
   }
 
-  /** lift a raw SVG diagram into the scene vocabulary */
-  async liftDiagram(svgHtml: string): Promise<string> {
-    return this.skill('lift-diagram', { svgHtml }, 'sceneHtml')
+  /** lift a raw SVG diagram into the scene vocabulary.
+   * images (optional): a render of the source diagram for vision models. */
+  async liftDiagram(svgHtml: string, images: string[] = []): Promise<string> {
+    return this.skill('lift-diagram', { svgHtml, images }, 'sceneHtml')
   }
 
   private async skill(name: string, body: object, field: string): Promise<string> {

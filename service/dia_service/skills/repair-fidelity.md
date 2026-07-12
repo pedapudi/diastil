@@ -16,6 +16,11 @@ You receive:
   "code block lost its background", "second column missing", "list items
   render centered but source is left-aligned". It may include structural
   hints (locators of the affected region) and the relevant source excerpt.
+- Optionally, three attached images: (1) the ORIGINAL slide as rendered,
+  (2) the current CANDIDATE as rendered, (3) a diff heatmap where red
+  marks mismatched regions and dim grayscale marks matches. When images
+  are present, they are the ground truth — repair what they show; the
+  `<mismatch>` text is only a machine summary of the same diff.
 
 ## Output
 

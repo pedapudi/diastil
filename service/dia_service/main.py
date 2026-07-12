@@ -118,10 +118,15 @@ class RepairRequest(BaseModel):
     candidateHtml: str
     tokensCss: str = ""
     mismatch: str = ""
+    # PNG data URIs: [original render, candidate render, diff heatmap] —
+    # optional; a vision-capable endpoint sees the mismatch directly
+    images: list[str] = []
 
 
 class LiftRequest(BaseModel):
     svgHtml: str
+    # PNG data URIs: [render of the source diagram] — optional
+    images: list[str] = []
 
 
 # ---------------------------------------------------------------------------
@@ -218,12 +223,12 @@ async def chat(req: ChatRequest) -> EventSourceResponse:
 # /skills/* — single-shot skill runs
 # ---------------------------------------------------------------------------
 
-async def _run_skill(skill: str, prompt: str) -> str:
+async def _run_skill(skill: str, prompt: str, images: list[str] | None = None) -> str:
     """HTTP wrapper over agents.run_skill_once (shared with `dia eval`)."""
     if not agents.ADK_AVAILABLE:
         raise HTTPException(status_code=503, detail=INSTALL_HINT)
     try:
-        return await agents.run_skill_once(skill, prompt, CONFIG)
+        return await agents.run_skill_once(skill, prompt, CONFIG, images=images)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"{skill} failed: {exc}")
 
@@ -237,6 +242,19 @@ async def translate_slide(req: TranslateRequest) -> dict[str, str]:
     return {"slideHtml": await _run_skill("translate-slide", prompt)}
 
 
+REPAIR_IMAGE_NOTE = (
+    "\n\nAttached images, in order: (1) the ORIGINAL slide as rendered, "
+    "(2) the current CANDIDATE as rendered, (3) a diff heatmap — red marks "
+    "the mismatched regions, dim grayscale matches. Fix what the images show; "
+    "the mismatch text above is only a machine summary."
+)
+
+LIFT_IMAGE_NOTE = (
+    "\n\nAttached image: the source diagram as rendered. Match its layout, "
+    "labels, and connections in the lifted scene."
+)
+
+
 @app.post("/skills/repair-fidelity")
 async def repair_fidelity(req: RepairRequest) -> dict[str, str]:
     prompt = (
@@ -245,12 +263,15 @@ async def repair_fidelity(req: RepairRequest) -> dict[str, str]:
         "<mismatch>\n" + req.mismatch + "\n\n"
         "Relevant source excerpt:\n" + req.sourceHtml + "\n</mismatch>"
     )
-    return {"slideHtml": await _run_skill("repair-fidelity", prompt)}
+    if req.images:
+        prompt += REPAIR_IMAGE_NOTE
+    return {"slideHtml": await _run_skill("repair-fidelity", prompt, req.images)}
 
 
 @app.post("/skills/lift-diagram")
 async def lift_diagram(req: LiftRequest) -> dict[str, str]:
-    return {"sceneHtml": await _run_skill("lift-diagram", req.svgHtml)}
+    prompt = req.svgHtml + (LIFT_IMAGE_NOTE if req.images else "")
+    return {"sceneHtml": await _run_skill("lift-diagram", prompt, req.images)}
 
 
 # ---------------------------------------------------------------------------

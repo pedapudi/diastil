@@ -27,9 +27,9 @@ export interface FidelityScore {
   totalPixels: number
 }
 
-/** Rasterize a rendered element (styles resolved in ITS OWN document) to
- * ImageData at sample size. Returns null when rasterization fails. */
-export async function rasterizeRegion(el: HTMLElement): Promise<ImageData | null> {
+/** Rasterize a rendered element (styles resolved in ITS OWN document) onto a
+ * canvas of the given size. Returns null when rasterization fails. */
+async function rasterizeToCanvas(el: Element, w: number, h: number): Promise<HTMLCanvasElement | null> {
   const win = el.ownerDocument.defaultView
   if (!win) return null
   const rect = el.getBoundingClientRect()
@@ -50,8 +50,8 @@ export async function rasterizeRegion(el: HTMLElement): Promise<ImageData | null
   if (!(await loaded)) return null
 
   const canvas = document.createElement('canvas')
-  canvas.width = SAMPLE_W
-  canvas.height = SAMPLE_H
+  canvas.width = w
+  canvas.height = h
   const ctx = canvas.getContext('2d')
   if (!ctx) return null
   // composite over the element's EFFECTIVE background: slides are often
@@ -59,10 +59,81 @@ export async function rasterizeRegion(el: HTMLElement): Promise<ImageData | null
   // over white would rasterize a dark deck's original as white-on-white
   // and score a faithful conversion near zero
   ctx.fillStyle = effectiveBackground(el, win)
-  ctx.fillRect(0, 0, SAMPLE_W, SAMPLE_H)
+  ctx.fillRect(0, 0, w, h)
   try {
-    ctx.drawImage(img, 0, 0, SAMPLE_W, SAMPLE_H)
-    return ctx.getImageData(0, 0, SAMPLE_W, SAMPLE_H)
+    ctx.drawImage(img, 0, 0, w, h)
+    return canvas
+  } catch {
+    return null
+  }
+}
+
+/** Rasterize a rendered element to ImageData at sample size. */
+export async function rasterizeRegion(el: HTMLElement): Promise<ImageData | null> {
+  const canvas = await rasterizeToCanvas(el, SAMPLE_W, SAMPLE_H)
+  const ctx = canvas?.getContext('2d')
+  if (!canvas || !ctx) return null
+  try {
+    return ctx.getImageData(0, 0, canvas.width, canvas.height)
+  } catch {
+    return null
+  }
+}
+
+/** VLM-legible raster: PNG data URL at up to VLM_W wide, aspect preserved.
+ * These feed multimodal skill calls (repair rounds, diagram lifts) so the
+ * model can SEE the mismatch instead of inferring it from HTML. */
+const VLM_W = 768
+export async function rasterizeToDataUrl(el: Element): Promise<string | null> {
+  const rect = el.getBoundingClientRect()
+  if (rect.width < 1 || rect.height < 1) return null
+  const w = Math.min(VLM_W, Math.round(rect.width))
+  const h = Math.max(1, Math.round((rect.height / rect.width) * w))
+  const canvas = await rasterizeToCanvas(el, w, h)
+  if (!canvas) return null
+  try {
+    return canvas.toDataURL('image/png')
+  } catch {
+    return null
+  }
+}
+
+/** Diff heatmap PNG: matching pixels as dim grayscale of the original,
+ * mismatched pixels (per-channel delta over tolerance) in red. Gives a
+ * VLM the WHERE of a fidelity miss at a glance. */
+export function diffHeatmapDataUrl(a: ImageData, b: ImageData): string | null {
+  const w = Math.min(a.width, b.width)
+  const h = Math.min(a.height, b.height)
+  if (w < 1 || h < 1) return null
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+  const out = ctx.createImageData(w, h)
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const ia = (y * a.width + x) * 4
+      const ib = (y * b.width + x) * 4
+      const io = (y * w + x) * 4
+      const d = Math.max(
+        Math.abs(a.data[ia] - b.data[ib]),
+        Math.abs(a.data[ia + 1] - b.data[ib + 1]),
+        Math.abs(a.data[ia + 2] - b.data[ib + 2]),
+      )
+      if (d > CHANNEL_TOLERANCE) {
+        out.data[io] = 255; out.data[io + 1] = 40; out.data[io + 2] = 90
+      } else {
+        const lum = Math.round(
+          (0.299 * a.data[ia] + 0.587 * a.data[ia + 1] + 0.114 * a.data[ia + 2]) * 0.35)
+        out.data[io] = lum; out.data[io + 1] = lum; out.data[io + 2] = lum
+      }
+      out.data[io + 3] = 255
+    }
+  }
+  ctx.putImageData(out, 0, 0)
+  try {
+    return canvas.toDataURL('image/png')
   } catch {
     return null
   }
@@ -97,8 +168,8 @@ export async function scoreSlideFidelity(
 /** Deep-clone with every element's computed style inlined, so the clone
  * renders identically without its document's stylesheets (which do not ride
  * along into SVG-as-image). Scripts are dropped. */
-function cloneWithComputedStyles(el: HTMLElement, win: Window): HTMLElement {
-  const clone = el.cloneNode(true) as HTMLElement
+function cloneWithComputedStyles(el: Element, win: Window): Element {
+  const clone = el.cloneNode(true) as Element
   const srcWalk = collectElements(el)
   const cloneWalk = collectElements(clone)
   for (let i = 0; i < srcWalk.length && i < cloneWalk.length; i++) {
@@ -122,7 +193,7 @@ function collectElements(root: Element): Element[] {
 }
 
 /** first non-transparent background color on the element or its ancestors */
-function effectiveBackground(el: HTMLElement, win: Window): string {
+function effectiveBackground(el: Element, win: Window): string {
   let cur: Element | null = el
   while (cur) {
     const bg = win.getComputedStyle(cur).backgroundColor
