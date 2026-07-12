@@ -38,6 +38,13 @@ soup, PDF-like, live-canvas, one-visible-at-a-time). Foreign HTML is
 detected automatically and routed through the review screen: original vs
 converted with a difference overlay and per-slide pixel-fidelity scores.
 
+**No toolchain at all:** `npm run standalone` (once, or in CI) emits
+`dist/diastil.html` — the entire editor as one self-contained file
+(~330 KB, fonts embedded, zero requests). Open it from anywhere — a
+double-click on `file://` works: decks open through the file picker and
+save as downloads. The editor becomes what its documents are: a single
+HTML file.
+
 The CLI and the optional inference service (model-assisted conversion
 repair, diagram lifting, the copilot rail):
 
