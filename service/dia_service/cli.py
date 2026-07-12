@@ -6,6 +6,7 @@
   dia present <deck.html>open the deck in the browser (it presents itself)
   dia validate <file>…   profile-validate saved decks (exit 1 on errors)
   dia serve              run the inference service alone
+  dia serve --editor     run the service AND host the editor (built-in demo deck)
 
 `edit`/`ingest` host everything from one process: the inference service,
 the /file bridge (allowlisted to the opened file), and the built editor
@@ -126,13 +127,26 @@ def cmd_validate(paths: list[str]) -> int:
     return 1 if any_errors else 0
 
 
-def cmd_serve() -> int:
+def cmd_serve(open_editor: bool = False) -> int:
     try:
         from . import main as service_main
     except ModuleNotFoundError as exc:
         print(f"dia: service dependencies missing ({exc.name}) — install with "
               "`pip install -e service/` (see service/README.md)", file=sys.stderr)
         return 2
+    if open_editor:
+        dist = _find_editor_dist()
+        if dist is None:
+            print(
+                "dia: built editor not found — run `npm run build` in the diastil "
+                "repo or set DIA_EDITOR_DIST to the dist directory",
+                file=sys.stderr,
+            )
+            return 2
+        service_main.mount_editor(dist)
+        url = f"http://{service_main.HOST}:{service_main.PORT}/editor/"
+        print(f"dia: editor at {url} (opens on the built-in demo deck)")
+        threading.Timer(0.8, lambda: webbrowser.open_new_tab(url)).start()
     service_main.run()
     return 0
 
@@ -155,7 +169,9 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("ingest", help="open the editor importing a foreign deck").add_argument("path")
     sub.add_parser("present", help="open a saved deck in the browser").add_argument("path")
     sub.add_parser("validate", help="profile-validate saved decks").add_argument("paths", nargs="+")
-    sub.add_parser("serve", help="run the inference service")
+    sv = sub.add_parser("serve", help="run the inference service (add --editor to also host the editor)")
+    sv.add_argument("--editor", action="store_true",
+                    help="also host the editor at /editor (opens on the built-in demo deck)")
     ev = sub.add_parser("eval", help="run skill evals against the configured endpoint")
     ev.add_argument("--skill", default=None)
     ev.add_argument("--strict", action="store_true")
@@ -175,4 +191,4 @@ def main(argv: list[str] | None = None) -> None:
         eval_argv = (["--skill", args.skill] if args.skill else []) + (["--strict"] if args.strict else [])
         sys.exit(eval_main(eval_argv))
     else:
-        sys.exit(cmd_serve())
+        sys.exit(cmd_serve(open_editor=args.editor))
