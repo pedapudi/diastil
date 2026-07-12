@@ -428,11 +428,34 @@ export function mountEditor(host: HTMLElement): void {
       const segEl = h('span', 'dn-seg')
       const b = h('button', '', '+ diagram')
       b.type = 'button'
-      b.title = 'add an editable scene — shapes, nodes, edges'
+      b.title = 'add a full-slide diagram layer — shapes anywhere on the slide'
       b.addEventListener('click', () => insertDiagram(slide))
       segEl.append(b)
       rowEl.append(segEl)
       inspectBody.append(rowEl)
+
+      // per-slide background: token options + a free color swatch
+      const bgRow = styleSeg('bg', slide, 'background', [
+        ['auto', ''], ['paper', 'var(--dia-paper)'], ['rule', 'var(--dia-rule)'], ['accent', 'var(--dia-accent)'],
+      ])
+      const swatch = document.createElement('input')
+      swatch.type = 'color'
+      swatch.className = 'de-tok-swatch'
+      swatch.title = 'custom background color (this slide only)'
+      swatch.value = toHexColor(getComputedStyle(slide).backgroundColor)
+      let bgBefore: string | null = null
+      swatch.addEventListener('input', () => {
+        if (bgBefore === null) bgBefore = slide.style.getPropertyValue('background')
+        slide.style.setProperty('background', swatch.value) // preview
+      })
+      swatch.addEventListener('change', () => {
+        if (bgBefore === null) return
+        slide.style.setProperty('background', bgBefore) // restore for the op
+        bgBefore = null
+        state.apply(setStyleProp(slide, 'background', swatch.value))
+      })
+      bgRow.append(swatch)
+      inspectBody.append(bgRow)
     }
 
     if (sel.kind === 'element') {
@@ -575,37 +598,156 @@ export function mountEditor(host: HTMLElement): void {
     }
     for (const name of names) {
       const row = h('div', 'de-tok-row')
-      const label = h('span', 'de-tok-name', name)
+      const label = h('span', 'de-tok-name', name.replace(/^--dia-/, ''))
       label.title = name
-      const input = document.createElement('input')
-      input.type = 'text'
-      input.value = rule.style.getPropertyValue(name).trim()
-      input.dataset.token = name
-      input.addEventListener('change', () => {
-        const dk = state.deck
-        if (!dk) return
-        state.apply(setToken(dk.themeStyle, name, input.value.trim()))
-      })
-      row.append(label, input)
+      const value = rule.style.getPropertyValue(name).trim()
+      row.append(label, ...tokenControls(name, value))
       tokensBody.append(row)
     }
   }
 
-  /** update token input values in place (skip the focused one) */
+  /** WYSIWYG controls per token kind — every change is a setToken op */
+  function tokenControls(name: string, value: string): HTMLElement[] {
+    const apply = (v: string): void => {
+      const dk = state.deck
+      if (dk && v.trim()) state.apply(setToken(dk.themeStyle, name, v.trim()))
+    }
+
+    if (/face/.test(name)) {
+      const sel = document.createElement('select')
+      sel.className = 'de-tok-face'
+      sel.dataset.token = name
+      const options = [...FACE_STACKS]
+      if (!options.some(([, v]) => v === value)) options.unshift(['current (custom)', value])
+      for (const [labelText, stack] of options) {
+        const o = document.createElement('option')
+        o.textContent = labelText
+        o.value = stack
+        o.style.fontFamily = stack // the menu previews itself
+        if (stack === value) o.selected = true
+        sel.append(o)
+      }
+      sel.addEventListener('change', () => apply(sel.value))
+      return [sel]
+    }
+
+    if (isColorValue(value)) {
+      const swatch = document.createElement('input')
+      swatch.type = 'color'
+      swatch.className = 'de-tok-swatch'
+      swatch.dataset.token = name
+      swatch.value = toHexColor(value)
+      const text = document.createElement('input')
+      text.type = 'text'
+      text.value = value
+      text.dataset.token = name
+      // dragging the picker previews live; ONE op lands on release
+      let before: string | null = null
+      swatch.addEventListener('input', () => {
+        const dk = state.deck
+        const r = dk && themeHostRule(dk)
+        if (!r) return
+        if (before === null) before = r.style.getPropertyValue(name).trim()
+        r.style.setProperty(name, swatch.value) // preview only, no op
+        text.value = swatch.value
+      })
+      swatch.addEventListener('change', () => {
+        const dk = state.deck
+        const r = dk && themeHostRule(dk)
+        if (!r || before === null) { before = null; return }
+        r.style.setProperty(name, before) // restore so the op captures true prev
+        before = null
+        apply(swatch.value)
+      })
+      text.addEventListener('change', () => { apply(text.value); swatch.value = toHexColor(text.value) })
+      return [swatch, text]
+    }
+
+    const px = /^(-?[\d.]+)px$/.exec(value)
+    if (px) {
+      const num = document.createElement('input')
+      num.type = 'number'
+      num.className = 'de-tok-num'
+      num.dataset.token = name
+      num.value = px[1]
+      num.step = '1'
+      num.addEventListener('change', () => apply(`${num.value}px`))
+      const unit = h('span', 'de-tok-unit', 'px')
+      return [num, unit]
+    }
+
+    const input = document.createElement('input')
+    input.type = 'text'
+    input.value = value
+    input.dataset.token = name
+    input.addEventListener('change', () => apply(input.value))
+    return [input]
+  }
+
+  /** update token control values in place (skip the focused one) */
   function refreshTokenValues(): void {
     const d = state.deck
     if (!d) return
     const rule = themeHostRule(d)
     if (!rule) return
-    for (const input of tokensBody.querySelectorAll<HTMLInputElement>('input[data-token]')) {
-      if (input === document.activeElement) continue
-      const v = rule.style.getPropertyValue(input.dataset.token ?? '').trim()
-      if (input.value !== v) input.value = v
+    for (const el of tokensBody.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-token]')) {
+      if (el === document.activeElement) continue
+      const v = rule.style.getPropertyValue(el.dataset.token ?? '').trim()
+      if (el instanceof HTMLSelectElement) {
+        if (el.value !== v && [...el.options].some((o) => o.value === v)) el.value = v
+      } else if (el.type === 'color') {
+        const hex = toHexColor(v)
+        if (el.value !== hex) el.value = hex
+      } else if (el.type === 'number') {
+        const n = /^(-?[\d.]+)px$/.exec(v)?.[1] ?? el.value
+        if (el.value !== n) el.value = n
+      } else if (el.value !== v) {
+        el.value = v
+      }
     }
   }
 }
 
 /* ================= module helpers ================= */
+
+/** curated, self-contained font stacks (system faces only — a deck must not
+ * silently depend on webfonts it doesn't embed) */
+const FACE_STACKS: Array<[string, string]> = [
+  ['Georgia', 'Georgia, "Times New Roman", serif'],
+  ['Times', '"Times New Roman", Times, serif'],
+  ['Palatino', 'Palatino, "Palatino Linotype", "Book Antiqua", serif'],
+  ['Charter', 'Charter, "Bitstream Charter", Cambria, serif'],
+  ['System UI', 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'],
+  ['Helvetica', 'Helvetica, Arial, sans-serif'],
+  ['Verdana', 'Verdana, Geneva, sans-serif'],
+  ['Gill Sans', '"Gill Sans", "Trebuchet MS", Calibri, sans-serif'],
+  ['Mono (UI)', 'ui-monospace, "SF Mono", Menlo, monospace'],
+  ['Courier', '"Courier New", Courier, monospace'],
+]
+
+function isColorValue(v: string): boolean {
+  if (!v) return false
+  const probe = document.createElement('span')
+  probe.style.color = ''
+  probe.style.color = v
+  return probe.style.color !== ''
+}
+
+/** canonicalize any CSS color to #rrggbb for <input type=color> */
+function toHexColor(css: string): string {
+  const ctx = document.createElement('canvas').getContext('2d')
+  if (!ctx) return '#000000'
+  ctx.fillStyle = '#000000'
+  try { ctx.fillStyle = css } catch { /* keep fallback */ }
+  const v = String(ctx.fillStyle)
+  if (/^#[0-9a-f]{6}$/i.test(v)) return v
+  const m = /^rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(v)
+  if (m) {
+    const hex = (n: string) => Number(n).toString(16).padStart(2, '0')
+    return `#${hex(m[1])}${hex(m[2])}${hex(m[3])}`
+  }
+  return '#000000'
+}
 
 function installDeckArtifacts(deck: Deck): void {
   if (deck.root.querySelector('style.dia-editor-artifact[data-de-shell]')) return
