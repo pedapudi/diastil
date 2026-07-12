@@ -184,15 +184,37 @@ export function routeOrtho(
   p2: Pt, s2: Exclude<AnchorSide, 'auto'>,
   obstacles: NodeGeom[] = [],
 ): Pt[] {
-  const start = pushOut(p1, s1, AVOID_MARGIN)
-  const goal = pushOut(p2, s2, AVOID_MARGIN)
-  const rects = obstacles.map((g) => ({
-    x: g.x - AVOID_MARGIN, y: g.y - AVOID_MARGIN,
-    w: g.w + 2 * AVOID_MARGIN, h: g.h + 2 * AVOID_MARGIN,
-  }))
+  const insideOf = (p: Pt, r: Rect) => p.x > r.x && p.x < r.x + r.w && p.y > r.y && p.y < r.y + r.h
+  const cores: Rect[] = obstacles.map((g) => ({ x: g.x, y: g.y, w: g.w, h: g.h }))
 
-  const inside = (p: Pt) => rects.some((r) => p.x > r.x && p.x < r.x + r.w && p.y > r.y && p.y < r.y + r.h)
-  if (rects.length === 0 || inside(start) || inside(goal)) {
+  // Packed layouts: the endpoint stub shortens until it clears every node
+  // core (a neighbor may sit closer than the full margin) …
+  const stubFor = (p: Pt, side: Exclude<AnchorSide, 'auto'>): Pt => {
+    for (const d of [AVOID_MARGIN, 6, 3, 1]) {
+      const s = pushOut(p, side, d)
+      if (!cores.some((r) => insideOf(s, r))) return s
+    }
+    return pushOut(p, side, 0.5) // genuinely overlapping nodes
+  }
+  const start = stubFor(p1, s1)
+  const goal = stubFor(p2, s2)
+
+  // … and avoidance degrades per-obstacle, not wholesale: an obstacle whose
+  // margin zone contains a stub shrinks to its core; one whose core contains
+  // a stub (overlap) is excluded — every other node keeps the full margin.
+  const rects: Rect[] = []
+  for (let i = 0; i < obstacles.length; i++) {
+    const g = obstacles[i]
+    const core = cores[i]
+    const inflated: Rect = {
+      x: g.x - AVOID_MARGIN, y: g.y - AVOID_MARGIN,
+      w: g.w + 2 * AVOID_MARGIN, h: g.h + 2 * AVOID_MARGIN,
+    }
+    if (!insideOf(start, inflated) && !insideOf(goal, inflated)) rects.push(inflated)
+    else if (!insideOf(start, core) && !insideOf(goal, core)) rects.push(core)
+  }
+
+  if (rects.length === 0) {
     return simplify([p1, ...fallbackOrtho(start, s1, goal, s2), p2])
   }
 

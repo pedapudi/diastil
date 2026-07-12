@@ -75,4 +75,22 @@ describe('routeOrtho', () => {
     expect(pts[pts.length - 1]).toEqual(p2)
     assertOrthogonal(pts)
   })
+
+  it('packed layout: a stub inside a NEIGHBOR margin degrades to core avoidance, not cut-through', () => {
+    // wall sits 8px right of p1's node edge — inside the 12px margin, so the
+    // start stub lands in the wall's inflated rect. The route must still
+    // avoid the wall's CORE instead of slicing through it.
+    const wall: NodeGeom = { x: 108, y: -50, w: 40, h: 200 }
+    const pts = routeOrtho(p1, 'E', p2, 'W', [wall])
+    expect(pts[0]).toEqual(p1)
+    expect(pts[pts.length - 1]).toEqual(p2)
+    assertOrthogonal(pts)
+    // no segment may cross the core interior
+    for (let i = 1; i < pts.length; i++) {
+      const lox = Math.min(pts[i - 1].x, pts[i].x), hix = Math.max(pts[i - 1].x, pts[i].x)
+      const loy = Math.min(pts[i - 1].y, pts[i].y), hiy = Math.max(pts[i - 1].y, pts[i].y)
+      const crossesCore = lox < wall.x + wall.w && hix > wall.x && loy < wall.y + wall.h && hiy > wall.y
+      expect(crossesCore, `segment ${i} slices the packed neighbor`).toBe(false)
+    }
+  })
 })

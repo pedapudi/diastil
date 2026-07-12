@@ -48,15 +48,23 @@ export function attachToolbar(): void {
   })
   window.addEventListener('scroll', position, true)
   window.addEventListener('resize', position)
-  // click-away: interacting anywhere outside the toolbar and outside the
-  // deck's svgs hides the bar (the scene keeps its own clicks; the deck's
-  // click handlers change selection, which re-renders the bar anyway)
+  // click-away: a pointerdown anywhere outside the toolbar and outside the
+  // deck canvas DISMISSES the scene selection (not just the bar — otherwise
+  // the next op event would resurrect it). Deck-internal clicks re-resolve
+  // through the normal selection handlers.
   window.addEventListener('pointerdown', (e) => {
     if (!bar || bar.hidden) return
     const path = e.composedPath()
     if (path.includes(bar)) return
-    if (path.some((t) => t instanceof Element && t.tagName?.toLowerCase() === 'svg')) return
-    bar.hidden = true
+    const host = document.querySelector('#deck-host')
+    if (host && path.includes(host)) return
+    const sel = state.selection
+    if (sel.kind === 'scene-node' || sel.kind === 'scene-edge' || sel.kind === 'scene-free' ||
+        (sel.kind === 'element' && selectedScene())) {
+      state.selection = { kind: 'none' } // refresh() hides the bar via the selection event
+    } else {
+      bar.hidden = true
+    }
   }, { capture: true })
 }
 
@@ -88,10 +96,16 @@ function selectedScene(): SVGSVGElement | null {
   return el instanceof SVGSVGElement ? el : null
 }
 
+/** a slide's full-slide diagram layer, when it has one */
+function fullSceneOf(slide: HTMLElement): SVGSVGElement | null {
+  return slide.querySelector<SVGSVGElement>(':scope > svg.dia-scene-full')
+}
+
 function refresh(): void {
   const el = ensureBar()
   const sel = state.selection
-  const scene = selectedScene()
+  const scene = selectedScene() ??
+    (sel.kind === 'slide' ? fullSceneOf(sel.slide) : null)
   const target =
     sel.kind === 'scene-node' ? sel.node :
     sel.kind === 'scene-edge' ? sel.edge :
@@ -289,7 +303,8 @@ function position(): void {
   const target =
     sel.kind === 'scene-node' ? sel.node :
     sel.kind === 'scene-edge' ? sel.edge :
-    selectedScene()
+    sel.kind === 'scene-free' ? sel.el :
+    selectedScene() ?? (sel.kind === 'slide' ? fullSceneOf(sel.slide) : null)
   if (!target || !target.isConnected) {
     bar.hidden = true
     return

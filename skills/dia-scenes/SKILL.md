@@ -75,8 +75,12 @@ the op log, no inference:
 - drag nodes → live edge rerouting; snapping to node edges/centers and the
   grid; smart guides for equal spacing/aligned centers
 - resize via corner handles; hold `⇧` to lock the aspect (true circles/squares)
-- select a slide → `+ diagram` in the inspector adds an empty scene; click
-  the scene background → toolbar offers `+ node · + circle · + square`
+- select a slide → `+ diagram` in the inspector adds a FULL-SLIDE diagram
+  layer (`svg.dia-scene.dia-scene-full`, viewBox 0 0 1280 720, absolutely
+  positioned over the whole slide): shapes/nodes/edges/strokes can land
+  anywhere, layered with the text. Idle clicks pass through to the text
+  beneath; painted content stays interactive; selecting the slide shows
+  the creation toolbar (`+ node · + circle · + square · draw`)
 - node toolbar rows: `fill` / `line` / `w` — per-shape color and weight as
   token-scoped properties; edge toolbar rows: `ink` / `w`
 - edges: drag from a selected node's anchor dot to start one; while aiming,
