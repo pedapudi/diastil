@@ -122,16 +122,19 @@
   --caution:#FCE94F; --accent:#34E2E2; --flat:#847683; --cell-empty:#371129;
 }
 
-/* ============ typefaces — 12 faces, 3 groups, default T7 ============ */
+/* ============ typefaces — 12 faces, 3 groups, default T9 ============ */
 :root {
   --brand-mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
   --font-prose-mono: "iA Writer Mono", "iA Writer Mono S", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --font-mono-real: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
 
-  /* default (T7 · Google Sans Mono) applied unconditionally */
-  --sans: "Google Sans Mono", "Noto Sans Mono", ui-monospace, monospace;
-  --mono: "Google Sans Mono", "Noto Sans Mono", ui-monospace, monospace;
-  --font-head: "Google Sans Mono", "Noto Sans Mono", ui-monospace, monospace;
+  /* default (T9 · Source Sans 3 + Source Code Pro), applied unconditionally.
+   * The zicato role split: prose and controls read --sans, --mono is
+   * RESERVED for data, code, and keyboard — an all-mono chrome was a
+   * claude-ism, not the zicato language. */
+  --sans: "Source Sans 3", system-ui, sans-serif;
+  --mono: "Source Code Pro", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  --font-head: "Source Sans 3", system-ui, sans-serif;
 
   --dt-font-scale: 1;
 }

@@ -39,6 +39,9 @@ interface Ctx {
   /** the slide's rendered rect — CSS-shape geometry is expressed relative to it */
   slideRect: { x: number; y: number; w: number; h: number }
   sample(el: Element): ElementSample | undefined
+  /** literal color -> var(--dia-*) when it matches a harvested token, so
+   * imported content retints coherently with the deck token picker */
+  tokenColor(c: string): string | null
 }
 
 const DROP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'LINK', 'META', 'TITLE', 'BASE'])
@@ -49,7 +52,28 @@ const CHROME_SEL = '.controls, .progress, .slide-number, .backgrounds, .speaker-
 /* ---------------- public API ---------------- */
 
 export function convertSlides(ex: Extraction): SlideConversion[] {
-  return ex.slides.map((s, i) => convertSlide(s, i, ex.scalePx, ex.designW))
+  return ex.slides.map((s, i) => convertSlide(s, i, ex.scalePx, ex.designW, ex.tokens))
+}
+
+/** normalized-color -> var(--dia-*) for the harvested color tokens */
+function tokenColorMap(tokens: Record<string, string>): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const name of ['--dia-accent', '--dia-ink', '--dia-ink-soft', '--dia-paper', '--dia-rule']) {
+    const n = normColor(tokens[name] ?? '')
+    if (n && !map.has(n)) map.set(n, `var(${name})`)
+  }
+  return map
+}
+
+/** canonical "r,g,b" (alpha 1 only) from hex or rgb()/rgba() */
+function normColor(c: string): string | null {
+  const hex = /^#([0-9a-f]{6})$/i.exec(c.trim())
+  if (hex) {
+    const v = parseInt(hex[1], 16)
+    return `${(v >> 16) & 255},${(v >> 8) & 255},${v & 255}`
+  }
+  const rgb = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*(1|1\.0*)\s*)?\)$/.exec(c.trim())
+  return rgb ? `${rgb[1]},${rgb[2]},${rgb[3]}` : null
 }
 
 /** role → default scale step (must match the role rules in the theme) */
@@ -87,12 +111,14 @@ function rebindSizes(section: HTMLElement, sample: Ctx['sample'], scalePx: numbe
 
 export function convertSlide(
   slide: ExtractedSlide, index: number, scalePx: number[] = [], designW = 0,
+  tokens: Record<string, string> = {},
 ): SlideConversion {
   const parsed = new DOMParser().parseFromString(slide.html, 'text/html')
   const srcRoot: HTMLElement = parsed.body.hasAttribute(STAMP)
     ? parsed.body
     : (parsed.body.firstElementChild as HTMLElement | null) ?? parsed.body
 
+  const tokenColors = tokenColorMap(tokens)
   const ctx: Ctx = {
     titleEl: null,
     kickerEl: null,
@@ -102,6 +128,10 @@ export function convertSlide(
     sample(el: Element): ElementSample | undefined {
       const idx = el.getAttribute(STAMP)
       return idx === null ? undefined : slide.samples[Number(idx)]
+    },
+    tokenColor(c: string): string | null {
+      const n = normColor(c)
+      return n ? tokenColors.get(n) ?? null : null
     },
   }
   ctx.titleEl = pickTitle(srcRoot, ctx)
@@ -373,7 +403,7 @@ function svgNode(el: Element, ctx: Ctx): Element {
   }
   // deterministic promotion: provably-exact shapes become editable scene
   // nodes in place; text/edges stay verbatim (the LLM lift adds semantics)
-  const n = liftSimpleSvg(clone)
+  const n = liftSimpleSvg(clone, (c) => ctx.tokenColor(c))
   if (n > 0) {
     ctx.notes.push({
       node: clone,
@@ -447,8 +477,8 @@ function cssShape(el: Element, ctx: Ctx): Element | null {
   node.setAttribute('data-w', String(Math.round(g.w * 100) / 100))
   node.setAttribute('data-h', String(Math.round(g.h * 100) / 100))
   node.setAttribute('style',
-    `--dia-node-fill: ${filled ? s.background : 'none'}; ` +
-    `--dia-node-stroke: ${stroked ? s.borderColor : 'none'}; ` +
+    `--dia-node-fill: ${filled ? ctx.tokenColor(s.background) ?? s.background : 'none'}; ` +
+    `--dia-node-stroke: ${stroked ? ctx.tokenColor(s.borderColor) ?? s.borderColor : 'none'}; ` +
     `--dia-node-stroke-w: ${stroked ? s.borderW : 1}`)
   svg.appendChild(node)
   renderNodeShape(node)
@@ -537,7 +567,7 @@ function inlineLeaf(el: Element, ctx: Ctx): HTMLElement {
     const s = ctx.sample(srcRuns[i])
     if (!s) continue
     const out = outRuns[i] as HTMLElement
-    if (s.color && s.color !== parentColor) out.style.color = s.color
+    if (s.color && s.color !== parentColor) out.style.color = ctx.tokenColor(s.color) ?? s.color
     if (s.fontWeight >= 600 && !/^(STRONG|B)$/.test(out.tagName)) out.style.fontWeight = '600'
   }
   return node

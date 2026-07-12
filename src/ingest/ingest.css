@@ -37,7 +37,7 @@ iframe.dia-ingest-exec {
 }
 
 .dia-review-title {
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: calc(11.5px * var(--dt-font-scale, 1));
   color: var(--ink);
 }
@@ -120,7 +120,7 @@ iframe.dia-ingest-exec {
 }
 
 .dia-cmp-hint {
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: calc(10.5px * var(--dt-font-scale, 1));
   color: var(--ink-faint);
 }
@@ -196,7 +196,7 @@ iframe.dia-ingest-exec {
 .dia-retry-wrap { display: inline-flex; }
 
 .dia-verdict-msg {
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: calc(10.5px * var(--dt-font-scale, 1));
   color: var(--bad);
 }
@@ -214,15 +214,16 @@ iframe.dia-ingest-exec {
 }
 
 .dia-note {
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: calc(10.5px * var(--dt-font-scale, 1));
   line-height: 1.5;
   color: var(--ink-soft);
   display: flex;
   gap: 10px;
 }
-.dia-note-kind { color: var(--ink-faint); flex: none; min-width: 104px; }
-.dia-note-loc { color: var(--ink-faint); margin-left: auto; flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* kind slugs and locators are data — they keep the mono voice */
+.dia-note-kind { font-family: var(--mono); color: var(--ink-faint); flex: none; min-width: 104px; }
+.dia-note-loc { font-family: var(--mono); color: var(--ink-faint); margin-left: auto; flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dia-note.is-warning { color: var(--caution); }
 .dia-note.is-warning .dia-note-kind { color: var(--caution); }
 .dia-note.is-empty { color: var(--ink-faint); }
