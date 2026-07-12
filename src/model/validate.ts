@@ -21,7 +21,13 @@ export interface ProfileReport {
   version: string | null
 }
 
-const NODE_SHAPES = new Set(['rect', 'rounded', 'pill', 'ellipse', 'diamond'])
+const NODE_SHAPES = new Set([
+  'rect', 'rounded', 'pill', 'ellipse', 'diamond',
+  'cylinder', 'hex', 'parallelogram', 'triangle', 'cloud', 'note', 'path',
+])
+/** loose SVG path-data check for data-path (shape "path"): must start with a
+ * moveto and contain only path commands/numbers */
+const PATH_DATA = /^[Mm][0-9MmLlHhVvCcSsQqTtAaZz\s,.+eE-]+$/
 const EDGE_ROUTES = new Set(['straight', 'ortho', 'curve'])
 const ANCHOR_SIDES = new Set(['N', 'S', 'E', 'W', 'auto'])
 
@@ -121,6 +127,12 @@ export function validateDocument(doc: Document): ProfileReport {
         const shape = node.getAttribute('data-shape')
         if (shape !== null && !NODE_SHAPES.has(shape))
           add('error', 'scene/node-shape', pathOf(node), `unknown shape "${shape}"`)
+        if (shape === 'path') {
+          const d = node.getAttribute('data-path')
+          if (!d || !PATH_DATA.test(d.trim()))
+            add('error', 'scene/node-path', pathOf(node),
+              d ? 'data-path is not SVG path data' : 'shape "path" requires data-path')
+        }
       }
       for (const edge of scene.querySelectorAll<SVGGElement>('[data-dia-edge]')) {
         const spec = edge.getAttribute('data-dia-edge') ?? ''

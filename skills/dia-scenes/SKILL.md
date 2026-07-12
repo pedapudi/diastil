@@ -28,7 +28,8 @@ attributes on edge paths; they're derived artifacts.
 | attribute | values | notes |
 | --- | --- | --- |
 | `data-dia-node` | unique id within the scene | ids are what edges reference |
-| `data-shape` | `rect` `rounded` `pill` `ellipse` `diamond` | default `rounded` |
+| `data-shape` | `rect` `rounded` `pill` `ellipse` `diamond` `cylinder` `hex` `parallelogram` `triangle` `cloud` `note` `path` | default `rounded` |
+| `data-path` | SVG path data, 100×100-normalized | shape `path` only: freeform outline (ring, brace, star, blob), scaled into the node box on render |
 | `data-x/y/w/h` | numbers in viewBox units | position + size; w/h default 120×40 |
 | `data-dia-edge` | `from->to` | both ends must name nodes in this scene |
 | `data-anchors` | two of `N S E W auto`, comma-separated | from-side, to-side; `auto` picks facing sides |

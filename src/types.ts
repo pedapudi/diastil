@@ -58,7 +58,10 @@ export type Altitude = 'table' | 'stage'
 
 /* ---------- scene ---------- */
 
-export type NodeShape = 'rect' | 'rounded' | 'pill' | 'ellipse' | 'diamond'
+export type NodeShape =
+  | 'rect' | 'rounded' | 'pill' | 'ellipse' | 'diamond'
+  | 'cylinder' | 'hex' | 'parallelogram' | 'triangle' | 'cloud' | 'note'
+  | 'path'
 export type EdgeRoute = 'straight' | 'ortho' | 'curve'
 export type AnchorSide = 'N' | 'S' | 'E' | 'W' | 'auto'
 

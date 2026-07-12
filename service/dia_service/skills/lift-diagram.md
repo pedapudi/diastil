@@ -35,7 +35,16 @@ no markdown fences, no commentary.
 </svg>
 ```
 
-- `data-shape`: one of `rect | rounded | pill | ellipse | diamond`.
+- `data-shape`: one of `rect | rounded | pill | ellipse | diamond |
+  cylinder | hex | parallelogram | triangle | cloud | note | path`.
+  Use the semantic shapes when the source drew them: a database barrel →
+  `cylinder`, a flowchart input/output slab → `parallelogram`, a
+  decision → `diamond`, an external service puff → `cloud`, a document →
+  `note`. For a shape none of these match (annotation rings, braces,
+  stars, blobs), use `path` with `data-path`: the outline as SVG path
+  data in a 100×100-normalized space (scale the source outline so its
+  bounding box maps to 0..100 in both axes); it is scaled back into the
+  node box on render.
 - `data-anchors`: two of `N | S | E | W | auto`, comma-separated
   (from-side, to-side).
 - `data-route`: one of `straight | ortho | curve`.

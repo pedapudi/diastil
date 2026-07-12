@@ -12,7 +12,12 @@ import re
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 
-NODE_SHAPES = {"rect", "rounded", "pill", "ellipse", "diamond"}
+NODE_SHAPES = {
+    "rect", "rounded", "pill", "ellipse", "diamond",
+    "cylinder", "hex", "parallelogram", "triangle", "cloud", "note", "path",
+}
+# loose SVG path-data check for data-path (shape "path")
+PATH_DATA = re.compile(r"[Mm][0-9MmLlHhVvCcSsQqTtAaZz\s,.+eE-]+\Z")
 EDGE_ROUTES = {"straight", "ortho", "curve"}
 ANCHOR_SIDES = {"N", "S", "E", "W", "auto"}
 
@@ -204,6 +209,11 @@ def validate_html(html: str) -> dict:
                 shape = node.attrs.get("data-shape")
                 if shape is not None and shape not in NODE_SHAPES:
                     add("error", "scene/node-shape", node.path(), f'unknown shape "{shape}"')
+                if shape == "path":
+                    d = node.attrs.get("data-path")
+                    if not d or not PATH_DATA.fullmatch(d.strip()):
+                        add("error", "scene/node-path", node.path(),
+                            "data-path is not SVG path data" if d else 'shape "path" requires data-path')
             for edge in scene.walk():
                 if "data-dia-edge" not in edge.attrs:
                     continue
