@@ -48,19 +48,20 @@ CONFIG = agents.load_config()
 
 app = FastAPI(title="dia service", version="0.1.0")
 
-# Browser origins allowed to call the service. "null" is a file:// page —
-# the standalone single-file editor (dist/diastil.html). The service binds
-# to 127.0.0.1 regardless, so this list only restrains which LOCAL browser
-# pages may call it; native local processes were never restrained by CORS.
-# Override with  [service] allow_origins = [...]  in config.toml.
-_DEFAULT_ORIGINS = [
-    "http://localhost:5199",
-    "http://127.0.0.1:5199",
-    "null",  # file:// — the standalone editor
-]
+# Browser origins allowed to call the service. The service binds to 127.0.0.1
+# regardless, so it is never network-reachable; CORS here only restrains which
+# LOCAL browser pages may call it. Any localhost / 127.0.0.1 origin on any port
+# is allowed — the editor is served from this same process (dia serve --editor /
+# dia edit / dia ingest, port 8317) as well as the Vite dev server (5199), and
+# localhost vs 127.0.0.1 is a cross-origin distinction to the browser. "null"
+# covers a file:// page (the standalone single-file editor). Add more explicit
+# origins with  [service] allow_origins = [...]  in config.toml.
+_LOCAL_ORIGIN_RE = r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
+_DEFAULT_ORIGINS = ["null"]  # file:// — the standalone editor
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CONFIG.get("service", {}).get("allow_origins", _DEFAULT_ORIGINS),
+    allow_origin_regex=_LOCAL_ORIGIN_RE,
     allow_methods=["*"],
     allow_headers=["*"],
 )
