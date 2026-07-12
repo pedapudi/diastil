@@ -37,8 +37,10 @@ $EDITOR config.toml
 ```
 
 The service binds to `127.0.0.1:8317` and accepts browser requests only
-from the local editor dev origin (`localhost:5199`) or its own origin
-(the CLI mounts the built editor at `/editor`).
+from the local editor origins: the dev server (`localhost:5199`), its own
+origin (the CLI mounts the built editor at `/editor`), and `null` — a
+`file://` page, i.e. the standalone `diastil.html`. Override the list
+with `[service] allow_origins = [...]` in `config.toml`.
 
 ## The `dia` CLI
 

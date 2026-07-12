@@ -47,12 +47,20 @@ INSTALL_HINT = (
 CONFIG = agents.load_config()
 
 app = FastAPI(title="dia service", version="0.1.0")
+
+# Browser origins allowed to call the service. "null" is a file:// page —
+# the standalone single-file editor (dist/diastil.html). The service binds
+# to 127.0.0.1 regardless, so this list only restrains which LOCAL browser
+# pages may call it; native local processes were never restrained by CORS.
+# Override with  [service] allow_origins = [...]  in config.toml.
+_DEFAULT_ORIGINS = [
+    "http://localhost:5199",
+    "http://127.0.0.1:5199",
+    "null",  # file:// — the standalone editor
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5199",
-        "http://127.0.0.1:5199",
-    ],
+    allow_origins=CONFIG.get("service", {}).get("allow_origins", _DEFAULT_ORIGINS),
     allow_methods=["*"],
     allow_headers=["*"],
 )
