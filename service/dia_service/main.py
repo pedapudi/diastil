@@ -52,6 +52,11 @@ app = FastAPI(title="dia service", version="0.1.0")
 # the standalone single-file editor (dist/diastil.html). The service binds
 # to 127.0.0.1 regardless, so this list only restrains which LOCAL browser
 # pages may call it; native local processes were never restrained by CORS.
+# The editor served by THIS process (/editor mount) needs no entry at all:
+# the client uses relative URLs there (src/service/client.ts), so those
+# calls are same-origin whatever hostname the user typed. Keep this list
+# narrow — any origin added here can reach the /file bridge and spend
+# model tokens via /skills/*.
 # Override with  [service] allow_origins = [...]  in config.toml.
 _DEFAULT_ORIGINS = [
     "http://localhost:5199",

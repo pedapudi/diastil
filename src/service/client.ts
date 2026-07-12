@@ -3,7 +3,21 @@
 
 import type { ChatContext, ChatEvent, ImportResult } from '../types'
 
-export const SERVICE_BASE = 'http://127.0.0.1:8317'
+export const SERVICE_PORT = 8317
+
+/* When the page is served by the dia service itself (dia edit / dia ingest /
+ * dia serve --editor mount the built editor at /editor on port 8317), service
+ * calls are SAME-ORIGIN and the base must be relative: an absolute
+ * http://127.0.0.1:8317 base turns them cross-origin the moment the user
+ * opens the page as localhost:8317 (localhost ≠ 127.0.0.1 to the browser),
+ * and CORS then blocks /health, /file, and /skills/*. Relative URLs sidestep
+ * origins entirely there — no allowlist widening needed. The absolute
+ * default remains for the Vite dev server (5199) and the file:// standalone,
+ * which genuinely are cross-origin and are on the service's allowlist. */
+export const SERVICE_BASE =
+  typeof window !== 'undefined' && window.location.port === String(SERVICE_PORT)
+    ? ''
+    : `http://127.0.0.1:${SERVICE_PORT}`
 
 export class ServiceClient {
   base: string
