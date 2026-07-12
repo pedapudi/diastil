@@ -288,6 +288,10 @@ function convertNode(el: Element, ctx: Ctx): Node[] {
   if (isHeading(el)) return [roleNode(el, 'dia-body', el.tagName.toLowerCase())]
   if (CONTAINER.has(tag)) {
     if (isAbsoluteSoup(el, ctx)) return [island(el, ctx, 'position:absolute layout — geometry kept as-is')]
+    // a container whose children are ALL inline runs is a SENTENCE, not a
+    // layout container — recursing per-child would shred it into blocks
+    // ("…loses [resolution] — and [which] items." → three stacked lines)
+    if (isInlineLeaf(el)) return [inlineLeaf(el, ctx)]
     return convertContainerChildren(el, ctx)
   }
   const s = ctx.sample(el)
@@ -383,6 +387,35 @@ function structuredBody(el: Element): HTMLElement {
   node.className = 'dia-body'
   keepStamp(el, node)
   node.innerHTML = cleanInnerHtml(el)
+  return node
+}
+
+/** inline formatting that keeps an element a text LEAF, never a container */
+const INLINE = new Set([
+  'SPAN', 'A', 'EM', 'I', 'STRONG', 'B', 'U', 'S', 'CODE', 'MARK',
+  'SMALL', 'SUB', 'SUP', 'BR', 'ABBR', 'KBD', 'WBR',
+])
+
+function isInlineLeaf(el: Element): boolean {
+  if (!norm(el.textContent ?? '')) return false
+  const kids = [...el.querySelectorAll('*')]
+  return kids.length > 0 && kids.every((c) => INLINE.has(c.tagName.toUpperCase()))
+}
+
+/** a sentence with inline runs — kept whole, runs recolored from their
+ * COMPUTED source color when it differs from the parent (accent words) */
+function inlineLeaf(el: Element, ctx: Ctx): HTMLElement {
+  const node = roleNode(el, 'dia-body', 'div')
+  const parentColor = ctx.sample(el)?.color
+  const srcRuns = [...el.querySelectorAll('*')]
+  const outRuns = [...node.querySelectorAll('*')]
+  for (let i = 0; i < srcRuns.length && i < outRuns.length; i++) {
+    const s = ctx.sample(srcRuns[i])
+    if (!s) continue
+    const out = outRuns[i] as HTMLElement
+    if (s.color && s.color !== parentColor) out.style.color = s.color
+    if (s.fontWeight >= 600 && !/^(STRONG|B)$/.test(out.tagName)) out.style.fontWeight = '600'
+  }
   return node
 }
 
