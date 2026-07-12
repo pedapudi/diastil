@@ -1,0 +1,122 @@
+/* chrome/chrome.css — the picker chrome (theme + typeface popovers).
+ * The zicato dt-cd / dt-tf idiom on the diastil role tokens. Token-only:
+ * every color reads --paper, --panel, the --ink and --rule families, and
+ * --accent; the ONLY literal color here is the swatch strip inline
+ * backgrounds (set per-theme by pickers.ts)
+ * — everything else is neutral, accent spent on the selected name alone.
+ * Panels are .dn-panel (1px var(--rule) hairline — shadow via border only).
+ * Mono 10.5–11.5px, every font-size scaled by --dt-font-scale. */
+
+/* ---- the shared popover idiom: trigger + panel ---- */
+.dt-cd { position: relative; display: inline-flex; }
+
+.dt-cd-trigger {
+  display: inline-flex; align-items: center; gap: 7px;
+  border: 1px solid var(--rule); border-radius: 5px;
+  padding: 3px 8px;
+  background: transparent; color: var(--ink-soft); cursor: pointer;
+  font-family: var(--mono);
+  font-size: calc(11px * var(--dt-font-scale, 1));
+  transition: border-color .15s, color .15s;
+}
+.dt-cd-trigger:hover { color: var(--ink); border-color: var(--accent); }
+.dt-cd-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.dt-cd-name { color: var(--ink); white-space: nowrap; }
+.dt-cd-caret {
+  color: var(--ink-faint);
+  font-size: calc(8px * var(--dt-font-scale, 1));
+  transition: transform .15s;
+}
+.dt-cd.dt-cd-open .dt-cd-caret { transform: rotate(180deg); }
+
+/* ---- the swatch strip — six 10px chips, hairline-separated ---- */
+.dt-swatch-strip {
+  display: inline-flex; flex: none;
+  border: 1px solid var(--rule); border-radius: 3px; overflow: hidden;
+}
+.dt-swatch { display: inline-block; width: 10px; height: 10px; }
+.dt-swatch + .dt-swatch { border-left: 1px solid var(--rule); }
+
+/* ---- the theme listbox ---- */
+.dt-cd-list {
+  display: none; position: absolute; top: calc(100% + 5px); right: 0; z-index: 30;
+  min-width: 192px; max-height: 60vh; overflow-y: auto;
+  padding: 4px; border-radius: 5px; /* bg + hairline come from .dn-panel */
+}
+.dt-cd-list:focus { outline: none; } /* the active row carries the highlight */
+.dt-cd.dt-cd-open > .dt-cd-list { display: block; }
+
+.dt-cd-option {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 7px; border-radius: 4px; cursor: pointer;
+  color: var(--ink-soft);
+  transition: background .12s, color .12s;
+}
+.dt-cd-option .dt-cd-name {
+  font-family: var(--mono);
+  font-size: calc(11px * var(--dt-font-scale, 1));
+}
+.dt-cd-option:hover,
+.dt-cd-option.dt-cd-active { background: var(--rule-soft); color: var(--ink); }
+.dt-cd-option[aria-selected="true"] .dt-cd-name { color: var(--accent); }
+
+/* ---- the typeface grouped popover ---- */
+.dt-tf-pop {
+  display: none; flex-direction: column;
+  position: absolute; top: calc(100% + 5px); right: 0; z-index: 30;
+  min-width: 252px; padding: 4px; border-radius: 5px; /* .dn-panel again */
+}
+.dt-tf.dt-cd-open > .dt-tf-pop { display: flex; }
+
+.dt-tf-list { overflow-y: auto; max-height: 56vh; }
+.dt-tf-list:focus { outline: none; }
+
+/* group headers — .dn-subhead voice, a quiet rule between blocks */
+.dt-tf-group { padding: 7px 7px 3px; border-top: 1px solid var(--rule-soft); margin-top: 3px; }
+.dt-tf-group:first-child { border-top: none; margin-top: 0; }
+
+/* each option is a TRUE specimen: label in its own head face over a faint
+ * sample line in its body face (families inlined per option by pickers.ts). */
+.dt-tf-option {
+  display: flex; flex-direction: column; align-items: stretch; gap: 2px;
+  padding: 5px 7px; border-radius: 4px; cursor: pointer;
+  transition: background .12s;
+}
+.dt-tf-option:hover,
+.dt-tf-option.dt-cd-active { background: var(--rule-soft); }
+.dt-tf-name {
+  font-size: calc(13px * var(--dt-font-scale, 1));
+  line-height: 1.3; color: var(--ink); white-space: nowrap;
+}
+.dt-tf-option[aria-selected="true"] .dt-tf-name { color: var(--accent); }
+.dt-tf-sample {
+  font-size: calc(10.5px * var(--dt-font-scale, 1));
+  line-height: 1.3; color: var(--ink-faint); white-space: nowrap;
+}
+
+/* the closed trigger's micro-specimen ("Ag" in the current head face) */
+.dt-tf-trigger .dt-tf-spec {
+  font-size: calc(12px * var(--dt-font-scale, 1));
+  line-height: 1; color: var(--ink-soft);
+}
+
+/* footer — the S/M/L text-size segmented control under the faces */
+.dt-tf-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin-top: 4px; padding: 6px 4px 3px;
+  border-top: 1px solid var(--rule-soft);
+}
+.dt-tf-foot .dn-seg button {
+  font-size: calc(10.5px * var(--dt-font-scale, 1));
+  min-width: 26px; padding: 3px 9px; cursor: pointer;
+}
+.dt-tf-foot .dn-seg button + button { border-left: 1px solid var(--rule); }
+.dt-tf-foot .dn-seg button:hover:not(.dn-on) { background: var(--rule-soft); color: var(--ink); }
+.dt-tf-foot .dn-seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* reduced motion: no caret spin, no hover/open transitions (tokens.css also
+ * kills transitions globally; this keeps the pickers safe standalone). */
+@media (prefers-reduced-motion: reduce) {
+  .dt-cd-trigger, .dt-cd-caret, .dt-cd-option, .dt-tf-option { transition: none; }
+}
