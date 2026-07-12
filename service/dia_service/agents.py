@@ -140,8 +140,30 @@ def make_session_service():
 # single-shot skill execution (shared by the HTTP surface and the evals)
 # ---------------------------------------------------------------------------
 
-async def run_skill_once(skill: str, prompt: str, config: dict[str, Any]) -> str:
+def decode_data_uri(uri: str) -> tuple[str, bytes] | None:
+    """data:<mime>;base64,<payload> -> (mime, bytes); None for anything else.
+    Undecodable images are dropped, never fatal — the skill still runs on text."""
+    import base64
+
+    if not uri.startswith("data:"):
+        return None
+    head, sep, payload = uri.partition(",")
+    if not sep or ";base64" not in head:
+        return None
+    mime = head[5:].split(";", 1)[0] or "application/octet-stream"
+    try:
+        return mime, base64.b64decode(payload, validate=True)
+    except Exception:
+        return None
+
+
+async def run_skill_once(
+    skill: str, prompt: str, config: dict[str, Any], images: list[str] | None = None
+) -> str:
     """One skill agent, one fresh session, one prompt, final text out.
+    images are base64 data URIs attached as inline parts — a vision-capable
+    endpoint sees them, a text-only endpoint gets whatever LiteLLM can pass
+    through (typically an error, so callers keep images optional).
     Raises RuntimeError when adk is unavailable; model errors propagate."""
     if not ADK_AVAILABLE:
         raise RuntimeError(f"adk not installed: {ADK_IMPORT_ERROR}")
@@ -153,7 +175,15 @@ async def run_skill_once(skill: str, prompt: str, config: dict[str, Any]) -> str
     runner = Runner(agent=agent, app_name="dia", session_service=session_service)
     session = await session_service.create_session(app_name="dia", user_id="local")
 
-    content = genai_types.Content(role="user", parts=[genai_types.Part(text=prompt)])
+    parts = [genai_types.Part(text=prompt)]
+    for uri in images or []:
+        decoded = decode_data_uri(uri)
+        if decoded is not None:
+            mime, data = decoded
+            parts.append(
+                genai_types.Part(inline_data=genai_types.Blob(mime_type=mime, data=data))
+            )
+    content = genai_types.Content(role="user", parts=parts)
     chunks: list[str] = []
     async for event in runner.run_async(
         user_id="local", session_id=session.id, new_message=content
