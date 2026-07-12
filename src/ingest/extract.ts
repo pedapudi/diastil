@@ -158,7 +158,7 @@ function harvestVisibleSlide(
   return {
     index,
     source: root,
-    html: root.outerHTML,
+    html: snapshotClone(root).outerHTML,
     sourceHtml: cleanSubtree(root),
     originalHtml: buildOriginalPage(doc, root),
     rect: { x: r.left + win.scrollX, y: r.top + win.scrollY, w: r.width, h: r.height },
@@ -220,7 +220,7 @@ function effectiveBg(el: Element, win: Window): string {
 
 /** stamp-free, script-free clone of the subtree (body roots become a div) */
 function cleanSubtree(root: HTMLElement): string {
-  const clone = root.cloneNode(true) as HTMLElement
+  const clone = snapshotClone(root)
   for (const s of clone.querySelectorAll('script, noscript')) s.remove()
   for (const el of [clone, ...clone.querySelectorAll(`[${STAMP}]`)]) el.removeAttribute(STAMP)
   if (clone.tagName === 'BODY') {
@@ -229,6 +229,39 @@ function cleanSubtree(root: HTMLElement): string {
     return div.outerHTML
   }
   return clone.outerHTML
+}
+
+/** Deep-clone with canvas BITMAPS preserved: a cloned <canvas> is blank
+ * (the drawing surface never copies), so JS-rendered figures — including
+ * animations, frozen at their settle-time frame — would vanish. Each canvas
+ * becomes an <img> carrying the pixels (kept as-is when tainted). */
+function snapshotClone(root: HTMLElement): HTMLElement {
+  const clone = root.cloneNode(true) as HTMLElement
+  const liveCanvases = root.querySelectorAll('canvas')
+  const cloneCanvases = clone.querySelectorAll('canvas')
+  for (let i = 0; i < liveCanvases.length && i < cloneCanvases.length; i++) {
+    const live = liveCanvases[i]
+    try {
+      const url = live.toDataURL('image/png')
+      const img = root.ownerDocument.createElement('img')
+      img.src = url
+      img.setAttribute('alt', 'figure (canvas snapshot)')
+      const from = cloneCanvases[i]
+      for (const a of from.attributes) {
+        if (a.name !== 'width' && a.name !== 'height') img.setAttribute(a.name, a.value)
+      }
+      // freeze the rendered size so layout holds without the canvas element
+      const r = live.getBoundingClientRect()
+      if (r.width > 0) {
+        const prior = img.getAttribute('style')
+        img.setAttribute('style', `${prior ? prior + '; ' : ''}width: ${Math.round(r.width)}px; height: ${Math.round(r.height)}px`)
+      }
+      from.replaceWith(img)
+    } catch {
+      /* tainted canvas (cross-origin pixels) — keep the element as-is */
+    }
+  }
+  return clone
 }
 
 /** a self-contained page rendering just this slide, with the source's CSS */
