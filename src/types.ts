@@ -77,6 +77,9 @@ export interface ImportReport {
   slideCount: number
   /** deterministic confidence per slide, 0..1 (structural heuristics, not pixels) */
   confidence: number[]
+  /** pixel-verified fidelity per slide, 0..1; null = slide would not
+   * rasterize; absent = the fidelity pass did not run */
+  fidelity?: (number | null)[]
   regions: RegionNote[]
   tokens: Record<string, string>
   warnings: string[]
