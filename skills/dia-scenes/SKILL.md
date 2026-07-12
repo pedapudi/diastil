@@ -46,6 +46,26 @@ Styling comes from the theme (`.dia-node-shape`, `.dia-node-label`,
 `.dia-edge-path`, `.dia-edge-label` read `--dia-*` tokens); don't inline
 colors on scene elements.
 
+## Shapes and styling
+
+A **shape** (circle, square, …) is a node without a label — same element,
+same abilities (drag, resize, connect, undo), no text until you
+double-click and add some. **Per-shape/per-edge styling** is scoped custom
+properties on the group, always as token references:
+
+```html
+<g data-dia-node="disc" data-shape="ellipse" data-x="34" data-y="36" data-w="88" data-h="88"
+   style="--dia-node-fill: var(--dia-rule); --dia-node-stroke: var(--dia-accent); --dia-node-stroke-w: 2.5">
+  <text class="dia-node-label"></text>
+</g>
+<g data-dia-edge="a->b" style="--dia-edge-stroke: var(--dia-ink-soft); --dia-edge-w: 2">…</g>
+```
+
+Properties: `--dia-node-fill` · `--dia-node-stroke` · `--dia-node-stroke-w`
+· `--dia-node-ink` (label) · `--dia-edge-stroke` · `--dia-edge-w` ·
+`--dia-edge-ink` (label). Theme rules consume them with token fallbacks,
+so unset = theme default.
+
 ## Editing in the editor
 
 Enter a scene by double-clicking into the diagram (deep work is best on
@@ -54,6 +74,11 @@ the op log, no inference:
 
 - drag nodes → live edge rerouting; snapping to node edges/centers and the
   grid; smart guides for equal spacing/aligned centers
+- resize via corner handles; hold `⇧` to lock the aspect (true circles/squares)
+- select a slide → `+ diagram` in the inspector adds an empty scene; click
+  the scene background → toolbar offers `+ node · + circle · + square`
+- node toolbar rows: `fill` / `line` / `w` — per-shape color and weight as
+  token-scoped properties; edge toolbar rows: `ink` / `w`
 - connector handles on hover → drag to retarget an edge's anchor
 - double-click a node → edit its label in place
 - double-click empty scene space → create a node with the label editor open

@@ -9,8 +9,10 @@ import demoDeckRaw from '../../examples/demo-deck.html?raw'
 import type { Altitude, Deck } from '../types'
 import { state } from '../state'
 import { loadDeck } from '../model/parse'
-import { setStyleProp, setToken } from '../model/ops'
+import { insertEl, setStyleProp, setToken } from '../model/ops'
 import { routeAll } from '../scene/route'
+import { ensureSceneStyleRules } from '../scene/interact'
+import { assignFreshIds } from './slides'
 import { mountThemePicker, mountTypePicker } from '../chrome/pickers'
 import { mountCopilot } from '../copilot/rail'
 import { mountTable, activateTable, deactivateTable, scrollToSlide } from './table'
@@ -30,6 +32,9 @@ section.dia-slide:last-of-type { margin-block-end: 0; }
 :host(.dia-stage) section.dia-slide { margin-block: 0; }
 :host(.dia-stage) section.dia-slide:not([data-dia-current]) { display: none !important; }
 [data-dia-selected] { outline: 1.5px solid var(--accent); outline-offset: 4px; }
+/* blank svg areas are click-through by default (visiblePainted) — the scene
+ * background must be selectable in the editor for the creation toolbar */
+svg.dia-scene { pointer-events: bounding-box; }
 [contenteditable] { outline: 2px solid var(--accent); outline-offset: 2px; cursor: text; }
 `
 
@@ -337,6 +342,19 @@ export function mountEditor(host: HTMLElement): void {
     const slideIdx = state.slides().indexOf(slide)
     if (slideIdx >= 0) inspectBody.append(kv('slide', String(slideIdx + 1)))
 
+    if (sel.kind === 'slide') {
+      const rowEl = h('div', 'de-style-row')
+      rowEl.append(h('span', 'de-style-k', 'insert'))
+      const segEl = h('span', 'dn-seg')
+      const b = h('button', '', '+ diagram')
+      b.type = 'button'
+      b.title = 'add an editable scene — shapes, nodes, edges'
+      b.addEventListener('click', () => insertDiagram(slide))
+      segEl.append(b)
+      rowEl.append(segEl)
+      inspectBody.append(rowEl)
+    }
+
     if (sel.kind === 'element') {
       const matches = matchScaleTokens(el)
       const chips = h('div', 'de-chips')
@@ -386,6 +404,21 @@ export function mountEditor(host: HTMLElement): void {
       }
       inspectBody.append(wt)
     }
+  }
+
+  /** add an empty editable scene to a slide — the scene toolbar takes over
+   * from there (+ node, + circle, + square) */
+  function insertDiagram(slide: HTMLElement): void {
+    ensureSceneStyleRules()
+    const fig = document.createElement('div')
+    fig.className = 'dia-figure'
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    svg.setAttribute('class', 'dia-scene')
+    svg.setAttribute('viewBox', '0 0 480 270')
+    fig.appendChild(svg)
+    assignFreshIds(fig)
+    state.apply(insertEl(slide, slide.children.length, fig, 'InsertDiagram'))
+    state.selection = { kind: 'element', el: svg as unknown as HTMLElement, slide }
   }
 
   /** one per-element style control row: current value highlighted, every

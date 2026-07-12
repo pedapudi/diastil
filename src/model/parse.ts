@@ -123,5 +123,12 @@ section.dia-slide {
   color: var(--dia-ink-soft); }
 .dia-columns { display: grid; grid-template-columns: 1fr 1fr; gap: var(--dia-gap); }
 .dia-stack { display: flex; flex-direction: column; gap: calc(var(--dia-gap) / 2); }
+.dia-figure { align-self: center; }
+.dia-scene { width: 100%; }
+.dia-scene .dia-node-shape { fill: var(--dia-node-fill, var(--dia-paper)); stroke: var(--dia-node-stroke, var(--dia-ink)); stroke-width: var(--dia-node-stroke-w, 1.3); }
+.dia-scene .dia-node-label { font: 12px var(--dia-face-body); fill: var(--dia-node-ink, var(--dia-ink)); }
+.dia-scene .dia-edge-path { stroke: var(--dia-edge-stroke, var(--dia-ink)); stroke-width: var(--dia-edge-w, 1.2); fill: none; color: var(--dia-edge-stroke, var(--dia-ink)); }
+.dia-scene .dia-edge-label { font: 10px var(--dia-face-label); fill: var(--dia-edge-ink, var(--dia-ink-soft)); }
+.dia-scene [data-dia-emphasis] .dia-node-shape { stroke: var(--dia-accent); stroke-width: 2; }
 `
 }

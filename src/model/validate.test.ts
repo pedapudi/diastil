@@ -18,7 +18,7 @@ it('the demo deck is in-profile with no findings', () => {
   const r = check()
   expect(r.findings).toEqual([])
   expect(r.ok).toBe(true)
-  expect(r.slideCount).toBe(6)
+  expect(r.slideCount).toBe(7)
   expect(r.version).toBe('1')
 })
 
