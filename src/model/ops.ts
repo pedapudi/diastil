@@ -27,6 +27,26 @@ export function setText(el: HTMLElement, text: string, by?: 'you' | 'copilot'): 
   }
 }
 
+/** replace an element's inline content — rich text editing that PRESERVES
+ * inline markup (strong/em/code/…); exact undo via child-node snapshot */
+export function setInlineHtml(el: HTMLElement, html: string, by?: 'you' | 'copilot'): Op {
+  const prevNodes = [...el.childNodes]
+  return {
+    label: `SetText ${describe(el)}`,
+    author: author(by),
+    apply() { el.innerHTML = html },
+    invert() {
+      const redo = () => setInlineHtml(el, html, author(by))
+      return {
+        label: `un-SetText ${describe(el)}`,
+        author: author(by),
+        apply() { el.replaceChildren(...prevNodes) },
+        invert: redo,
+      }
+    },
+  }
+}
+
 /** set/remove an attribute */
 export function setAttr(el: Element, name: string, value: string | null, by?: 'you' | 'copilot'): Op {
   const prev = el.getAttribute(name)
