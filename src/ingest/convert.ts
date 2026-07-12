@@ -1,0 +1,418 @@
+/* CONVERT — step 3 of ingest: map each extracted slide into the dialect.
+ * Role mapping (title/kicker/body/figure/columns), islands for the
+ * unmappable, script stripping (content was already executed), and a
+ * programmatic text-preservation check: every visible source text node must
+ * reappear in the converted slide. Confidence is structural and honest:
+ * mappedTextChars / totalTextChars × 0.9 when islands remain. */
+
+import { defaultThemeCss } from '../model/parse'
+import type { RegionNote, ImportReport } from '../types'
+import { STAMP, norm, type ElementSample, type ExtractedSlide, type Extraction } from './extract'
+
+export interface SlideConversion {
+  html: string
+  notes: RegionNote[]
+  confidence: number
+  warnings: string[]
+  islands: number
+  accepted?: boolean
+}
+
+interface PendingNote {
+  node: Element | null
+  kind: RegionNote['kind']
+  note: string
+}
+
+interface Ctx {
+  titleEl: Element | null
+  kickerEl: Element | null
+  notes: PendingNote[]
+  islands: number
+  sample(el: Element): ElementSample | undefined
+}
+
+const DROP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'LINK', 'META', 'TITLE', 'BASE'])
+const UNMAPPABLE = new Set(['IFRAME', 'CANVAS', 'VIDEO', 'AUDIO', 'EMBED', 'OBJECT', 'FORM', 'INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'])
+const CONTAINER = new Set(['DIV', 'SECTION', 'ARTICLE', 'MAIN', 'HEADER', 'FOOTER', 'ASIDE', 'FIGURE', 'NAV'])
+const CHROME_SEL = '.controls, .progress, .slide-number, .backgrounds, .speaker-notes, .remark-toolbar, .remark-notes-area, .navigate-left, .navigate-right, .impress-progress'
+
+/* ---------------- public API ---------------- */
+
+export function convertSlides(ex: Extraction): SlideConversion[] {
+  return ex.slides.map((s, i) => convertSlide(s, i))
+}
+
+export function convertSlide(slide: ExtractedSlide, index: number): SlideConversion {
+  const parsed = new DOMParser().parseFromString(slide.html, 'text/html')
+  const srcRoot: HTMLElement = parsed.body.hasAttribute(STAMP)
+    ? parsed.body
+    : (parsed.body.firstElementChild as HTMLElement | null) ?? parsed.body
+
+  const ctx: Ctx = {
+    titleEl: null,
+    kickerEl: null,
+    notes: [],
+    islands: 0,
+    sample(el: Element): ElementSample | undefined {
+      const idx = el.getAttribute(STAMP)
+      return idx === null ? undefined : slide.samples[Number(idx)]
+    },
+  }
+  ctx.titleEl = pickTitle(srcRoot, ctx)
+  ctx.kickerEl = pickKicker(srcRoot, ctx)
+
+  const section = document.createElement('section')
+  section.className = 'dia-slide'
+  section.append(...convertContainerChildren(srcRoot, ctx))
+
+  return finalize(section, slide, index, ctx.notes, ctx.islands)
+}
+
+/** whole-slide island: the reviewer keeps the original subtree verbatim */
+export function islandEntireSlide(slide: ExtractedSlide, index: number): SlideConversion {
+  const section = document.createElement('section')
+  section.className = 'dia-slide'
+  const wrap = document.createElement('div')
+  wrap.className = 'dia-island'
+  wrap.setAttribute('data-dia-island', '')
+  wrap.innerHTML = slide.sourceHtml
+  section.appendChild(wrap)
+  const notes: PendingNote[] = [
+    { node: wrap, kind: 'island', note: 'entire slide preserved verbatim at reviewer request' },
+  ]
+  return finalize(section, slide, index, notes, 1)
+}
+
+/** validate a service-translated slide: normalize the root, strip scripts,
+ * re-run the text-preservation check against the source text set */
+export function revalidateSlide(slide: ExtractedSlide, index: number, html: string): SlideConversion {
+  const parsed = new DOMParser().parseFromString(html, 'text/html')
+  const returned = parsed.querySelector<HTMLElement>('section.dia-slide')
+  const section = document.createElement('section')
+  section.className = 'dia-slide'
+  section.innerHTML = (returned ?? parsed.body).innerHTML
+  for (const s of section.querySelectorAll('script, noscript')) s.remove()
+  const islandEls = [...section.querySelectorAll('[data-dia-island]')]
+  const notes: PendingNote[] = islandEls.map((el) => ({
+    node: el, kind: 'island' as const, note: 'island returned by the dia service',
+  }))
+  return finalize(section, slide, index, notes, islandEls.length)
+}
+
+export function buildReport(
+  ex: Extraction,
+  sourceName: string,
+  conversions: SlideConversion[],
+): ImportReport {
+  return {
+    sourceName,
+    slideCount: conversions.length,
+    confidence: conversions.map((c) => c.confidence),
+    regions: conversions.flatMap((c) => c.notes),
+    tokens: ex.tokens,
+    warnings: [
+      ...ex.warnings,
+      ...conversions.flatMap((c) => c.warnings),
+      'confidence = mapped text chars / total text chars, ×0.9 where islands remain — structural confidence, not pixel-verified',
+    ],
+  }
+}
+
+export function tokensToCss(tokens: Record<string, string>): string {
+  const lines = Object.entries(tokens).map(([k, v]) => `  ${k}: ${v};`).join('\n')
+  return `:root {\n${lines}\n}`
+}
+
+/** Assemble the final dialect document — same shape serialize.ts produces:
+ * doctype, data-dia-version="1", <style id="dia-theme"> (extracted tokens +
+ * the slide/role rules from defaultThemeCss keyed to those tokens), slides,
+ * empty dia-runtime script. */
+export function assembleDeck(slides: string[], tokens: Record<string, string>, title: string): string {
+  const base = defaultThemeCss()
+  const roleRules = base.slice(base.indexOf('}') + 1).trim()
+  return `<!doctype html>
+<html lang="en" data-dia-version="1">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(title)}</title>
+<style id="dia-theme">
+${tokensToCss(tokens)}
+${roleRules}
+</style>
+</head>
+<body>
+${slides.join('\n\n')}
+<script id="dia-runtime">
+</script>
+</body>
+</html>
+`
+}
+
+/* ---------------- role picks ---------------- */
+
+/** largest text block wins; headings win near-ties */
+function pickTitle(srcRoot: HTMLElement, ctx: Ctx): Element | null {
+  let best: Element | null = null
+  let bestSize = 0
+  for (const el of textBearing(srcRoot, ctx)) {
+    const s = ctx.sample(el)!
+    if (s.fontSizePx > bestSize + 0.5) { best = el; bestSize = s.fontSizePx }
+    else if (Math.abs(s.fontSizePx - bestSize) <= 0.5 && best && !isHeading(best) && isHeading(el)) best = el
+  }
+  return best ?? srcRoot.querySelector('h1, h2')
+}
+
+/** short (<60 chars) uppercase / letter-spaced / small element above the title */
+function pickKicker(srcRoot: HTMLElement, ctx: Ctx): Element | null {
+  if (!ctx.titleEl) return null
+  const ts = ctx.sample(ctx.titleEl)
+  if (!ts) return null
+  for (const el of textBearing(srcRoot, ctx)) {
+    if (el === ctx.titleEl) continue
+    const s = ctx.sample(el)!
+    if (s.ownText.length >= 60) continue
+    if (s.y >= ts.y) continue
+    if (s.fontSizePx >= ts.fontSizePx) continue
+    const spaced = s.letterSpacing !== 'normal' && parseFloat(s.letterSpacing) > 0
+    if (s.textTransform === 'uppercase' || spaced || s.fontSizePx <= ts.fontSizePx * 0.5) return el
+  }
+  return null
+}
+
+function textBearing(srcRoot: HTMLElement, ctx: Ctx): Element[] {
+  const out: Element[] = []
+  for (const el of [srcRoot, ...srcRoot.querySelectorAll(`[${STAMP}]`)]) {
+    const s = ctx.sample(el)
+    if (s && s.ownChars > 0) out.push(el)
+  }
+  return out
+}
+
+function isHeading(el: Element): boolean {
+  return /^H[1-6]$/.test(el.tagName.toUpperCase())
+}
+
+/* ---------------- node conversion ---------------- */
+
+function convertContainerChildren(el: Element, ctx: Ctx): Node[] {
+  const kids = [...el.children].filter((c) => !DROP.has(c.tagName.toUpperCase()))
+  const out: Node[] = []
+  const cols = detectColumns(kids, ctx)
+  if (cols) {
+    const wrap = div('dia-columns')
+    if (cols.length !== 2) wrap.style.gridTemplateColumns = `repeat(${cols.length}, 1fr)`
+    for (const col of cols) {
+      const stack = div('dia-stack')
+      stack.append(...convertNode(col, ctx))
+      wrap.appendChild(stack)
+    }
+    out.push(wrap)
+  } else {
+    for (const k of kids) out.push(...convertNode(k, ctx))
+  }
+  const s = ctx.sample(el)
+  if (s && s.ownText) out.unshift(bodyText(s.ownText))
+  return out
+}
+
+function convertNode(el: Element, ctx: Ctx): Node[] {
+  const tag = el.tagName.toUpperCase()
+  if (DROP.has(tag)) return [] // scripts stripped — rendered content already captured
+  if (el.matches(CHROME_SEL)) {
+    ctx.notes.push({
+      node: null,
+      kind: 'stripped-chrome',
+      note: `framework navigation chrome removed (${describe(el)}) — the dialect runtime replaces it`,
+    })
+    return []
+  }
+  if (tag === 'IMG') return [figure(el, ctx)]
+  if (tag === 'SVG') return [svgNode(el, ctx)]
+  if (UNMAPPABLE.has(tag)) {
+    return [island(el, ctx, `<${tag.toLowerCase()}> may carry live behavior we cannot verify`)]
+  }
+  if (el === ctx.titleEl) return [roleNode(el, 'dia-title', isHeading(el) ? el.tagName.toLowerCase() : 'h1')]
+  if (el === ctx.kickerEl) return [roleNode(el, 'dia-kicker', 'div')]
+  if (tag === 'UL' || tag === 'OL') return [structuredBody(el)]
+  if (tag === 'TABLE' || tag === 'DL') return [structuredBody(el)]
+  if (tag === 'P' || tag === 'BLOCKQUOTE' || tag === 'PRE') return [roleNode(el, 'dia-body', el.tagName.toLowerCase())]
+  if (isHeading(el)) return [roleNode(el, 'dia-body', el.tagName.toLowerCase())]
+  if (CONTAINER.has(tag)) {
+    if (isAbsoluteSoup(el, ctx)) return [island(el, ctx, 'position:absolute layout — geometry kept as-is')]
+    return convertContainerChildren(el, ctx)
+  }
+  const s = ctx.sample(el)
+  if ((s && s.ownChars > 0) || norm(el.textContent ?? '')) return [roleNode(el, 'dia-body', 'div')]
+  return []
+}
+
+/** ≥2 rendered rects side by side → columns */
+function detectColumns(kids: Element[], ctx: Ctx): Element[] | null {
+  if (kids.length < 2 || kids.length > 6) return null
+  const rects = kids.map((k) => ctx.sample(k))
+  if (rects.some((r) => !r || r.w < 2 || r.h < 2)) return null
+  const sorted = kids
+    .map((k, i) => ({ k, r: rects[i]! }))
+    .sort((a, b) => a.r.x - b.r.x)
+  for (let i = 1; i < sorted.length; i++) {
+    const a = sorted[i - 1].r
+    const b = sorted[i].r
+    if (b.x < a.x + a.w * 0.7) return null
+    const overlap = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y)
+    if (overlap < 0.4 * Math.min(a.h, b.h)) return null
+  }
+  return sorted.map((s) => s.k)
+}
+
+function isAbsoluteSoup(el: Element, ctx: Ctx): boolean {
+  const kids = [...el.children].filter((c) => !DROP.has(c.tagName.toUpperCase()))
+  if (kids.length < 2) return false
+  const abs = kids.filter((k) => {
+    const s = ctx.sample(k)
+    return s && (s.position === 'absolute' || s.position === 'fixed')
+  })
+  return abs.length / kids.length >= 0.5
+}
+
+function figure(img: Element, ctx: Ctx): HTMLElement {
+  const fig = div('dia-figure')
+  const im = document.createElement('img')
+  for (const a of ['src', 'alt', 'width', 'height']) {
+    const v = img.getAttribute(a)
+    if (v !== null) im.setAttribute(a, v)
+  }
+  const s = ctx.sample(img)
+  if (s && s.objectFit && s.objectFit !== 'fill') im.style.objectFit = s.objectFit
+  fig.appendChild(im)
+  return fig
+}
+
+function svgNode(el: Element, ctx: Ctx): Element {
+  const lifted = el.hasAttribute('data-dia-node') || el.querySelector('[data-dia-node]') !== null
+  const clone = document.importNode(el, true)
+  stripStamps(clone)
+  if (lifted) {
+    ctx.notes.push({ node: clone, kind: 'lifted-svg', note: 'scene svg with dia nodes — kept as an editable scene' })
+    return clone
+  }
+  const fig = div('dia-figure')
+  fig.appendChild(clone)
+  ctx.notes.push({ node: fig, kind: 'low-structure', note: 'static svg — semantic lift available with the dia service' })
+  return fig
+}
+
+/** the unmappable: original subtree preserved verbatim inside a marked island
+ * (stamps stripped; scripts stripped everywhere — the rendered state is the content) */
+function island(el: Element, ctx: Ctx, reason: string): HTMLElement {
+  const wrap = div('dia-island')
+  wrap.setAttribute('data-dia-island', '')
+  const clone = document.importNode(el, true)
+  stripStamps(clone)
+  for (const s of clone.querySelectorAll('script, noscript')) s.remove()
+  wrap.appendChild(clone)
+  ctx.islands++
+  ctx.notes.push({ node: wrap, kind: 'island', note: `preserved verbatim — ${reason}` })
+  return wrap
+}
+
+function roleNode(el: Element, cls: string, tag: string): HTMLElement {
+  const node = document.createElement(tag)
+  node.className = cls
+  node.innerHTML = cleanInnerHtml(el)
+  return node
+}
+
+/** lists/tables keep their structure, restyled as body */
+function structuredBody(el: Element): HTMLElement {
+  const node = document.createElement(el.tagName.toLowerCase())
+  node.className = 'dia-body'
+  node.innerHTML = cleanInnerHtml(el)
+  return node
+}
+
+function bodyText(text: string): HTMLElement {
+  const node = div('dia-body')
+  node.textContent = text
+  return node
+}
+
+function cleanInnerHtml(el: Element): string {
+  const clone = el.cloneNode(true) as Element
+  for (const s of clone.querySelectorAll('script, style, noscript')) s.remove()
+  stripStamps(clone)
+  return clone.innerHTML
+}
+
+function stripStamps(el: Element): void {
+  el.removeAttribute(STAMP)
+  for (const n of el.querySelectorAll(`[${STAMP}]`)) n.removeAttribute(STAMP)
+}
+
+function div(cls: string): HTMLDivElement {
+  const d = document.createElement('div')
+  d.className = cls
+  return d
+}
+
+function describe(el: Element): string {
+  const cls = el.classList[0] ? `.${el.classList[0]}` : ''
+  return `${el.tagName.toLowerCase()}${cls}`
+}
+
+/* ---------------- verification + finish ---------------- */
+
+/** TEXT IS SACRED: verify every visible source text survived conversion,
+ * derive honest structural confidence, resolve region-note locators. */
+function finalize(
+  section: HTMLElement,
+  slide: ExtractedSlide,
+  index: number,
+  notes: PendingNote[],
+  islands: number,
+): SlideConversion {
+  stripStamps(section)
+  const convText = norm(section.textContent ?? '')
+  let mapped = 0
+  let total = 0
+  const warnings: string[] = []
+  for (const t of slide.texts) {
+    total += t.length
+    if (convText.includes(t)) mapped += t.length
+    else warnings.push(`slide ${index + 1}: source text missing after conversion — "${t.slice(0, 60)}${t.length > 60 ? '…' : ''}"`)
+  }
+  const confidence = Math.round((total > 0 ? mapped / total : 1) * (islands > 0 ? 0.9 : 1) * 1000) / 1000
+
+  const regionNotes: RegionNote[] = notes.map((n) => ({
+    slideIndex: index,
+    locator: n.node && section.contains(n.node) ? locatorFor(n.node, section) : 'section.dia-slide',
+    kind: n.kind,
+    note: n.note,
+  }))
+
+  return { html: section.outerHTML, notes: regionNotes, confidence, warnings, islands }
+}
+
+/** css-path-ish locator within the converted slide */
+function locatorFor(node: Element, root: Element): string {
+  const parts: string[] = []
+  let cur: Element | null = node
+  while (cur && cur !== root) {
+    const cls = cur.classList[0] ? `.${cur.classList[0]}` : ''
+    let nth = ''
+    const parent: Element | null = cur.parentElement
+    if (parent) {
+      const same = [...parent.children].filter((c) => c.tagName === cur!.tagName)
+      if (same.length > 1) nth = `:nth-of-type(${same.indexOf(cur) + 1})`
+    }
+    parts.unshift(`${cur.tagName.toLowerCase()}${cls}${nth}`)
+    cur = parent
+  }
+  return ['section.dia-slide', ...parts].join(' > ')
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}

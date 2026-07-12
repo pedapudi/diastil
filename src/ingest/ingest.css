@@ -1,0 +1,239 @@
+/* diastil ingest — offscreen exec iframe + import-review overlay.
+ * zicato chrome: every color from the role tokens, no hardcoded hex,
+ * hairline var(--rule) borders, 4-5px radius, one accent on signal. */
+
+/* ---------- execution iframe (offscreen, fixed 1280×720) ---------- */
+
+iframe.dia-ingest-exec {
+  position: fixed;
+  left: -2000px;
+  top: 0;
+  width: 1280px;
+  height: 720px;
+  border: 0;
+  pointer-events: none;
+}
+
+/* ---------- overlay ---------- */
+
+.dia-review {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  outline: none;
+}
+
+.dia-review-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.dia-review-title {
+  font-family: var(--mono);
+  font-size: calc(11.5px * var(--dt-font-scale, 1));
+  color: var(--ink);
+}
+.dia-review-title .dim { color: var(--ink-faint); }
+
+.dia-review-spacer { flex: 1; }
+
+.dia-review-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+/* ---------- slide strip ---------- */
+
+.dia-review-strip {
+  width: 178px;
+  flex: none;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-right: 1px solid var(--rule);
+}
+
+.dia-strip-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: calc(11px * var(--dt-font-scale, 1));
+  color: var(--ink-soft);
+  text-align: left;
+}
+.dia-strip-row:hover { background: var(--rule-soft); }
+.dia-strip-row.is-current {
+  background: var(--panel);
+  border-color: var(--rule);
+  color: var(--ink);
+}
+
+.dia-strip-num { color: var(--ink-faint); }
+.dia-strip-ok { color: var(--good); }
+.dia-strip-conf { margin-left: auto; }
+.dia-strip-conf.is-good { color: var(--good); }
+.dia-strip-conf.is-caution { color: var(--caution); }
+
+/* state-word pill (island) — the only pill idiom allowed */
+.dia-pill {
+  font-family: var(--mono);
+  font-size: calc(9.5px * var(--dt-font-scale, 1));
+  line-height: 1.6;
+  padding: 0 7px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  color: var(--ink-soft);
+}
+
+/* ---------- main column ---------- */
+
+.dia-review-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.dia-review-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dia-cmp-hint {
+  font-family: var(--mono);
+  font-size: calc(10.5px * var(--dt-font-scale, 1));
+  color: var(--ink-faint);
+}
+
+/* ---------- compare panes ---------- */
+
+.dia-cmp {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  isolation: isolate;
+}
+
+.dia-cmp-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.dia-cmp-label {
+  font-family: var(--mono);
+  font-size: calc(10px * var(--dt-font-scale, 1));
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.dia-cmp-viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.dia-cmp-viewport > iframe {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1280px;
+  height: 720px;
+  border: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+/* overlay mode: converted stacks over original with difference blending —
+ * matching pixels read near-black */
+.dia-cmp[data-mode="overlay"] { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+.dia-cmp[data-mode="overlay"] .dia-cmp-pane { grid-area: 1 / 1; }
+.dia-cmp[data-mode="overlay"] .dia-cmp-label { display: none; }
+.dia-cmp[data-mode="overlay"] .dia-cmp-pane.is-converted {
+  background: transparent;
+  border-color: transparent;
+}
+.dia-cmp[data-mode="overlay"] .dia-cmp-pane.is-converted .dia-cmp-viewport { background: transparent; }
+.dia-cmp[data-mode="overlay"] .dia-cmp-pane.is-converted iframe { mix-blend-mode: difference; }
+
+/* ---------- verdict row ---------- */
+
+.dia-verdict {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dia-retry-wrap { display: inline-flex; }
+
+.dia-verdict-msg {
+  font-family: var(--mono);
+  font-size: calc(10.5px * var(--dt-font-scale, 1));
+  color: var(--bad);
+}
+
+/* ---------- region notes ---------- */
+
+.dia-notes {
+  max-height: 148px;
+  overflow-y: auto;
+  border-top: 1px solid var(--rule-soft);
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.dia-note {
+  font-family: var(--mono);
+  font-size: calc(10.5px * var(--dt-font-scale, 1));
+  line-height: 1.5;
+  color: var(--ink-soft);
+  display: flex;
+  gap: 10px;
+}
+.dia-note-kind { color: var(--ink-faint); flex: none; min-width: 104px; }
+.dia-note-loc { color: var(--ink-faint); margin-left: auto; flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dia-note.is-warning { color: var(--caution); }
+.dia-note.is-warning .dia-note-kind { color: var(--caution); }
+.dia-note.is-empty { color: var(--ink-faint); }
+
+/* focus rings (tokens.css also provides the global rule) */
+.dia-review :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* no animation is used in this module; guard any future additions */
+@media (prefers-reduced-motion: reduce) {
+  .dia-review *, .dia-review *::before, .dia-review *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
