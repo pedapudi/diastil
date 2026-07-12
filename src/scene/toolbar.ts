@@ -17,6 +17,10 @@ import {
 
 const SHAPES: [NodeShape, string][] = [
   ['rect', 'rect'], ['rounded', 'rnd'], ['pill', 'pill'], ['ellipse', 'ell'], ['diamond', 'diam'],
+  ['cylinder', 'cyl'], ['hex', 'hex'], ['parallelogram', 'par'], ['triangle', 'tri'],
+  ['cloud', 'cloud'], ['note', 'note'],
+  // 'path' is import-only (freeform outline via data-path); the toolbar
+  // offers no blank freeform node, so it is absent here on purpose
 ]
 const ROUTES: [EdgeRoute, string][] = [
   ['straight', 'line'], ['ortho', 'orth'], ['curve', 'curve'],

@@ -94,3 +94,72 @@ describe('routeOrtho', () => {
     }
   })
 })
+
+/* ---------- node shape rendering (happy-dom) ---------- */
+
+import { createNode, renderNodeShape, shapePathD } from './route'
+import type { NodeShape } from '../types'
+
+function sceneEl(): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg') as SVGSVGElement
+  svg.setAttribute('class', 'dia-scene')
+  svg.setAttribute('viewBox', '0 0 400 300')
+  document.body.appendChild(svg)
+  return svg
+}
+
+describe('renderNodeShape', () => {
+  const g: NodeGeom = { x: 10, y: 20, w: 120, h: 60 }
+
+  it.each([
+    ['rect', 'rect'], ['rounded', 'rect'], ['pill', 'rect'], ['ellipse', 'ellipse'],
+    ['diamond', 'path'], ['cylinder', 'path'], ['hex', 'path'], ['parallelogram', 'path'],
+    ['triangle', 'path'], ['cloud', 'path'], ['note', 'path'],
+  ] as [NodeShape, string][])('%s renders as <%s>', (shape, tag) => {
+    const scene = sceneEl()
+    const node = createNode(scene, 'n', g, 'label', shape)
+    const el = node.querySelector('.dia-node-shape')!
+    expect(el.tagName).toBe(tag)
+    if (tag === 'path') {
+      const d = el.getAttribute('d') ?? ''
+      expect(d.startsWith('M')).toBe(true)
+      // every coordinate stays within the node box (small epsilon for fmt
+      // rounding) — skipped for arc shapes, where A rx,ry pairs are radii
+      for (const m of d.includes('A') ? [] : d.matchAll(/(-?\d+\.?\d*),(-?\d+\.?\d*)/g)) {
+        expect(Number(m[1])).toBeGreaterThanOrEqual(g.x - 0.01)
+        expect(Number(m[1])).toBeLessThanOrEqual(g.x + g.w + 0.01)
+        expect(Number(m[2])).toBeGreaterThanOrEqual(g.y - 0.01)
+        expect(Number(m[2])).toBeLessThanOrEqual(g.y + g.h + 0.01)
+      }
+    }
+    scene.remove()
+  })
+
+  it('path shape scales data-path into the box and keeps stroke width constant', () => {
+    const scene = sceneEl()
+    const node = createNode(scene, 'ring', g, '', 'path')
+    node.setAttribute('data-path', 'M10,50 A40,40 0 1 1 90,50 A40,40 0 1 1 10,50 Z')
+    renderNodeShape(node)
+    const el = node.querySelector('.dia-node-shape')!
+    expect(el.getAttribute('d')).toContain('A40,40')
+    expect(el.getAttribute('transform')).toBe('translate(10,20) scale(1.2,0.6)')
+    expect(el.getAttribute('vector-effect')).toBe('non-scaling-stroke')
+    scene.remove()
+  })
+
+  it('re-rendering after a shape change swaps the element tag', () => {
+    const scene = sceneEl()
+    const node = createNode(scene, 'n2', g, 'db', 'rect')
+    expect(node.querySelector('.dia-node-shape')!.tagName).toBe('rect')
+    node.setAttribute('data-shape', 'cylinder')
+    renderNodeShape(node)
+    expect(node.querySelector('.dia-node-shape')!.tagName).toBe('path')
+    scene.remove()
+  })
+
+  it('shapePathD outlines close (Z) for fillable shapes', () => {
+    for (const shape of ['diamond', 'hex', 'parallelogram', 'triangle', 'cloud', 'note', 'cylinder'] as NodeShape[]) {
+      expect(shapePathD(shape, g)).toContain('Z')
+    }
+  })
+})

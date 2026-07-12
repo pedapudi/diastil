@@ -125,6 +125,35 @@ describe('scene rules', () => {
     expect(rules(r)).toContain('scene/node-shape')
   })
 
+  it('scene/node-shape — parametric shapes are in-vocabulary', () => {
+    const r = check((d) => {
+      const nodes = scene(d).querySelectorAll('[data-dia-node]')
+      nodes[0].setAttribute('data-shape', 'cylinder')
+      nodes[1].setAttribute('data-shape', 'cloud')
+    })
+    expect(rules(r)).not.toContain('scene/node-shape')
+  })
+
+  it('scene/node-path — shape "path" requires data-path', () => {
+    const r = check((d) => scene(d).querySelector('[data-dia-node]')!.setAttribute('data-shape', 'path'))
+    expect(rules(r)).toContain('scene/node-path')
+  })
+
+  it('scene/node-path — well-formed data-path passes, junk fails', () => {
+    const ok = check((d) => {
+      const n = scene(d).querySelector('[data-dia-node]')!
+      n.setAttribute('data-shape', 'path')
+      n.setAttribute('data-path', 'M10,50 A40,40 0 1 1 90,50 A40,40 0 1 1 10,50 Z')
+    })
+    expect(rules(ok)).not.toContain('scene/node-path')
+    const bad = check((d) => {
+      const n = scene(d).querySelector('[data-dia-node]')!
+      n.setAttribute('data-shape', 'path')
+      n.setAttribute('data-path', 'url(javascript:alert(1))')
+    })
+    expect(rules(bad)).toContain('scene/node-path')
+  })
+
   it('scene/edge-endpoint — dangling edge', () => {
     const r = check((d) => scene(d).querySelector('[data-dia-edge]')!.setAttribute('data-dia-edge', 'original->nowhere'))
     expect(rules(r)).toContain('scene/edge-endpoint')

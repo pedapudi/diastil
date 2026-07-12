@@ -36,12 +36,14 @@ export function getShape(node: SVGGElement): NodeShape {
   return (node.getAttribute('data-shape') as NodeShape) || 'rounded'
 }
 
+const RECT_SHAPES = new Set<NodeShape>(['rect', 'rounded', 'pill'])
+
 /** (re)build the node's shape + center its label from geometry attributes */
 export function renderNodeShape(node: SVGGElement): void {
   const g = getNodeGeom(node)
   const shape = getShape(node)
   let el = node.querySelector<SVGGraphicsElement>('.dia-node-shape')
-  const needTag = shape === 'ellipse' ? 'ellipse' : shape === 'diamond' ? 'path' : 'rect'
+  const needTag = shape === 'ellipse' ? 'ellipse' : RECT_SHAPES.has(shape) ? 'rect' : 'path'
   if (!el || el.tagName !== needTag) {
     const fresh = document.createElementNS(NS, needTag) as SVGGraphicsElement
     fresh.setAttribute('class', 'dia-node-shape')
@@ -55,9 +57,16 @@ export function renderNodeShape(node: SVGGElement): void {
   } else if (needTag === 'ellipse') {
     el.setAttribute('cx', fmt(g.x + g.w / 2)); el.setAttribute('cy', fmt(g.y + g.h / 2))
     el.setAttribute('rx', fmt(g.w / 2)); el.setAttribute('ry', fmt(g.h / 2))
+  } else if (shape === 'path') {
+    // freeform outline in a 100×100-normalized space, scaled into the box.
+    // vector-effect keeps stroke width constant under the scale transform.
+    el.setAttribute('d', node.getAttribute('data-path') ?? 'M0,0 L100,100')
+    el.setAttribute('transform',
+      `translate(${fmt(g.x)},${fmt(g.y)}) scale(${fmt(g.w / 100)},${fmt(g.h / 100)})`)
+    el.setAttribute('vector-effect', 'non-scaling-stroke')
   } else {
-    const cx = g.x + g.w / 2, cy = g.y + g.h / 2
-    el.setAttribute('d', `M${fmt(cx)},${fmt(g.y)} L${fmt(g.x + g.w)},${fmt(cy)} L${fmt(cx)},${fmt(g.y + g.h)} L${fmt(g.x)},${fmt(cy)} Z`)
+    el.removeAttribute('transform')
+    el.setAttribute('d', shapePathD(shape, g))
   }
   const label = node.querySelector<SVGTextElement>('.dia-node-label')
   if (label) {
@@ -65,6 +74,58 @@ export function renderNodeShape(node: SVGGElement): void {
     label.setAttribute('y', fmt(g.y + g.h / 2))
     label.setAttribute('text-anchor', 'middle')
     label.setAttribute('dominant-baseline', 'central')
+  }
+}
+
+/** outline path for the parametric (non-rect, non-ellipse) shapes */
+export function shapePathD(shape: NodeShape, g: NodeGeom): string {
+  const { x, y, w, h } = g
+  const cx = x + w / 2, cy = y + h / 2
+  switch (shape) {
+    case 'diamond':
+      return `M${fmt(cx)},${fmt(y)} L${fmt(x + w)},${fmt(cy)} L${fmt(cx)},${fmt(y + h)} L${fmt(x)},${fmt(cy)} Z`
+    case 'cylinder': {
+      const ry = Math.min(h * 0.15, 14), rx = w / 2
+      return (
+        `M${fmt(x)},${fmt(y + ry)} A${fmt(rx)},${fmt(ry)} 0 0 1 ${fmt(x + w)},${fmt(y + ry)} ` +
+        `V${fmt(y + h - ry)} A${fmt(rx)},${fmt(ry)} 0 0 1 ${fmt(x)},${fmt(y + h - ry)} Z ` +
+        `M${fmt(x)},${fmt(y + ry)} A${fmt(rx)},${fmt(ry)} 0 0 0 ${fmt(x + w)},${fmt(y + ry)}`
+      )
+    }
+    case 'hex': {
+      const d = Math.min(w * 0.25, h / 2)
+      return (
+        `M${fmt(x + d)},${fmt(y)} L${fmt(x + w - d)},${fmt(y)} L${fmt(x + w)},${fmt(cy)} ` +
+        `L${fmt(x + w - d)},${fmt(y + h)} L${fmt(x + d)},${fmt(y + h)} L${fmt(x)},${fmt(cy)} Z`
+      )
+    }
+    case 'parallelogram': {
+      const s = Math.min(w * 0.2, 24)
+      return `M${fmt(x + s)},${fmt(y)} L${fmt(x + w)},${fmt(y)} L${fmt(x + w - s)},${fmt(y + h)} L${fmt(x)},${fmt(y + h)} Z`
+    }
+    case 'triangle':
+      return `M${fmt(cx)},${fmt(y)} L${fmt(x + w)},${fmt(y + h)} L${fmt(x)},${fmt(y + h)} Z`
+    case 'cloud': {
+      const px = (f: number) => fmt(x + w * f), py = (f: number) => fmt(y + h * f)
+      return (
+        `M${px(0.22)},${py(0.85)} ` +
+        `C${px(0.05)},${py(0.85)} ${px(0)},${py(0.62)} ${px(0.08)},${py(0.5)} ` +
+        `C${px(0)},${py(0.3)} ${px(0.16)},${py(0.2)} ${px(0.3)},${py(0.24)} ` +
+        `C${px(0.36)},${py(0.08)} ${px(0.62)},${py(0.08)} ${px(0.7)},${py(0.22)} ` +
+        `C${px(0.87)},${py(0.16)} ${px(1)},${py(0.32)} ${px(0.94)},${py(0.5)} ` +
+        `C${px(1)},${py(0.65)} ${px(0.93)},${py(0.85)} ${px(0.78)},${py(0.85)} Z`
+      )
+    }
+    case 'note': {
+      const f = Math.min(14, w * 0.2, h * 0.3)
+      return (
+        `M${fmt(x)},${fmt(y)} L${fmt(x + w - f)},${fmt(y)} L${fmt(x + w)},${fmt(y + f)} ` +
+        `L${fmt(x + w)},${fmt(y + h)} L${fmt(x)},${fmt(y + h)} Z ` +
+        `M${fmt(x + w - f)},${fmt(y)} L${fmt(x + w - f)},${fmt(y + f)} L${fmt(x + w)},${fmt(y + f)}`
+      )
+    }
+    default:
+      return `M${fmt(x)},${fmt(y)} H${fmt(x + w)} V${fmt(y + h)} H${fmt(x)} Z`
   }
 }
 
