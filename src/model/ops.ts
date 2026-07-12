@@ -77,8 +77,8 @@ export function removeEl(el: Element, label?: string, by?: 'you' | 'copilot'): O
 }
 
 /** move an element to (parent, index) — slide reorder, layout moves */
-export function moveEl(el: Element, toParent: Element, toIndex: number, label?: string, by?: 'you' | 'copilot'): Op {
-  const fromParent = el.parentElement as Element
+export function moveEl(el: Element, toParent: ParentNode, toIndex: number, label?: string, by?: 'you' | 'copilot'): Op {
+  const fromParent = (el.parentElement ?? el.parentNode) as ParentNode & Element
   const fromIndex = [...fromParent.children].indexOf(el)
   return {
     label: label ?? `Move ${describe(el)}`,
@@ -87,7 +87,7 @@ export function moveEl(el: Element, toParent: Element, toIndex: number, label?: 
       const ref = toParent.children[toIndex] ?? null
       toParent.insertBefore(el, ref === el ? el.nextSibling : ref)
     },
-    invert() { return moveEl(el, fromParent, fromIndex, label && `un-${label}`, author(by)) },
+    invert() { return moveEl(el, fromParent as ParentNode & Element, fromIndex, label && `un-${label}`, author(by)) },
   }
 }
 
