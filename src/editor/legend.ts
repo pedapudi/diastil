@@ -7,6 +7,7 @@ const SECTIONS: Array<[string, Array<[string, string]>]> = [
   ['anywhere', [
     ['⌘S', 'save the deck'],
     ['⌘Z · ⇧⌘Z', 'undo · redo (history continues across sessions)'],
+    ['\\', 'show / hide the right rail'],
     ['/', 'this legend'],
   ]],
   ['table', [

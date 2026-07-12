@@ -157,11 +157,23 @@ export function mountCopilot(host: HTMLElement): void {
 
   function buildContext(): ChatContext {
     const deck = state.deck
+    // multi-slide awareness: the previous, current, and next slides ride
+    // along (size-capped) so answers can reason across the flow, not just
+    // the selection — the same context in either altitude
+    const slides = state.slides()
+    const i = state.currentSlide
+    const cap = (el: HTMLElement | undefined): string | null => {
+      if (!el) return null
+      const html = el.outerHTML
+      return html.length > 6000 ? `${html.slice(0, 6000)}\n<!-- …truncated -->` : html
+    }
     return {
       altitude: state.altitude,
-      slideIndex: state.currentSlide,
+      slideIndex: i,
       selectionHtml: selectionHtml(state.selection),
       tokensCss: deck?.themeStyle.textContent ?? '',
+      flowNeighborsHtml: [cap(slides[i - 1]), cap(slides[i]), cap(slides[i + 1])]
+        .filter((s): s is string => s !== null),
     }
   }
 

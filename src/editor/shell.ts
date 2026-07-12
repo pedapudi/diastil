@@ -106,7 +106,25 @@ export function mountEditor(host: HTMLElement): void {
     tabsBar.append(btn)
     tabs.push({ btn, pane })
   }
+  const railHide = h('button', 'de-rail-hide', '⇥')
+  railHide.type = 'button'
+  railHide.title = 'hide the rail (\\)'
+  railHide.addEventListener('click', () => setRail(false))
+  tabsBar.append(railHide)
   rail.append(tabsBar, inspectPane, copilotPane, tokensPane)
+
+  const railRestore = h('button', 'de-rail-restore', '⇤')
+  railRestore.type = 'button'
+  railRestore.title = 'show the rail (\\)'
+  railRestore.addEventListener('click', () => setRail(true))
+  host.append(railRestore)
+
+  function setRail(on: boolean): void {
+    layout.classList.toggle('de-rail-off', !on)
+    railRestore.hidden = on
+    try { localStorage.setItem('dia-rail', on ? 'on' : 'off') } catch { /* private mode */ }
+  }
+  setRail((() => { try { return localStorage.getItem('dia-rail') !== 'off' } catch { return true } })())
 
   /* ---------- dirty tracking ---------- */
 
@@ -202,6 +220,11 @@ export function mountEditor(host: HTMLElement): void {
     if (!mod && (e.key === '/' || e.key === '?')) {
       e.preventDefault()
       toggleLegend()
+      return
+    }
+    if (!mod && e.key === '\\') {
+      e.preventDefault()
+      setRail(layout.classList.contains('de-rail-off'))
       return
     }
     if (mod && (e.key === 'z' || e.key === 'Z')) {
