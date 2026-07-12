@@ -6,14 +6,24 @@ import { routeEdgesOf, setNodeGeom, getNodeGeom } from '../scene/route'
 
 const author = (a?: 'you' | 'copilot') => a ?? 'you'
 
-/** replace an element's text content (role text editing) */
+/** replace an element's text content (role text editing).
+ * The inverse restores the exact previous child nodes, not just the flattened
+ * text — setText on a container (e.g. a copilot proposal) must undo cleanly. */
 export function setText(el: HTMLElement, text: string, by?: 'you' | 'copilot'): Op {
-  const prev = el.textContent ?? ''
+  const prevNodes = [...el.childNodes]
   return {
     label: `SetText ${describe(el)}`,
     author: author(by),
     apply() { el.textContent = text },
-    invert() { return setText(el, prev, author(by)) },
+    invert() {
+      const redo = () => setText(el, text, author(by))
+      return {
+        label: `un-SetText ${describe(el)}`,
+        author: author(by),
+        apply() { el.replaceChildren(...prevNodes) },
+        invert: redo,
+      }
+    },
   }
 }
 

@@ -15,11 +15,14 @@ export function loadDeck(html: string, host: HTMLElement, fileName: string): Dec
   const root = host.shadowRoot ?? host.attachShadow({ mode: 'open' })
   root.replaceChildren()
 
-  // collect head extras we must not lose (meta, links other than our own)
+  // collect head extras we must not lose (meta, links other than our own);
+  // charset + viewport are the serializer's own frame — keeping them here
+  // would duplicate them on every save and break round-trip stability
   const headExtras = [...doc.head.children]
     .filter((el) => !(el instanceof HTMLTitleElement))
     .filter((el) => !(el instanceof HTMLStyleElement))
     .filter((el) => !(el instanceof HTMLScriptElement))
+    .filter((el) => !el.matches('meta[charset], meta[name="viewport"]'))
     .map((el) => el.outerHTML)
     .join('\n')
 
