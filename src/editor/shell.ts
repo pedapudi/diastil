@@ -20,7 +20,7 @@ import { mountCopilot } from '../copilot/rail'
 import { mountTable, scrollToSlide } from './table'
 import { mountMinimap } from './minimap'
 import { installHistory } from './history'
-import { installImageEditing } from './imagedrag'
+import { installElementDragging } from './elemdrag'
 import { legendOpen, toggleLegend, closeLegend } from './legend'
 import { installTextEditing } from './textedit'
 import { bootFromCli, openDeck, saveDeck, presentDeck } from './slides'
@@ -292,7 +292,7 @@ export function mountEditor(host: HTMLElement): void {
   mountTable(main, canvasHost)
   mountMinimap(minimapEl)
   installTextEditing(canvasHost)
-  installImageEditing()
+  installElementDragging()
   installHistory(canvasHost)
   mountThemePicker(pickerSlot)
   mountTypePicker(pickerSlot)
