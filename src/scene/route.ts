@@ -61,8 +61,11 @@ export function renderNodeShape(node: SVGGElement): void {
     // freeform outline in a 100×100-normalized space, scaled into the box.
     // vector-effect keeps stroke width constant under the scale transform.
     el.setAttribute('d', node.getAttribute('data-path') ?? 'M0,0 L100,100')
+    // scale needs more precision than fmt: a 2dp scale error is ×100 in
+    // normalized units — enough to visibly shift an imported outline
+    const prec = (n: number) => String(Math.round(n * 100000) / 100000)
     el.setAttribute('transform',
-      `translate(${fmt(g.x)},${fmt(g.y)}) scale(${fmt(g.w / 100)},${fmt(g.h / 100)})`)
+      `translate(${fmt(g.x)},${fmt(g.y)}) scale(${prec(g.w / 100)},${prec(g.h / 100)})`)
     el.setAttribute('vector-effect', 'non-scaling-stroke')
   } else {
     el.removeAttribute('transform')

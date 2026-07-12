@@ -25,6 +25,17 @@ export interface ElementSample {
   textTransform: string
   position: string
   objectFit: string
+  /** paint facts for CSS-drawn decorative shapes (convert reproduces the
+   * exact ones as scene svg; the rest stay with their containers) */
+  background: string
+  bgImage: string
+  borderW: number
+  borderColor: string
+  borderStyle: string
+  /** all four sides share width/style/color */
+  borderUniform: boolean
+  radius: string
+  transform: string
   /** length of the element's own (direct) text, whitespace-normalized */
   ownChars: number
   ownText: string
@@ -184,6 +195,19 @@ function harvestVisibleSlide(
       textTransform: cs.textTransform,
       position: cs.position,
       objectFit: cs.objectFit,
+      background: cs.backgroundColor,
+      bgImage: cs.backgroundImage,
+      borderW: parseFloat(cs.borderTopWidth) || 0,
+      borderColor: cs.borderTopColor,
+      borderStyle: cs.borderTopStyle,
+      borderUniform:
+        cs.borderTopWidth === cs.borderBottomWidth && cs.borderTopWidth === cs.borderLeftWidth &&
+        cs.borderTopWidth === cs.borderRightWidth && cs.borderTopStyle === cs.borderBottomStyle &&
+        cs.borderTopStyle === cs.borderLeftStyle && cs.borderTopStyle === cs.borderRightStyle &&
+        cs.borderTopColor === cs.borderBottomColor && cs.borderTopColor === cs.borderLeftColor &&
+        cs.borderTopColor === cs.borderRightColor,
+      radius: cs.borderRadius,
+      transform: cs.transform,
       ownChars: ownText.length,
       ownText,
     }

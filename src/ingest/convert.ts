@@ -8,6 +8,8 @@
 import { defaultThemeCss } from '../model/parse'
 import type { RegionNote, ImportReport } from '../types'
 import { STAMP, norm, type ElementSample, type ExtractedSlide, type Extraction } from './extract'
+import { liftSimpleSvg, roundedRectPath } from './svglift'
+import { renderNodeShape } from '../scene/route'
 
 export interface SlideConversion {
   html: string
@@ -34,6 +36,8 @@ interface Ctx {
   kickerEl: Element | null
   notes: PendingNote[]
   islands: number
+  /** the slide's rendered rect — CSS-shape geometry is expressed relative to it */
+  slideRect: { x: number; y: number; w: number; h: number }
   sample(el: Element): ElementSample | undefined
 }
 
@@ -94,6 +98,7 @@ export function convertSlide(
     kickerEl: null,
     notes: [],
     islands: 0,
+    slideRect: slide.rect,
     sample(el: Element): ElementSample | undefined {
       const idx = el.getAttribute(STAMP)
       return idx === null ? undefined : slide.samples[Number(idx)]
@@ -280,6 +285,8 @@ function convertNode(el: Element, ctx: Ctx): Node[] {
   if (UNMAPPABLE.has(tag)) {
     return [island(el, ctx, `<${tag.toLowerCase()}> may carry live behavior we cannot verify`)]
   }
+  const shape = cssShape(el, ctx)
+  if (shape) return [shape]
   if (el === ctx.titleEl) return [roleNode(el, 'dia-title', isHeading(el) ? el.tagName.toLowerCase() : 'h1')]
   if (el === ctx.kickerEl) return [roleNode(el, 'dia-kicker', 'div')]
   if (tag === 'UL' || tag === 'OL') return [structuredBody(el)]
@@ -364,10 +371,111 @@ function svgNode(el: Element, ctx: Ctx): Element {
     ctx.notes.push({ node: clone, kind: 'lifted-svg', note: 'scene svg with dia nodes — kept as an editable scene' })
     return clone
   }
+  // deterministic promotion: provably-exact shapes become editable scene
+  // nodes in place; text/edges stay verbatim (the LLM lift adds semantics)
+  const n = liftSimpleSvg(clone)
+  if (n > 0) {
+    ctx.notes.push({
+      node: clone,
+      kind: 'lifted-svg',
+      note: `${n} shape${n > 1 ? 's' : ''} lifted into an editable scene — edge/label semantics via the dia service`,
+    })
+    return clone
+  }
   const fig = div('dia-figure')
   fig.appendChild(clone)
   ctx.notes.push({ node: fig, kind: 'low-structure', note: 'static svg — semantic lift available with the dia service' })
   return fig
+}
+
+/** CSS-drawn decorative shape → one-node scene svg, exactly reproduced.
+ * Only the provably exact cases convert: an absolutely-positioned leaf with
+ * no text, a solid uniform background/border, no gradient, no transform,
+ * and a simple border-radius. Geometry is expressed in slide-relative
+ * percentages so it survives any render scale. Everything else keeps the
+ * current behavior (the pixel loop reports what was lost). */
+function cssShape(el: Element, ctx: Ctx): Element | null {
+  const s = ctx.sample(el)
+  if (!s || el.children.length > 0 || s.ownChars > 0) return null
+  if (s.position !== 'absolute' && s.position !== 'fixed') return null
+  if (s.transform && s.transform !== 'none') return null
+  if (s.bgImage && s.bgImage !== 'none') return null
+  const filled = !isTransparentColor(s.background)
+  const stroked = s.borderW > 0
+  if (!filled && !stroked) return null
+  if (stroked && (s.borderStyle !== 'solid' || !s.borderUniform)) return null
+  if (s.w < 2 || s.h < 2) return null
+  const radius = parseRadius(s.radius, s.w, s.h)
+  if (radius === null) return null
+
+  // CSS paints the border inside the box edge; SVG centers strokes on the
+  // outline — inset by half the border so the outer edges coincide
+  const inset = stroked ? s.borderW / 2 : 0
+  const g: { x: number; y: number; w: number; h: number } = {
+    x: inset, y: inset, w: s.w - 2 * inset, h: s.h - 2 * inset,
+  }
+  const r = Math.max(0, radius - inset)
+  let shape: 'rect' | 'ellipse' | 'pill' | 'path'
+  let path: string | undefined
+  if (radius === Infinity || r >= Math.min(g.w, g.h) / 2 - 0.01) {
+    // fully rounded: a circle/ellipse when radius saturates both axes,
+    // a pill when only the short axis saturates
+    if (radius === Infinity) shape = 'ellipse'
+    else if (g.h <= g.w) shape = 'pill'
+    else { shape = 'path'; path = roundedRectPath((g.w / 2) * (100 / g.w), (g.w / 2) * (100 / g.h)) }
+  } else if (r <= 0.01) {
+    shape = 'rect'
+  } else {
+    shape = 'path'
+    path = roundedRectPath(r * (100 / g.w), r * (100 / g.h))
+  }
+
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg') as SVGSVGElement
+  svg.setAttribute('class', 'dia-scene')
+  svg.setAttribute('viewBox', `0 0 ${Math.round(s.w * 100) / 100} ${Math.round(s.h * 100) / 100}`)
+  const sr = ctx.slideRect
+  const pct = (v: number, of: number) => `${Math.round((v / of) * 10000) / 100}%`
+  svg.setAttribute('style',
+    `position:absolute; left:${pct(s.x - sr.x, sr.w)}; top:${pct(s.y - sr.y, sr.h)}; ` +
+    `width:${pct(s.w, sr.w)}; height:${pct(s.h, sr.h)};`)
+  const node = document.createElementNS('http://www.w3.org/2000/svg', 'g') as SVGGElement
+  node.setAttribute('data-dia-node', 'd1')
+  node.setAttribute('data-shape', shape)
+  if (path) node.setAttribute('data-path', path)
+  node.setAttribute('data-x', String(Math.round(g.x * 100) / 100))
+  node.setAttribute('data-y', String(Math.round(g.y * 100) / 100))
+  node.setAttribute('data-w', String(Math.round(g.w * 100) / 100))
+  node.setAttribute('data-h', String(Math.round(g.h * 100) / 100))
+  node.setAttribute('style',
+    `--dia-node-fill: ${filled ? s.background : 'none'}; ` +
+    `--dia-node-stroke: ${stroked ? s.borderColor : 'none'}; ` +
+    `--dia-node-stroke-w: ${stroked ? s.borderW : 1}`)
+  svg.appendChild(node)
+  renderNodeShape(node)
+  ctx.notes.push({
+    node: svg, kind: 'lifted-svg',
+    note: 'css-drawn shape reproduced as an editable scene node',
+  })
+  return svg
+}
+
+function isTransparentColor(c: string): boolean {
+  return !c || c === 'transparent' || /^rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*0\s*\)$/.test(c)
+}
+
+/** single-value border-radius → px (Infinity for the 50% ellipse case);
+ * null = compound/mixed radius we won't reproduce */
+function parseRadius(radius: string, w: number, h: number): number | null {
+  const v = (radius ?? '').trim()
+  if (!v || v === '0px') return 0
+  if (/^\d+(\.\d+)?%$/.test(v)) {
+    const p = parseFloat(v)
+    if (p >= 50) return Infinity
+    // percentage radii are per-axis (elliptical corners) — exact only when square
+    return w === h ? (p / 100) * w : null
+  }
+  if (/^\d+(\.\d+)?px$/.test(v)) return parseFloat(v)
+  return null
 }
 
 /** the unmappable: original subtree preserved verbatim inside a marked island
