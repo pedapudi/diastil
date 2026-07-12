@@ -4,7 +4,8 @@
 import { setImportReport } from '../editor/table'
 import { loadDeck } from '../model/parse'
 import { state } from '../state'
-import type { ImportResult } from '../types'
+import type { ImportReport, ImportResult } from '../types'
+import { validateDeckHtml } from '../model/validate'
 import { convertSlides, buildReport, assembleDeck } from './convert'
 import { executeSource } from './execute'
 import { extractSlides } from './extract'
@@ -29,10 +30,19 @@ export async function startImport(html: string, name: string): Promise<void> {
   if (!host) throw new Error('ingest: #deck-host not found — the shell must render the canvas host before import')
 
   const fileName = name.replace(/\.html?$/, '') + '.dia.html'
+  appendProfileFindings(outcome.report, outcome.deckHtml)
   const deck = loadDeck(outcome.deckHtml, host, fileName)
   state.deck = deck
   state.bus.emit({ type: 'deck-loaded' })
   setImportReport(outcome.report)
+}
+
+/** Fold profile-validator findings into an import report — every import
+ * ships with a profile verdict, never a silent maybe. */
+function appendProfileFindings(report: ImportReport, deckHtml: string): void {
+  for (const f of validateDeckHtml(deckHtml).findings) {
+    report.warnings.push(`profile ${f.level} ${f.rule}${f.locator ? ` at ${f.locator}` : ''}: ${f.message}`)
+  }
 }
 
 /** Run only the headless part of the pipeline (no UI) — used for programmatic
@@ -42,9 +52,12 @@ export async function runPipeline(html: string, name: string): Promise<ImportRes
   const extraction = extractSlides(execution)
   const conversions = convertSlides(extraction)
   const title = name.replace(/\.html?$/, '')
+  const deckHtml = assembleDeck(conversions.map((c) => c.html), extraction.tokens, title)
+  const report = buildReport(extraction, name, conversions)
+  appendProfileFindings(report, deckHtml)
   return {
-    deckHtml: assembleDeck(conversions.map((c) => c.html), extraction.tokens, title),
-    report: buildReport(extraction, name, conversions),
+    deckHtml,
+    report,
     originalSlides: extraction.slides.map((s) => s.originalHtml),
     cleanup: () => execution.iframe.remove(),
   }
