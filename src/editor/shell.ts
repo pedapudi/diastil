@@ -16,8 +16,10 @@ import { mountCopilot } from '../copilot/rail'
 import { mountTable, activateTable, deactivateTable, scrollToSlide } from './table'
 import { mountStage, enterStage, exitStage, stageFlipTarget } from './stage'
 import { mountMinimap } from './minimap'
+import { installHistory } from './history'
+import { legendOpen, toggleLegend, closeLegend } from './legend'
 import { installTextEditing } from './textedit'
-import { bootFromCli, openDeck, importForeign, saveDeck, presentDeck } from './slides'
+import { bootFromCli, openDeck, saveDeck, presentDeck } from './slides'
 
 /* styles that must live inside the deck shadow root; serialization strips
  * style.dia-editor-artifact (slides.ts removes them around serializeDeck) */
@@ -50,9 +52,7 @@ export function mountEditor(host: HTMLElement): void {
   seg.append(segTable, segStage, segPresent)
 
   const btnOpen = dnButton('open', () => { void openDeck(canvasHost) })
-  btnOpen.title = 'open a deck — diastil files load directly; foreign HTML is converted first'
-  const btnImport = dnButton('import', () => { void importForeign() })
-  btnImport.title = 'convert a foreign HTML deck (reveal, Marp, agent output, …) via the review screen'
+  btnOpen.title = 'open any HTML deck — diastil files load directly; foreign decks convert through review'
   const btnSave = dnButton('save', () => { void doSave() })
   btnSave.title = 'write the deck back as self-contained HTML (⌘S)'
 
@@ -63,7 +63,7 @@ export function mountEditor(host: HTMLElement): void {
   const statusWord = h('span', '', 'valid · v1')
   status.append(h('span', 'de-sdot'), statusWord)
 
-  topbar.append(brand, crumbs, h('div', 'de-spacer'), seg, btnOpen, btnImport, btnSave, pickerSlot, status)
+  topbar.append(brand, crumbs, h('div', 'de-spacer'), seg, btnOpen, btnSave, pickerSlot, status)
 
   /* ---------- layout ---------- */
 
@@ -119,6 +119,7 @@ export function mountEditor(host: HTMLElement): void {
           installDeckArtifacts(deck)
           routeAllScenes(deck)
         }
+        state.resetLog() // old ops reference the previous document's elements
         tick = 0
         savedTick = 0
         state.selection = { kind: 'none' }
@@ -171,6 +172,7 @@ export function mountEditor(host: HTMLElement): void {
   mountStage(main, canvasHost)
   mountMinimap(minimapEl)
   installTextEditing(canvasHost)
+  installHistory(canvasHost)
   mountThemePicker(pickerSlot)
   mountTypePicker(pickerSlot)
   mountCopilot(copilotPane)
@@ -187,6 +189,16 @@ export function mountEditor(host: HTMLElement): void {
     const inField = e.composedPath().some((t) =>
       t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable))
     if (inField) return
+    if (legendOpen() && (e.key === 'Escape' || e.key === '/' || e.key === '?')) {
+      e.preventDefault()
+      closeLegend()
+      return
+    }
+    if (!mod && (e.key === '/' || e.key === '?')) {
+      e.preventDefault()
+      toggleLegend()
+      return
+    }
     if (mod && (e.key === 'z' || e.key === 'Z')) {
       e.preventDefault()
       if (e.shiftKey) state.redo()

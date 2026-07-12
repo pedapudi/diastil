@@ -13,7 +13,8 @@ and every slide is pixel-diffed against the original's rendering.
 
 ## Running an import
 
-- Editor: `import` button (or `open` on a non-dialect file) → pick the file.
+- Editor: `open` and pick the file — foreign HTML is detected automatically
+  and routed through conversion (dialect files just load).
 - CLI: `dia ingest foreign.html` opens the editor straight into review.
 - Programmatic (dev): `window.__diaImport(html, name)`.
 - Headless (no UI): `runPipeline(html, name)` in `src/ingest/pipeline.ts`.
