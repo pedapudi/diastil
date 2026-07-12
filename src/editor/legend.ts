@@ -3,10 +3,18 @@
 
 import './editor.css'
 
+/* platform-aware key labels: ⌘/⌥ are macOS glyphs; on Linux/Windows the
+ * Super key belongs to the OS, so Ctrl is the real modifier there (the
+ * handlers bind metaKey OR ctrlKey — the labels must match the platform) */
+const IS_MAC = /Mac|iP(hone|ad|od)/.test(navigator.platform)
+const MOD = IS_MAC ? '⌘' : 'Ctrl+'
+const MODSHIFT = IS_MAC ? '⇧⌘' : 'Ctrl+Shift+'
+const PIN_CLICK = IS_MAC ? '⌥-click' : 'Alt/Shift-click'
+
 const SECTIONS: Array<[string, Array<[string, string]>]> = [
   ['anywhere', [
-    ['⌘S', 'save the deck'],
-    ['⌘Z · ⇧⌘Z', 'undo · redo (history continues across sessions)'],
+    [`${MOD}S`, 'save the deck'],
+    [`${MOD}Z · ${MODSHIFT}Z`, 'undo · redo (history continues across sessions)'],
     ['\\', 'show / hide the right rail'],
     ['/', 'this legend'],
   ]],
@@ -14,7 +22,7 @@ const SECTIONS: Array<[string, Array<[string, string]>]> = [
     ['↓ / j / → · ↑ / k / ←', 'next · previous slide'],
     ['s · m · l (topbar)', 'zoom the slides (l ≈ detail work)'],
     ['Esc', 'clear selection'],
-    ['⌥-click a minimap slide', 'pin it into the copilot context'],
+    [`${PIN_CLICK} a minimap slide`, 'pin it into the copilot context'],
   ]],
   ['text', [
     ['double-click', 'edit text in place'],

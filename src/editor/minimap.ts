@@ -103,8 +103,9 @@ section.dia-slide { margin: 0 !important; box-shadow: none !important; }`
       item.append(pin)
     }
     item.addEventListener('click', (e) => {
-      // ⌥-click pins/unpins the slide into the copilot's context
-      if (e.altKey) togglePinnedSlide(i)
+      // ⌥/⇧-click pins/unpins the slide into the copilot's context
+      // (shift too: many Linux window managers grab Alt+click for themselves)
+      if (e.altKey || e.shiftKey) togglePinnedSlide(i)
       else navigate(i)
     })
     item.addEventListener('dragstart', (e) => {

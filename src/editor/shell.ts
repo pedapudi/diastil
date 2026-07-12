@@ -80,7 +80,7 @@ export function mountEditor(host: HTMLElement): void {
   const btnOpen = dnButton('open', () => { void openDeck(canvasHost) })
   btnOpen.title = 'open any HTML deck — diastil files load directly; foreign decks convert through review'
   const btnSave = dnButton('save', () => { void doSave() })
-  btnSave.title = 'write the deck back as self-contained HTML (⌘S)'
+  btnSave.title = `write the deck back as self-contained HTML (${/Mac|iP(hone|ad|od)/.test(navigator.platform) ? '⌘S' : 'Ctrl+S'})`
 
   const pickerSlot = h('div')
   pickerSlot.id = 'picker-slot'
