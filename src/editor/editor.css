@@ -277,3 +277,12 @@
   border: 1px solid var(--rule); border-radius: 4px;
   padding: 3px 5px;
 }
+.de-tok-del {
+  flex: none; width: 18px; border: 0; background: transparent;
+  color: var(--ink-faint); cursor: pointer; font-size: 13px; padding: 0;
+}
+.de-tok-del:hover { color: var(--bad, #c33); }
+.de-tok-add { border-top: 1px solid var(--rule-soft); padding-top: 9px; margin-top: 4px; }
+.de-tok-add .de-tok-newname { width: 74px !important; flex: none; }
+.de-tok-add input[type="text"] { width: auto; flex: 1; min-width: 0; }
+.de-tok-add .dn-btn { flex: none; }

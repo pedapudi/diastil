@@ -602,8 +602,46 @@ export function mountEditor(host: HTMLElement): void {
       label.title = name
       const value = rule.style.getPropertyValue(name).trim()
       row.append(label, ...tokenControls(name, value))
+      const del = h('button', 'de-tok-del', '×')
+      del.type = 'button'
+      del.title = `remove ${name} (rules referencing it fall back; undoable)`
+      del.addEventListener('click', () => {
+        const dk = state.deck
+        if (!dk) return
+        state.apply(setToken(dk.themeStyle, name, ''))
+        renderTokens()
+      })
+      row.append(del)
       tokensBody.append(row)
     }
+
+    // add a new token: named value → one SetToken op, immediately editable
+    const addRow = h('div', 'de-tok-row de-tok-add')
+    const prefix = h('span', 'de-tok-unit', '--dia-')
+    const nameInput = document.createElement('input')
+    nameInput.type = 'text'
+    nameInput.placeholder = 'name'
+    nameInput.className = 'de-tok-newname'
+    const valueInput = document.createElement('input')
+    valueInput.type = 'text'
+    valueInput.placeholder = '#b4552d · 12px · any css'
+    const addBtn = h('button', 'dn-btn', '+ add')
+    addBtn.type = 'button'
+    const commitAdd = (): void => {
+      const dk = state.deck
+      const raw = nameInput.value.trim().replace(/^--/, '').replace(/^dia-/, '')
+      const value = valueInput.value.trim()
+      if (!dk || !raw || !value) return
+      const name = `--dia-${raw.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')}`
+      state.apply(setToken(dk.themeStyle, name, value))
+      nameInput.value = ''
+      valueInput.value = ''
+      renderTokens()
+    }
+    addBtn.addEventListener('click', commitAdd)
+    valueInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') commitAdd() })
+    addRow.append(prefix, nameInput, valueInput, addBtn)
+    tokensBody.append(addRow)
   }
 
   /** WYSIWYG controls per token kind — every change is a setToken op */
