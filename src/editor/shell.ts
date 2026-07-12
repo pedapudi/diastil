@@ -17,7 +17,7 @@ import { mountTable, activateTable, deactivateTable, scrollToSlide } from './tab
 import { mountStage, enterStage, exitStage, stageFlipTarget } from './stage'
 import { mountMinimap } from './minimap'
 import { installTextEditing } from './textedit'
-import { openDeck, importForeign, saveDeck, presentDeck } from './slides'
+import { bootFromCli, openDeck, importForeign, saveDeck, presentDeck } from './slides'
 
 /* styles that must live inside the deck shadow root; serialization strips
  * style.dia-editor-artifact (slides.ts removes them around serializeDeck) */
@@ -199,12 +199,16 @@ export function mountEditor(host: HTMLElement): void {
     }
   })
 
-  /* ---------- boot: demo deck ---------- */
+  /* ---------- boot: CLI file (?file= / ?import=), else the demo deck ---------- */
 
-  const deck = loadDeck(demoDeckRaw, canvasHost, 'demo-deck.html')
-  state.deck = deck
-  state.bus.emit({ type: 'deck-loaded' })
-  updateCrumbs()
+  void bootFromCli(canvasHost).then((handled) => {
+    if (!handled) {
+      const deck = loadDeck(demoDeckRaw, canvasHost, 'demo-deck.html')
+      state.deck = deck
+      state.bus.emit({ type: 'deck-loaded' })
+    }
+    updateCrumbs()
+  })
 
   /* ================= shell internals ================= */
 

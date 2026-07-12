@@ -16,6 +16,7 @@ dependencies = [
 ]
 
 [project.scripts]
+dia = "dia_service.cli:main"
 dia-serve = "dia_service.main:run"
 
 [tool.setuptools.packages.find]
