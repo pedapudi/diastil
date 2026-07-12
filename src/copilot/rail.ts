@@ -132,7 +132,8 @@ export function mountCopilot(host: HTMLElement): void {
     }
     const what = describeSelection(state.selection)
     const tail = document.createElement('span')
-    tail.textContent = `${what ? ` › ${what}` : ''} + tokens · ⌥-click a minimap slide to pin`
+    const pinGesture = /Mac|iP(hone|ad|od)/.test(navigator.platform) ? '⌥-click' : 'alt/shift-click'
+    tail.textContent = `${what ? ` › ${what}` : ''} + tokens · ${pinGesture} a minimap slide to pin`
     context.appendChild(tail)
   }
   renderContext()
