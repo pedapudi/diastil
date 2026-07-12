@@ -43,9 +43,13 @@ interface Lift {
   path?: string
 }
 
+/** literal color -> var(--dia-*) reference (or null); supplied by convert
+ * so lifted paint retints with the deck token picker when it matches */
+export type TokenColor = (c: string) => string | null
+
 /** Lift every provably-exact shape in the svg into a scene node, in place.
  * Returns the number of lifted shapes; 0 leaves the svg untouched. */
-export function liftSimpleSvg(svg: SVGSVGElement): number {
+export function liftSimpleSvg(svg: SVGSVGElement, tokenColor: TokenColor = () => null): number {
   if (!svg.hasAttribute('viewBox')) return 0
   if (svg.querySelector('[data-dia-node], [data-dia-edge]')) return 0 // already a scene
   const shapes: Element[] = []
@@ -64,7 +68,7 @@ export function liftSimpleSvg(svg: SVGSVGElement): number {
     g.setAttribute('data-y', fmt(lift.geom.y))
     g.setAttribute('data-w', fmt(lift.geom.w))
     g.setAttribute('data-h', fmt(lift.geom.h))
-    g.setAttribute('style', nodeStyle(lift.el))
+    g.setAttribute('style', nodeStyle(lift.el, tokenColor))
     lift.el.replaceWith(g)
     renderNodeShape(g)
   }
@@ -152,11 +156,12 @@ function pathLift(el: Element, cmds: Cmd[]): Lift | null {
 /** Scene nodes paint through scoped custom properties (theme rules consume
  * them). The source's computed paint was inlined at snapshot time; missing
  * props mean the SVG defaults (fill black, no stroke). */
-function nodeStyle(el: Element): string {
+function nodeStyle(el: Element, tokenColor: TokenColor): string {
   const s = (el as SVGElement).style
+  const paint = (v: string) => tokenColor(v) ?? v
   const parts = [
-    `--dia-node-fill: ${s.fill || '#000'}`,
-    `--dia-node-stroke: ${s.stroke || 'none'}`,
+    `--dia-node-fill: ${s.fill ? paint(s.fill) : '#000'}`,
+    `--dia-node-stroke: ${s.stroke ? paint(s.stroke) : 'none'}`,
     `--dia-node-stroke-w: ${s.strokeWidth || '1'}`,
   ]
   for (const p of CARRY_PROPS) {

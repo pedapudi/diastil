@@ -1,6 +1,7 @@
 /* Shared chrome idioms — token-only, per the design language.
  * Panels: 1px var(--rule) border, radius 4px, background var(--panel).
- * Buttons: mono, outline-first, accent fill on hover.
+ * Buttons: sans, outline-first, accent fill on hover.
+ * Mono is reserved for data, code, and keyboard (the zicato role split).
  * One accent; good/bad earned by direction; no decorative color. */
 
 .dn-panel {
@@ -10,7 +11,7 @@
 }
 
 .dn-btn {
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: calc(11px * var(--dt-font-scale, 1));
   border: 1px solid var(--rule);
   border-radius: 5px;
@@ -27,7 +28,7 @@
 
 .dn-seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 5px; overflow: hidden; }
 .dn-seg button {
-  font-family: var(--mono); font-size: calc(11px * var(--dt-font-scale, 1));
+  font-family: var(--sans); font-size: calc(11px * var(--dt-font-scale, 1));
   border: 0; background: transparent; color: var(--ink-soft);
   padding: 4px 12px; cursor: pointer;
 }
@@ -61,7 +62,7 @@
   background: var(--panel); color: var(--ink);
   border: 1px solid var(--rule); border-radius: 6px;
   padding: 7px 10px;
-  font-family: var(--mono); font-size: calc(10.5px * var(--dt-font-scale, 1));
+  font-family: var(--sans); font-size: calc(10.5px * var(--dt-font-scale, 1));
   line-height: 1.55; pointer-events: none;
   opacity: 0; transition: opacity 120ms ease;
 }

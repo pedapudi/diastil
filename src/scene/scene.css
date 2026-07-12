@@ -15,7 +15,7 @@
   align-items: stretch;
   gap: 3px;
   padding: 4px 6px;
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: calc(10.5px * var(--dt-font-scale, 1));
   color: var(--ink-soft);
   user-select: none;
@@ -50,7 +50,7 @@
   border: 1px solid var(--rule);
   border-radius: 4px;
   padding: 5px 12px;
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: calc(10.5px * var(--dt-font-scale, 1));
   white-space: nowrap;
   pointer-events: none;

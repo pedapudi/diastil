@@ -15,7 +15,7 @@
   border: 1px solid var(--rule); border-radius: 5px;
   padding: 3px 8px;
   background: transparent; color: var(--ink-soft); cursor: pointer;
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: calc(11px * var(--dt-font-scale, 1));
   transition: border-color .15s, color .15s;
 }
@@ -54,7 +54,7 @@
   transition: background .12s, color .12s;
 }
 .dt-cd-option .dt-cd-name {
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: calc(11px * var(--dt-font-scale, 1));
 }
 .dt-cd-option:hover,

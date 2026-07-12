@@ -126,7 +126,7 @@ const TYPE_OPTIONS: readonly TypeOption[] = [
 ]
 
 const TYPE_GROUPS = ['Technical', 'Editorial', 'Display'] as const
-const TYPE_DEFAULT = 'T7'
+const TYPE_DEFAULT = 'T9'
 const typeById = new Map(TYPE_OPTIONS.map((o) => [o.id, o]))
 
 function normalizeType(v: string | null | undefined): string {
