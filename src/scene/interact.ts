@@ -528,6 +528,9 @@ export function getDrawTool(): DrawTool | null { return drawTool }
 export function setDrawTool(tool: DrawTool | null): void {
   drawTool = tool
   document.body.style.cursor = tool ? 'crosshair' : ''
+  // full-slide scenes are click-through while idle so text stays editable;
+  // an active drawing tool flips them (and every svg) to catch strokes
+  document.querySelector('#deck-host')?.toggleAttribute('data-dia-drawing', tool !== null)
 }
 
 function beginDraw(scene: SVGSVGElement, tool: DrawTool, e: PointerEvent): void {
@@ -658,7 +661,9 @@ export const SCENE_STYLE_RULES = `
 .dia-scene .dia-edge-path { stroke: var(--dia-edge-stroke, var(--dia-ink)); stroke-width: var(--dia-edge-w, 1.2); fill: none; color: var(--dia-edge-stroke, var(--dia-ink)); }
 .dia-scene .dia-edge-label { font: 10px var(--dia-face-label); fill: var(--dia-edge-ink, var(--dia-ink-soft)); }
 .dia-scene [data-dia-emphasis] .dia-node-shape { stroke: var(--dia-accent); stroke-width: 2; }
-.dia-draw { fill: none; stroke: var(--dia-ink); stroke-linecap: round; stroke-linejoin: round; }`
+.dia-draw { fill: none; stroke: var(--dia-ink); stroke-linecap: round; stroke-linejoin: round; }
+section.dia-slide { position: relative; }
+.dia-scene-full { position: absolute; inset: 0; width: 100%; height: 100%; }`
 
 /** make sure the deck theme can express scene styling (idempotent) */
 export function ensureSceneStyleRules(): void {

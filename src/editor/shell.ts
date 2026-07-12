@@ -34,6 +34,11 @@ section.dia-slide:last-of-type { margin-block-end: 0; }
  * editable svg background must be selectable; islands stay untouched */
 section.dia-slide svg { pointer-events: bounding-box; }
 [data-dia-island] svg { pointer-events: auto; }
+/* full-slide diagram layers pass idle clicks through to the text beneath;
+ * their CONTENT stays interactive, and draw mode flips the whole surface */
+section.dia-slide svg.dia-scene-full { pointer-events: none; }
+section.dia-slide svg.dia-scene-full > :not(.dia-editor-artifact) { pointer-events: auto; }
+:host([data-dia-drawing]) section.dia-slide svg { pointer-events: bounding-box; }
 [contenteditable] { outline: 2px solid var(--accent); outline-offset: 2px; cursor: text; }
 `
 
@@ -189,6 +194,8 @@ export function mountEditor(host: HTMLElement): void {
         const deck = state.deck
         if (deck) {
           installDeckArtifacts(deck)
+          // heal the theme BEFORE any module (minimap!) snapshots deck styles
+          if (deck.root.querySelector('svg.dia-scene')) ensureSceneStyleRules()
           routeAllScenes(deck)
         }
         state.resetLog() // old ops reference the previous document's elements
@@ -435,18 +442,18 @@ export function mountEditor(host: HTMLElement): void {
     }
   }
 
-  /** add an empty editable scene to a slide — the scene toolbar takes over
-   * from there (+ node, + circle, + square) */
+  /** add a FULL-SLIDE diagram layer: an absolutely-positioned scene over the
+   * whole slide (viewBox = slide aspect) — shapes, nodes, edges, and drawn
+   * strokes can land anywhere, layered with the slide's text. Idle clicks
+   * pass through to the text; painted content stays interactive. */
   function insertDiagram(slide: HTMLElement): void {
     ensureSceneStyleRules()
-    const fig = document.createElement('div')
-    fig.className = 'dia-figure'
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-    svg.setAttribute('class', 'dia-scene')
-    svg.setAttribute('viewBox', '0 0 480 270')
-    fig.appendChild(svg)
-    assignFreshIds(fig)
-    state.apply(insertEl(slide, slide.children.length, fig, 'InsertDiagram'))
+    svg.setAttribute('class', 'dia-scene dia-scene-full')
+    svg.setAttribute('viewBox', '0 0 1280 720')
+    svg.setAttribute('aria-label', 'diagram layer')
+    assignFreshIds(svg as unknown as HTMLElement)
+    state.apply(insertEl(slide, slide.children.length, svg, 'InsertDiagramLayer'))
     state.selection = { kind: 'element', el: svg as unknown as HTMLElement, slide }
   }
 
