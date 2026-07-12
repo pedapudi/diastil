@@ -105,16 +105,19 @@ export function mountEditor(host: HTMLElement): void {
 
   /* ---------- rail: inspect · copilot · tokens ---------- */
 
+  // rail anatomy: [tabs: inspect · tokens] scrollable top region, then a
+  // drag-resizable divider, then the copilot DOCK — always present (chat is
+  // a companion, not a mode), pinned to the bottom so it never wanders
   const tabsBar = h('div', 'de-tabs')
   const inspectPane = h('div', 'de-pane de-on')
-  const copilotPane = h('div', 'de-pane')
   const tokensPane = h('div', 'de-pane')
+  const copilotPane = h('div', 'de-cop-dock')
   const inspectBody = h('div', 'de-pane-pad')
   const tokensBody = h('div', 'de-pane-pad')
   inspectPane.append(inspectBody)
   tokensPane.append(tokensBody)
   const tabs: Array<{ btn: HTMLButtonElement; pane: HTMLElement }> = []
-  for (const [label, pane] of [['inspect', inspectPane], ['copilot', copilotPane], ['tokens', tokensPane]] as const) {
+  for (const [label, pane] of [['inspect', inspectPane], ['tokens', tokensPane]] as const) {
     const btn = h('button', label === 'inspect' ? 'de-on' : '', label)
     btn.type = 'button'
     btn.addEventListener('click', () => {
@@ -132,7 +135,32 @@ export function mountEditor(host: HTMLElement): void {
   railHide.title = 'hide the rail (\\)'
   railHide.addEventListener('click', () => setRail(false))
   tabsBar.append(railHide)
-  rail.append(tabsBar, inspectPane, copilotPane, tokensPane)
+
+  const railTop = h('div', 'de-rail-top')
+  railTop.append(tabsBar, inspectPane, tokensPane)
+
+  const split = h('div', 'de-rail-split')
+  split.title = 'drag to resize the copilot'
+  split.addEventListener('pointerdown', (e) => {
+    e.preventDefault()
+    const railRect = rail.getBoundingClientRect()
+    const ac = new AbortController()
+    const apply = (clientY: number): void => {
+      const px = Math.min(Math.max(railRect.bottom - clientY, 140), railRect.height - 140)
+      rail.style.setProperty('--de-cop-h', `${Math.round(px)}px`)
+    }
+    window.addEventListener('pointermove', (ev) => apply(ev.clientY), { signal: ac.signal })
+    window.addEventListener('pointerup', () => {
+      ac.abort()
+      try { localStorage.setItem('dia-cop-h', rail.style.getPropertyValue('--de-cop-h')) } catch { /* private mode */ }
+    }, { signal: ac.signal })
+  })
+  try {
+    const saved = localStorage.getItem('dia-cop-h')
+    if (saved) rail.style.setProperty('--de-cop-h', saved)
+  } catch { /* private mode */ }
+
+  rail.append(railTop, split, copilotPane)
 
   const railRestore = h('button', 'de-rail-restore', '⇤')
   railRestore.type = 'button'
