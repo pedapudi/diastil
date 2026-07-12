@@ -273,12 +273,44 @@ function cleanSubtree(root: HTMLElement): string {
   return clone.outerHTML
 }
 
+/* svg paint carried by the SOURCE's stylesheets vanishes when conversion
+ * strips that css — a diagram whose strokes came from `.x path { stroke }`
+ * rules renders invisible (or default-black). Inline the computed paint
+ * onto each svg element so verbatim svgs are self-contained. */
+const SVG_DEFAULTS: Array<[string, string]> = [
+  ['fill', 'rgb(0, 0, 0)'], ['stroke', 'none'], ['stroke-width', '1px'],
+  ['opacity', '1'], ['fill-opacity', '1'], ['stroke-opacity', '1'],
+  ['stroke-dasharray', 'none'], ['stroke-linecap', 'butt'], ['stroke-linejoin', 'miter'],
+]
+
+function inlineSvgPaint(liveRoot: HTMLElement, clone: HTMLElement): void {
+  const win = liveRoot.ownerDocument.defaultView
+  if (!win) return
+  const live = liveRoot.querySelectorAll('svg, svg *')
+  const out = clone.querySelectorAll('svg, svg *')
+  for (let i = 0; i < live.length && i < out.length; i++) {
+    const cs = win.getComputedStyle(live[i])
+    const el = out[i] as SVGElement
+    for (const [prop, def] of SVG_DEFAULTS) {
+      const v = cs.getPropertyValue(prop)
+      if (v && v !== def) el.style.setProperty(prop, v)
+    }
+    if (live[i].tagName === 'text' || live[i].tagName === 'tspan') {
+      el.style.setProperty('font-family', cs.fontFamily)
+      el.style.setProperty('font-size', cs.fontSize)
+      if (cs.fontWeight !== '400') el.style.setProperty('font-weight', cs.fontWeight)
+      if (cs.textAnchor !== 'start') el.style.setProperty('text-anchor', cs.textAnchor)
+    }
+  }
+}
+
 /** Deep-clone with canvas BITMAPS preserved: a cloned <canvas> is blank
  * (the drawing surface never copies), so JS-rendered figures — including
  * animations, frozen at their settle-time frame — would vanish. Each canvas
  * becomes an <img> carrying the pixels (kept as-is when tainted). */
 function snapshotClone(root: HTMLElement): HTMLElement {
   const clone = root.cloneNode(true) as HTMLElement
+  inlineSvgPaint(root, clone)
   const liveCanvases = root.querySelectorAll('canvas')
   const cloneCanvases = clone.querySelectorAll('canvas')
   for (let i = 0; i < liveCanvases.length && i < cloneCanvases.length; i++) {
