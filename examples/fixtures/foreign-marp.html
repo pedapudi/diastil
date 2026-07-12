@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Design system notes</title>
+<style>
+  /* marpit-shaped export: .marpit wrapper, one <section> per slide */
+  body { margin: 0; background: #333; }
+  .marpit section {
+    width: 1280px; height: 720px; margin: 16px auto; box-sizing: border-box;
+    padding: 70px; background: #fffdf8; color: #24292f;
+    font-family: "Helvetica Neue", Arial, sans-serif; display: block;
+  }
+  .marpit h1 { font-size: 44px; margin: 0 0 18px; }
+  .marpit h2 { font-size: 30px; margin: 0 0 14px; }
+  .marpit p, .marpit li { font-size: 19px; line-height: 1.6; color: #57606a; }
+  .marpit code { background: #eee8dc; padding: 1px 5px; font-size: 17px; }
+</style>
+</head>
+<body>
+<div class="marpit">
+  <section data-marpit-fragment="0">
+    <h1>Design system notes</h1>
+    <p>tokens, not overrides</p>
+  </section>
+  <section data-marpit-fragment="1">
+    <h2>One source of truth</h2>
+    <p>Every component reads <code>--ds-*</code> custom properties. A theme is a token sheet, not a stylesheet fork.</p>
+  </section>
+  <section data-marpit-fragment="2">
+    <h2>Migration path</h2>
+    <ul>
+      <li>Audit hardcoded colors (312 today)</li>
+      <li>Alias to nearest token</li>
+      <li>Delete the alias layer once usage hits zero</li>
+    </ul>
+  </section>
+</div>
+</body>
+</html>

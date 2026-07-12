@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Launch readiness</title>
+<style>
+  /* self-contained reveal-shaped deck: framework DOM without the CDN dep */
+  body { margin: 0; background: #191919; font-family: Georgia, serif; }
+  .reveal { width: 100vw; height: 100vh; overflow: hidden; }
+  .reveal .slides { position: relative; width: 960px; height: 700px; margin: 0 auto; }
+  .reveal .slides > section, .reveal .slides > section > section {
+    position: absolute; inset: 0; background: #191919; color: #eee;
+    padding: 60px; box-sizing: border-box; display: block;
+  }
+  h1 { font-size: 46px; margin: 0 0 20px; color: #fff; }
+  h2 { font-size: 32px; margin: 0 0 16px; color: #fff; }
+  p, li { font-size: 20px; line-height: 1.5; color: #ccc; }
+  .controls { position: fixed; right: 12px; bottom: 12px; color: #888; }
+  .progress { position: fixed; left: 0; bottom: 0; width: 30%; height: 3px; background: #b4552d; }
+</style>
+</head>
+<body>
+<div class="reveal">
+  <div class="slides">
+    <section>
+      <h1>Launch readiness</h1>
+      <p>go / no-go review · June</p>
+    </section>
+    <section>
+      <h2>Checklist</h2>
+      <ul>
+        <li>Load test at 2× projected peak</li>
+        <li>Rollback rehearsed in staging</li>
+        <li>On-call rotation staffed</li>
+      </ul>
+    </section>
+    <section>
+      <section>
+        <h2>Risks — infra</h2>
+        <p>Single-region database until Q4; failover is manual.</p>
+      </section>
+      <section>
+        <h2>Risks — product</h2>
+        <p>Pricing page copy still in legal review.</p>
+      </section>
+    </section>
+  </div>
+  <aside class="controls">‹ ›</aside>
+  <div class="progress"></div>
+</div>
+</body>
+</html>
