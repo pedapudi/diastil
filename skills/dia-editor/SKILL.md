@@ -28,7 +28,7 @@ One surface, two altitudes, one permanent chrome piece:
 - **right rail** — tabs: `inspect` (selection details), `copilot` (needs the
   dia service; shows a quiet offline line otherwise), `tokens` (live theme
   token editing — edits preview deck-wide and land as undoable ops).
-- **topbar** — `table · stage · present` segment; `open · import · save`;
+- **topbar** — `table · stage · present` segment; `open · save`;
   theme picker (16 zicato color themes, default monokai) and typeface picker
   (with S/M/L size steps); status dot reading `valid · v1`.
 
@@ -36,7 +36,7 @@ One surface, two altitudes, one permanent chrome piece:
 
 | where | keys |
 | --- | --- |
-| anywhere | `⌘S`/`Ctrl+S` save · `⌘Z` undo · `⇧⌘Z` redo |
+| anywhere | `/` keyboard legend · `⌘S`/`Ctrl+S` save · `⌘Z` undo · `⇧⌘Z` redo (history crosses sessions: when the in-session op log is exhausted, undo/redo walk recorded states from earlier sessions, persisted per deck in IndexedDB) |
 | table | `↓`/`j` next slide · `↑`/`k` previous · `Enter` lift to stage · `Esc` clear selection |
 | stage | `→`/`←` next/previous slide · `Esc` back to table (position preserved) |
 | text edit | `Enter` commit · `Esc` cancel · blur commits |
@@ -48,8 +48,10 @@ editing (see `dia-scenes`).
 
 ## Files
 
-- **open** — dialect files load directly; anything foreign is handed to the
-  import pipeline automatically (see `dia-import`).
+- **open** — the one door for every HTML file: dialect decks load directly;
+  anything foreign is detected (parse-based) and handed to the import
+  pipeline automatically (see `dia-import`). There is no separate import
+  button.
 - **save** — writes back through the CLI service path or the File System
   Access handle when available, else downloads. Serialization is
   byte-stable: saving an unedited deck produces identical bytes, editor

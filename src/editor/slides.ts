@@ -86,7 +86,9 @@ export async function bootFromCli(canvasHost: HTMLElement): Promise<boolean> {
     return false
   }
   const name = path.split('/').pop() ?? 'deck.html'
-  if (!editPath) {
+  // ?import= forces conversion; ?file= auto-detects — a foreign file opened
+  // with `dia edit` converts instead of loading as a broken dialect deck
+  if (!editPath || !isDialectHtml(file.html)) {
     void startImport(file.html, name)
     return true
   }
@@ -124,15 +126,25 @@ async function pollDisk(canvasHost: HTMLElement): Promise<void> {
   state.bus.emit({ type: 'deck-loaded' })
 }
 
-/* ---------- open / import ---------- */
+/* ---------- open (one door for dialect AND foreign files) ---------- */
 
-/** Open: dialect files load directly; anything foreign hands off to ingest. */
+/** Is this HTML already in the dialect? Parse-based, not substring: the
+ * version stamp or actual dialect slides decide, so a foreign deck that
+ * merely mentions "dia-slide" in prose still converts. */
+export function isDialectHtml(html: string): boolean {
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  return doc.documentElement.hasAttribute('data-dia-version') ||
+    doc.querySelector('section.dia-slide') !== null
+}
+
+/** Open: dialect files load directly; anything foreign hands off to the
+ * import pipeline automatically — one button, no open-vs-import decision. */
 export async function openDeck(canvasHost: HTMLElement): Promise<void> {
   const picked = await pickHtmlFile()
   if (!picked) return
   servicePath = null
   window.clearInterval(watchTimer)
-  if (picked.text.includes('dia-slide') || picked.text.includes('data-dia-version')) {
+  if (isDialectHtml(picked.text)) {
     fileHandle = picked.handle
     setImportReport(null)
     const deck = loadDeck(picked.text, canvasHost, picked.name)
@@ -142,16 +154,6 @@ export async function openDeck(canvasHost: HTMLElement): Promise<void> {
     fileHandle = null
     startImport(picked.text, picked.name)
   }
-}
-
-/** Import: always routes through the ingest pipeline's review UI. */
-export async function importForeign(): Promise<void> {
-  const picked = await pickHtmlFile()
-  if (!picked) return
-  fileHandle = null
-  servicePath = null
-  window.clearInterval(watchTimer)
-  startImport(picked.text, picked.name)
 }
 
 /* ---------- save / present ---------- */

@@ -31,12 +31,12 @@ move between the table and stage altitudes, drag diagram nodes and watch
 edges reroute, `⌘S` to save — the saved file is self-contained HTML that
 presents itself when opened.
 
-To try **import**, click `import` and pick any file in
+To try **conversion**, click `open` and pick any file in
 [examples/fixtures/](examples/fixtures/) — eight foreign decks covering
 the input taxonomy (reveal-, marp-, remark-, impress-shaped, utility-class
-soup, PDF-like, live-canvas, one-visible-at-a-time). The review screen
-shows original vs converted with a difference overlay and per-slide
-pixel-fidelity scores.
+soup, PDF-like, live-canvas, one-visible-at-a-time). Foreign HTML is
+detected automatically and routed through the review screen: original vs
+converted with a difference overlay and per-slide pixel-fidelity scores.
 
 The CLI and the optional inference service (model-assisted conversion
 repair, diagram lifting, the copilot rail):

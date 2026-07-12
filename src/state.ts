@@ -44,6 +44,10 @@ export class EditorState {
     return [...this.deck.root.querySelectorAll<HTMLElement>('section.dia-slide')]
   }
 
+  /** drop all op history — a newly loaded document's ops are meaningless
+   * against the previous document's (now detached) elements */
+  resetLog(): void { this.log = new OpLog() }
+
   /** apply an op through the log (single entry point for every mutation) */
   apply(op: Op): void {
     const entry: OpLogEntry = { op, at: Date.now() }
@@ -52,8 +56,19 @@ export class EditorState {
     this.bus.emit({ type: 'op', entry })
   }
 
-  undo(): void { if (this.log.undo()) this.bus.emit({ type: 'undo' }) }
-  redo(): void { if (this.log.redo()) this.bus.emit({ type: 'redo' }) }
+  /** session-boundary fallbacks: when the op log has nothing left, the
+   * cross-session revision history (model/history.ts) hooks in here */
+  onUndoExhausted: (() => void) | null = null
+  onRedoExhausted: (() => void) | null = null
+
+  undo(): void {
+    if (this.log.undo()) this.bus.emit({ type: 'undo' })
+    else this.onUndoExhausted?.()
+  }
+  redo(): void {
+    if (this.log.redo()) this.bus.emit({ type: 'redo' })
+    else this.onRedoExhausted?.()
+  }
 }
 
 /** module-global singleton — main.ts creates it, modules import it */
