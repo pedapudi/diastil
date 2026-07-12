@@ -57,14 +57,33 @@ export class ServiceClient {
 
   /** model-assisted translation for one slide (ingest); throws when offline */
   async translateSlide(sourceHtml: string, tokensCss: string): Promise<string> {
-    const r = await fetch(`${this.base}/skills/translate-slide`, {
+    return this.skill('translate-slide', { sourceHtml, tokensCss }, 'slideHtml')
+  }
+
+  /** one fidelity-loop repair round: corrected slide for a reported mismatch */
+  async repairFidelity(
+    sourceHtml: string,
+    candidateHtml: string,
+    tokensCss: string,
+    mismatch: string,
+  ): Promise<string> {
+    return this.skill('repair-fidelity', { sourceHtml, candidateHtml, tokensCss, mismatch }, 'slideHtml')
+  }
+
+  /** lift a raw SVG diagram into the scene vocabulary */
+  async liftDiagram(svgHtml: string): Promise<string> {
+    return this.skill('lift-diagram', { svgHtml }, 'sceneHtml')
+  }
+
+  private async skill(name: string, body: object, field: string): Promise<string> {
+    const r = await fetch(`${this.base}/skills/${name}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sourceHtml, tokensCss }),
+      body: JSON.stringify(body),
     })
-    if (!r.ok) throw new Error(`translate-slide failed: ${r.status}`)
+    if (!r.ok) throw new Error(`${name} failed: ${r.status}`)
     const j = await r.json()
-    return j.slideHtml as string
+    return j[field] as string
   }
 }
 

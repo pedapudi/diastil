@@ -96,11 +96,14 @@ function rebuildGutter(): void {
     num.textContent = String(i + 1)
     item.append(num)
     if (report) {
-      const c = report.confidence[i]
+      // pixel-verified fidelity when the pass ran; structural confidence otherwise
+      const f = report.fidelity?.[i]
+      const c = typeof f === 'number' ? f : report.confidence[i]
       if (typeof c === 'number') {
         const fid = document.createElement('span')
         fid.className = c < 0.95 ? 'de-fid de-warn' : 'de-fid'
         fid.textContent = c.toFixed(2)
+        fid.title = typeof f === 'number' ? 'pixel-verified fidelity' : 'structural confidence (not pixel-verified)'
         item.append(fid)
       }
       const islands = report.regions.filter((r) => r.slideIndex === i && r.kind === 'island').length

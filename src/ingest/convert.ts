@@ -16,6 +16,11 @@ export interface SlideConversion {
   warnings: string[]
   islands: number
   accepted?: boolean
+  /** pixel-verified score from the fidelity pass, 0..1; null when the slide
+   * would not rasterize; undefined before the pass runs */
+  fidelity?: number | null
+  /** service repair rounds already spent on this slide */
+  repairRounds?: number
 }
 
 interface PendingNote {
@@ -105,16 +110,21 @@ export function buildReport(
   sourceName: string,
   conversions: SlideConversion[],
 ): ImportReport {
+  const measured = conversions.some((c) => c.fidelity !== undefined)
   return {
     sourceName,
     slideCount: conversions.length,
     confidence: conversions.map((c) => c.confidence),
+    fidelity: measured ? conversions.map((c) => c.fidelity ?? null) : undefined,
     regions: conversions.flatMap((c) => c.notes),
     tokens: ex.tokens,
     warnings: [
       ...ex.warnings,
       ...conversions.flatMap((c) => c.warnings),
-      'confidence = mapped text chars / total text chars, ×0.9 where islands remain — structural confidence, not pixel-verified',
+      'confidence = mapped text chars / total text chars, ×0.9 where islands remain — structural, not visual',
+      measured
+        ? 'fidelity = 1 − differing-pixel fraction, original vs converted raster at 384×216 (null = slide would not rasterize)'
+        : 'fidelity pass did not run — visual match unverified',
     ],
   }
 }

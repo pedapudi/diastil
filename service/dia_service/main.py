@@ -5,6 +5,8 @@ Endpoints:
   GET  /health                  -> {ok, model} (ok:false when adk missing)
   POST /chat                    -> SSE stream of ChatEvent frames
   POST /skills/translate-slide  -> {slideHtml} (single-shot skill run)
+  POST /skills/repair-fidelity  -> {slideHtml} (one fidelity-loop round)
+  POST /skills/lift-diagram     -> {sceneHtml} (raw SVG -> scene vocabulary)
 
 No telemetry. The only outbound traffic is to the endpoint the user
 configured in config.toml. The editor is fully functional when this
@@ -109,6 +111,17 @@ class TranslateRequest(BaseModel):
     tokensCss: str = ""
 
 
+class RepairRequest(BaseModel):
+    sourceHtml: str
+    candidateHtml: str
+    tokensCss: str = ""
+    mismatch: str = ""
+
+
+class LiftRequest(BaseModel):
+    svgHtml: str
+
+
 # ---------------------------------------------------------------------------
 # /health
 # ---------------------------------------------------------------------------
@@ -195,27 +208,23 @@ async def chat(req: ChatRequest) -> EventSourceResponse:
 
 
 # ---------------------------------------------------------------------------
-# /skills/translate-slide — single-shot skill run
+# /skills/* — single-shot skill runs
 # ---------------------------------------------------------------------------
 
-@app.post("/skills/translate-slide")
-async def translate_slide(req: TranslateRequest) -> dict[str, str]:
+async def _run_skill(skill: str, prompt: str) -> str:
+    """One skill agent, one fresh session, one prompt, final text out."""
     if not agents.ADK_AVAILABLE:
         raise HTTPException(status_code=503, detail=INSTALL_HINT)
 
     from google.genai import types as genai_types
 
-    agent = agents.make_skill_agent("translate-slide", CONFIG)
+    agent = agents.make_skill_agent(skill, CONFIG)
     session_service = agents.make_session_service()
     runner = agents.Runner(
         agent=agent, app_name=APP_NAME, session_service=session_service
     )
     session = await session_service.create_session(app_name=APP_NAME, user_id=USER_ID)
 
-    prompt = (
-        "<token-css>\n" + req.tokensCss + "\n</token-css>\n\n"
-        "<source-slide>\n" + req.sourceHtml + "\n</source-slide>"
-    )
     content = genai_types.Content(role="user", parts=[genai_types.Part(text=prompt)])
 
     chunks: list[str] = []
@@ -230,9 +239,43 @@ async def translate_slide(req: TranslateRequest) -> dict[str, str]:
                 if text:
                     chunks.append(text)
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"translate-slide failed: {exc}")
+        raise HTTPException(status_code=502, detail=f"{skill} failed: {exc}")
 
-    return {"slideHtml": "".join(chunks).strip()}
+    return _strip_fences("".join(chunks).strip())
+
+
+def _strip_fences(text: str) -> str:
+    """Skill prompts demand raw HTML, but smaller models fence anyway."""
+    if text.startswith("```"):
+        first_newline = text.find("\n")
+        if first_newline != -1 and text.rstrip().endswith("```"):
+            return text[first_newline + 1 :].rstrip().removesuffix("```").rstrip()
+    return text
+
+
+@app.post("/skills/translate-slide")
+async def translate_slide(req: TranslateRequest) -> dict[str, str]:
+    prompt = (
+        "<token-css>\n" + req.tokensCss + "\n</token-css>\n\n"
+        "<source-slide>\n" + req.sourceHtml + "\n</source-slide>"
+    )
+    return {"slideHtml": await _run_skill("translate-slide", prompt)}
+
+
+@app.post("/skills/repair-fidelity")
+async def repair_fidelity(req: RepairRequest) -> dict[str, str]:
+    prompt = (
+        "<token-css>\n" + req.tokensCss + "\n</token-css>\n\n"
+        "<converted-slide>\n" + req.candidateHtml + "\n</converted-slide>\n\n"
+        "<mismatch>\n" + req.mismatch + "\n\n"
+        "Relevant source excerpt:\n" + req.sourceHtml + "\n</mismatch>"
+    )
+    return {"slideHtml": await _run_skill("repair-fidelity", prompt)}
+
+
+@app.post("/skills/lift-diagram")
+async def lift_diagram(req: LiftRequest) -> dict[str, str]:
+    return {"sceneHtml": await _run_skill("lift-diagram", req.svgHtml)}
 
 
 # ---------------------------------------------------------------------------

@@ -5,11 +5,13 @@
 
 import './ingest.css'
 import type { ImportReport } from '../types'
+import { validateDeckHtml } from '../model/validate'
 import { service } from '../service/client'
 import type { ExecuteResult } from './execute'
 import { EXEC_W, EXEC_H } from './execute'
 import type { Extraction } from './extract'
 import { findSlideRoots } from './extract'
+import { scoreSlideFidelity, REPAIR_THRESHOLD } from './fidelity'
 import {
   assembleDeck,
   buildReport,
@@ -43,6 +45,10 @@ class ReviewController {
   private mode: Mode = 'side'
   private serviceOk = false
   private closed = false
+  private origReady = false
+  private convReady = false
+  private fidelityRan = false
+  private healthCheck: Promise<boolean> = Promise.resolve(false)
 
   private overlay!: HTMLElement
   private strip!: HTMLElement
@@ -56,6 +62,8 @@ class ReviewController {
   private verdictMsg!: HTMLElement
   private acceptSlideBtn!: HTMLButtonElement
   private retryBtn!: HTMLButtonElement
+  private repairBtn!: HTMLButtonElement
+  private liftBtn!: HTMLButtonElement
   private retryWrap!: HTMLElement
   private hover!: HTMLElement
   private segButtons: HTMLButtonElement[] = []
@@ -136,6 +144,8 @@ class ReviewController {
         const d = this.origFrame.contentDocument
         if (d) this.origRoots = findSlideRoots(d).roots
         this.layout()
+        this.origReady = true
+        void this.maybeRunFidelity()
       }, 350)
     })
     this.origViewport.appendChild(this.origFrame)
@@ -143,7 +153,11 @@ class ReviewController {
     // converted = srcdoc of the full converted document
     this.convFrame = document.createElement('iframe')
     this.convFrame.setAttribute('sandbox', 'allow-same-origin')
-    this.convFrame.addEventListener('load', () => this.layout())
+    this.convFrame.addEventListener('load', () => {
+      this.layout()
+      this.convReady = true
+      void this.maybeRunFidelity()
+    })
     this.convViewport.appendChild(this.convFrame)
 
     // per-slide verdict row
@@ -164,9 +178,15 @@ class ReviewController {
     this.retryBtn = btn('retry with service', 'dn-btn')
     this.retryBtn.disabled = true
     this.retryBtn.addEventListener('click', () => void this.retry())
-    this.retryWrap.appendChild(this.retryBtn)
+    this.repairBtn = btn('repair with service', 'dn-btn')
+    this.repairBtn.disabled = true
+    this.repairBtn.addEventListener('click', () => void this.repairSlide(this.current))
+    this.liftBtn = btn('lift diagrams', 'dn-btn')
+    this.liftBtn.disabled = true
+    this.liftBtn.addEventListener('click', () => void this.liftDiagrams())
+    this.retryWrap.append(this.retryBtn, this.repairBtn, this.liftBtn)
     this.retryWrap.addEventListener('mouseenter', () => {
-      if (this.retryBtn.disabled && !this.serviceOk) this.showHover(this.retryWrap, 'requires the dia service')
+      if (!this.serviceOk) this.showHover(this.retryWrap, 'requires the dia service')
     })
     this.retryWrap.addEventListener('mouseleave', () => this.hideHover())
     this.verdictMsg = h('span', 'dia-verdict-msg')
@@ -187,9 +207,10 @@ class ReviewController {
     window.addEventListener('keydown', this.onKey, true)
     window.addEventListener('resize', this.onResize)
 
-    void service.health().then((r) => {
+    this.healthCheck = service.health().then((r) => {
       this.serviceOk = r.ok
       this.renderVerdict()
+      return r.ok
     })
 
     this.rebuild()
@@ -217,6 +238,13 @@ class ReviewController {
       if (c.islands > 0) row.appendChild(h('span', 'dia-pill', 'island'))
       const conf = h('span', `dia-strip-conf dn-num ${c.confidence >= 0.95 ? 'is-good' : 'is-caution'}`, c.confidence.toFixed(2))
       row.appendChild(conf)
+      if (c.fidelity !== undefined) {
+        const fid = c.fidelity === null
+          ? h('span', 'dia-strip-conf dn-num is-caution', '·—')
+          : h('span', `dia-strip-conf dn-num ${c.fidelity >= REPAIR_THRESHOLD ? 'is-good' : 'is-caution'}`, c.fidelity.toFixed(2))
+        fid.title = c.fidelity === null ? 'slide would not rasterize' : 'pixel-verified fidelity'
+        row.appendChild(fid)
+      }
       row.addEventListener('click', () => this.go(i))
       this.strip.appendChild(row)
     })
@@ -226,6 +254,14 @@ class ReviewController {
     this.notesEl.replaceChildren()
     this.notesEl.appendChild(h('div', 'dn-subhead', 'region notes'))
     const c = this.conversions[this.current]
+    if (c.fidelity !== undefined) {
+      const row = h('div', `dia-note${c.fidelity !== null && c.fidelity >= REPAIR_THRESHOLD ? '' : ' is-warning'}`)
+      const text = c.fidelity === null
+        ? 'slide would not rasterize — visual match unverified; compare by eye'
+        : `pixel-verified fidelity ${c.fidelity.toFixed(3)}${c.repairRounds ? ` after ${c.repairRounds} repair round${c.repairRounds > 1 ? 's' : ''}` : ''}`
+      row.append(h('span', 'dia-note-kind', 'fidelity'), h('span', '', text))
+      this.notesEl.appendChild(row)
+    }
     for (const w of c.warnings) {
       const row = h('div', 'dia-note is-warning')
       row.append(h('span', 'dia-note-kind', 'warning'), h('span', '', w))
@@ -245,7 +281,15 @@ class ReviewController {
     const c = this.conversions[this.current]
     this.acceptSlideBtn.textContent = c.accepted ? 'slide accepted ✓' : 'accept slide'
     this.retryBtn.disabled = !this.serviceOk
+    this.repairBtn.disabled = !this.serviceOk || c.fidelity === undefined
+    this.liftBtn.disabled = !this.serviceOk || !this.hasLiftableSvg(this.current)
     if (this.serviceOk) this.hideHover()
+  }
+
+  private hasLiftableSvg(i: number): boolean {
+    const doc = new DOMParser().parseFromString(this.conversions[i].html, 'text/html')
+    return [...doc.querySelectorAll('svg')]
+      .some((s) => !s.classList.contains('dia-scene') && !s.closest('[data-dia-island]'))
   }
 
   private setMode(mode: Mode): void {
@@ -344,6 +388,137 @@ class ReviewController {
       this.retryBtn.textContent = 'retry with service'
       this.renderVerdict()
     }
+  }
+
+  /* ---------- fidelity loop: measure → repair → re-measure ---------- */
+
+  /** Runs once, when both panes are live: score every slide, then spend one
+   * automatic repair round on each slide under threshold (service online). */
+  private async maybeRunFidelity(): Promise<void> {
+    if (this.fidelityRan || !this.origReady || !this.convReady || this.closed) return
+    this.fidelityRan = true
+    for (let i = 0; i < this.conversions.length && !this.closed; i++) {
+      await this.measureSlide(i)
+    }
+    if (!(await this.healthCheck) || this.closed) return
+    for (let i = 0; i < this.conversions.length && !this.closed; i++) {
+      const c = this.conversions[i]
+      if (c.fidelity != null && c.fidelity < REPAIR_THRESHOLD && !(c.repairRounds ?? 0)) {
+        this.verdictMsg.textContent = `repairing slide ${i + 1}…`
+        await this.repairSlide(i, true)
+      }
+    }
+    this.verdictMsg.textContent = ''
+  }
+
+  private convRoots(): HTMLElement[] {
+    const cd = this.convFrame.contentDocument
+    return cd ? [...cd.querySelectorAll<HTMLElement>('section.dia-slide')] : []
+  }
+
+  private async measureSlide(i: number): Promise<void> {
+    const orig = this.origRoots[i]
+    const conv = this.convRoots()[i]
+    const score = orig && conv ? await scoreSlideFidelity(orig, conv) : null
+    this.conversions[i].fidelity = score ? score.score : null
+    this.renderStrip()
+    if (i === this.current) { this.renderNotes(); this.renderVerdict() }
+  }
+
+  /** One service repair round for slide i; the result is kept only when it
+   * re-measures at least as high as the current candidate. */
+  private async repairSlide(i: number, auto = false): Promise<void> {
+    const before = this.conversions[i]
+    const slide = this.input.extraction.slides[i]
+    this.repairBtn.disabled = true
+    try {
+      const html = await service.repairFidelity(
+        slide.sourceHtml, before.html, tokensToCss(this.input.extraction.tokens), this.describeMismatch(i))
+      const repaired = revalidateSlide(slide, i, html)
+      repaired.repairRounds = (before.repairRounds ?? 0) + 1
+      this.conversions[i] = repaired
+      await this.rebuildAndWait()
+      await this.measureSlide(i)
+      if (before.fidelity != null && (this.conversions[i].fidelity ?? -1) < before.fidelity) {
+        this.conversions[i] = { ...before, repairRounds: repaired.repairRounds }
+        await this.rebuildAndWait()
+        if (!auto) this.verdictMsg.textContent = 'repair scored lower — kept the previous candidate'
+      }
+    } catch {
+      this.conversions[i] = before
+      if (!auto) this.verdictMsg.textContent = 'service repair failed — slide unchanged'
+    }
+    this.renderStrip(); this.renderNotes(); this.renderVerdict()
+  }
+
+  /** Lift every static (non-scene) SVG on the current slide into the scene
+   * vocabulary via the service. Each lift is verified — profile-validated,
+   * text-checked, and fidelity-re-measured — or discarded. */
+  private async liftDiagrams(): Promise<void> {
+    const i = this.current
+    const before = this.conversions[i]
+    const slide = this.input.extraction.slides[i]
+    const doc = new DOMParser().parseFromString(before.html, 'text/html')
+    const svgs = [...doc.querySelectorAll('svg')]
+      .filter((s) => !s.classList.contains('dia-scene') && !s.closest('[data-dia-island]'))
+    if (svgs.length === 0) return
+    this.liftBtn.disabled = true
+    this.verdictMsg.textContent = `lifting ${svgs.length} diagram${svgs.length > 1 ? 's' : ''}…`
+    let lifted = 0
+    for (const svg of svgs) {
+      try {
+        const out = await service.liftDiagram(svg.outerHTML)
+        const scene = new DOMParser().parseFromString(out, 'text/html').querySelector('svg.dia-scene')
+        if (!scene || !this.sceneIsValid(scene.outerHTML)) continue
+        svg.replaceWith(doc.importNode(scene, true))
+        lifted++
+      } catch { break }
+    }
+    if (lifted === 0) {
+      this.verdictMsg.textContent = 'no diagram lifted cleanly — slide unchanged'
+      this.renderVerdict()
+      return
+    }
+    const section = doc.querySelector('section.dia-slide') ?? doc.body
+    const liftedConv = revalidateSlide(slide, i, section.outerHTML)
+    liftedConv.repairRounds = before.repairRounds
+    this.conversions[i] = liftedConv
+    await this.rebuildAndWait()
+    await this.measureSlide(i)
+    if (before.fidelity != null && (this.conversions[i].fidelity ?? -1) < before.fidelity) {
+      this.conversions[i] = before
+      await this.rebuildAndWait()
+      this.verdictMsg.textContent = 'lift changed the rendering — discarded (still available manually later)'
+    } else {
+      this.verdictMsg.textContent = `lifted ${lifted} diagram${lifted > 1 ? 's' : ''} into editable scenes`
+    }
+    this.renderStrip(); this.renderNotes(); this.renderVerdict()
+  }
+
+  /** validate a lifted scene by planting it in a minimal probe deck */
+  private sceneIsValid(sceneHtml: string): boolean {
+    const probe =
+      '<!doctype html><html data-dia-version="1"><head><style id="dia-theme">:root{--dia-p:0}</style></head>' +
+      `<body><section class="dia-slide">${sceneHtml}</section><script id="dia-runtime"></script></body></html>`
+    return validateDeckHtml(probe).ok
+  }
+
+  private describeMismatch(i: number): string {
+    const c = this.conversions[i]
+    const lines: string[] = []
+    lines.push(c.fidelity != null
+      ? `pixel diff: ${Math.round((1 - c.fidelity) * 100)}% of sampled pixels differ between the source render and the converted render.`
+      : 'pixel diff unavailable (slide would not rasterize) — rely on the structural notes below.')
+    for (const w of c.warnings) lines.push(w)
+    for (const n of c.notes) lines.push(`${n.kind} at ${n.locator}: ${n.note}`)
+    return lines.join('\n')
+  }
+
+  private rebuildAndWait(): Promise<void> {
+    return new Promise((resolve) => {
+      this.convFrame.addEventListener('load', () => resolve(), { once: true })
+      this.rebuild()
+    })
   }
 
   private accept(): void {
