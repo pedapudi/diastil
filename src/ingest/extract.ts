@@ -324,11 +324,14 @@ function snapshotClone(root: HTMLElement): HTMLElement {
       for (const a of from.attributes) {
         if (a.name !== 'width' && a.name !== 'height') img.setAttribute(a.name, a.value)
       }
-      // freeze the rendered size so layout holds without the canvas element
+      // freeze the rendered size so layout holds without the canvas element,
+      // but let it SHRINK to fit narrower layouts (aspect held) — a fixed
+      // pixel size would clip under the converted deck's overflow:hidden
       const r = live.getBoundingClientRect()
       if (r.width > 0) {
         const prior = img.getAttribute('style')
-        img.setAttribute('style', `${prior ? prior + '; ' : ''}width: ${Math.round(r.width)}px; height: ${Math.round(r.height)}px`)
+        img.setAttribute('style',
+          `${prior ? prior + '; ' : ''}width: ${Math.round(r.width)}px; max-width: 100%; height: auto; aspect-ratio: ${Math.round(r.width)} / ${Math.round(r.height)}`)
       }
       from.replaceWith(img)
     } catch {

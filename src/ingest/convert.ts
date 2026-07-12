@@ -336,14 +336,30 @@ function figure(img: Element, ctx: Ctx): HTMLElement {
   }
   const s = ctx.sample(img)
   if (s && s.objectFit && s.objectFit !== 'fill') im.style.objectFit = s.objectFit
+  fitMedia(im)
   fig.appendChild(im)
   return fig
 }
 
+/** Kept media carries fixed design-space pixel sizes (attrs sized for the
+ * source's 1280px stage); rendered in a narrower converted layout with
+ * overflow:hidden it CLIPS. Scale down to fit, never up, aspect held. */
+function fitMedia(el: HTMLElement | SVGElement): void {
+  el.style.maxWidth = '100%'
+  el.style.height = 'auto'
+}
+
 function svgNode(el: Element, ctx: Ctx): Element {
   const lifted = el.hasAttribute('data-dia-node') || el.querySelector('[data-dia-node]') !== null
-  const clone = document.importNode(el, true)
+  const clone = document.importNode(el, true) as SVGSVGElement
   stripStamps(clone)
+  // a viewBox makes the svg scalable; synthesize one from the fixed size
+  if (!clone.hasAttribute('viewBox')) {
+    const w = parseFloat(clone.getAttribute('width') ?? '')
+    const h = parseFloat(clone.getAttribute('height') ?? '')
+    if (w > 0 && h > 0) clone.setAttribute('viewBox', `0 0 ${w} ${h}`)
+  }
+  fitMedia(clone)
   if (lifted) {
     ctx.notes.push({ node: clone, kind: 'lifted-svg', note: 'scene svg with dia nodes — kept as an editable scene' })
     return clone
