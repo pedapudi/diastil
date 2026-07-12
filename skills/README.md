@@ -1,14 +1,16 @@
 # diastil skills
 
-Agent-facing operating manuals for diastil, one skill per surface. Each
-folder holds a `SKILL.md` in the Claude Code skill format (frontmatter
-`name` + `description`, then the instructions). To activate them in a
-Claude Code session, symlink or copy the folders into the project's
-`.claude/skills/` directory:
+Operating manuals for diastil, written for **any agent** (or human), one
+skill per surface. Each folder holds a `SKILL.md`: plain-YAML frontmatter
+(`name`, plus a `description` stating when the skill applies) followed by
+markdown instructions. No harness-specific features are used — load them
+however your agent consumes instructions:
 
-```sh
-mkdir -p .claude/skills && ln -s ../../skills/* .claude/skills/
-```
+- point the agent at `skills/` and let it read `SKILL.md` files on demand;
+- inject the relevant `SKILL.md` into context when its `description` matches
+  the task;
+- or symlink/copy the folders into whatever directory your agent framework
+  discovers skills from.
 
 | skill | teaches |
 | --- | --- |
