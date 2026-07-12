@@ -53,8 +53,9 @@ export function setToken(themeStyle: HTMLStyleElement, name: string, value: stri
   }
 }
 
-/** set an inline style property on an element (last-resort write target) */
-export function setStyleProp(el: HTMLElement, prop: string, value: string, by?: 'you' | 'copilot'): Op {
+/** set an inline style property on an element (last-resort write target;
+ * scene styling sets the dia-node / dia-edge custom props on svg groups) */
+export function setStyleProp(el: HTMLElement | SVGElement, prop: string, value: string, by?: 'you' | 'copilot'): Op {
   const prev = el.style.getPropertyValue(prop)
   return {
     label: `SetProp ${describe(el)}/${prop}`,

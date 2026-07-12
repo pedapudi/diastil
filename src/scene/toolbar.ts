@@ -1,11 +1,19 @@
 /* Contextual scene toolbar: a floating .dn-panel above the current scene
- * selection. Node: shape segment, "+ node", delete. Edge: route segment,
- * anchors reset, delete. Hidden while dragging; repositions on scroll/resize. */
+ * selection. Node: shape segment, style rows (fill/line/w), "+ node",
+ * delete. Edge: route segment, style rows (ink/w), anchors reset, delete.
+ * Scene svg selected: creation row (+ node, + circle, + square).
+ * Style edits write scoped custom properties (--dia-node-*, --dia-edge-*)
+ * as ops — token references, in-grammar, undoable.
+ * Hidden while dragging; repositions on scroll/resize. */
 
 import type { EdgeRoute, NodeShape } from '../types'
 import { state } from '../state'
+import { setStyleProp } from '../model/ops'
 import { getShape } from './route'
-import { deleteSceneSelection, setAnchorsOp, setRouteOp, setShapeOp, spawnConnectedNode } from './interact'
+import {
+  deleteSceneSelection, ensureSceneStyleRules, insertShapeNode,
+  setAnchorsOp, setRouteOp, setShapeOp, spawnConnectedNode,
+} from './interact'
 
 const SHAPES: [NodeShape, string][] = [
   ['rect', 'rect'], ['rounded', 'rnd'], ['pill', 'pill'], ['ellipse', 'ell'], ['diamond', 'diam'],
@@ -13,6 +21,16 @@ const SHAPES: [NodeShape, string][] = [
 const ROUTES: [EdgeRoute, string][] = [
   ['straight', 'line'], ['ortho', 'orth'], ['curve', 'curve'],
 ]
+
+/* style options: token references only ('auto' clears back to the theme) */
+const FILLS: [string, string][] = [
+  ['auto', ''], ['paper', 'var(--dia-paper)'], ['rule', 'var(--dia-rule)'],
+  ['accent', 'var(--dia-accent)'], ['none', 'transparent'],
+]
+const INKS: [string, string][] = [
+  ['auto', ''], ['ink', 'var(--dia-ink)'], ['soft', 'var(--dia-ink-soft)'], ['accent', 'var(--dia-accent)'],
+]
+const WIDTHS: [string, string][] = [['auto', ''], ['1', '1'], ['2', '2'], ['3', '3']]
 
 let bar: HTMLDivElement | null = null
 let suppressed = false
@@ -50,12 +68,22 @@ function ensureBar(): HTMLDivElement {
   return bar
 }
 
+/** the scene svg itself, when the selection is a scene background click */
+function selectedScene(): SVGSVGElement | null {
+  const sel = state.selection
+  if (sel.kind !== 'element') return null
+  const el = sel.el as unknown as Element
+  return el instanceof SVGSVGElement && el.classList.contains('dia-scene') ? el : null
+}
+
 function refresh(): void {
   const el = ensureBar()
   const sel = state.selection
+  const scene = selectedScene()
   const target =
     sel.kind === 'scene-node' ? sel.node :
-    sel.kind === 'scene-edge' ? sel.edge : null
+    sel.kind === 'scene-edge' ? sel.edge :
+    scene
   if (suppressed || !target || !target.isConnected) {
     el.hidden = true
     return
@@ -63,31 +91,91 @@ function refresh(): void {
   el.textContent = ''
   if (sel.kind === 'scene-node') buildNodeBar(el, sel.scene, sel.node)
   else if (sel.kind === 'scene-edge') buildEdgeBar(el, sel.scene, sel.edge)
+  else if (scene) buildSceneBar(el, scene)
   el.hidden = false
   position()
 }
 
+function buildSceneBar(el: HTMLDivElement, scene: SVGSVGElement): void {
+  const r = row(el)
+  r.appendChild(btn('+ node', () => insertShapeNode(scene, 'node')))
+  r.appendChild(btn('+ circle', () => insertShapeNode(scene, 'circle')))
+  r.appendChild(btn('+ square', () => insertShapeNode(scene, 'square')))
+}
+
 function buildNodeBar(el: HTMLDivElement, scene: SVGSVGElement, node: SVGGElement): void {
+  const top = row(el)
   const current = getShape(node)
-  el.appendChild(seg(SHAPES, current, (s) => {
+  top.appendChild(seg(SHAPES, current, (s) => {
     if (s !== getShape(node)) state.apply(setShapeOp(scene, node, s))
   }))
-  el.appendChild(btn('+ node', () => spawnConnectedNode(scene, node)))
-  el.appendChild(btn('del', () => deleteSceneSelection()))
+  top.appendChild(btn('+ node', () => spawnConnectedNode(scene, node)))
+  top.appendChild(btn('del', () => deleteSceneSelection()))
+
+  styleRow(el, 'fill', node, '--dia-node-fill', FILLS)
+  const lineRow = styleRow(el, 'line', node, '--dia-node-stroke', INKS)
+  lineRow.appendChild(document.createTextNode(' '))
+  widthSeg(lineRow, node, '--dia-node-stroke-w')
 }
 
 function buildEdgeBar(el: HTMLDivElement, scene: SVGSVGElement, edge: SVGGElement): void {
+  const top = row(el)
   const current = (edge.getAttribute('data-route') as EdgeRoute) || 'ortho'
-  el.appendChild(seg(ROUTES, current, (r) => {
+  top.appendChild(seg(ROUTES, current, (r) => {
     const now = (edge.getAttribute('data-route') as EdgeRoute) || 'ortho'
     if (r !== now) state.apply(setRouteOp(scene, edge, r))
   }))
-  el.appendChild(btn('anchors auto', () => {
+  top.appendChild(btn('anchors auto', () => {
     if ((edge.getAttribute('data-anchors') ?? 'auto,auto') !== 'auto,auto') {
       state.apply(setAnchorsOp(scene, edge, 'auto,auto'))
     }
   }))
-  el.appendChild(btn('del', () => deleteSceneSelection()))
+  top.appendChild(btn('del', () => deleteSceneSelection()))
+
+  const inkRow = styleRow(el, 'ink', edge, '--dia-edge-stroke', INKS)
+  inkRow.appendChild(document.createTextNode(' '))
+  widthSeg(inkRow, edge, '--dia-edge-w')
+}
+
+/* ---- style rows: scoped custom properties as undoable ops ---- */
+
+function styleRow(
+  el: HTMLDivElement, label: string, target: SVGGElement, prop: string, options: [string, string][],
+): HTMLDivElement {
+  const r = row(el)
+  const k = document.createElement('span')
+  k.className = 'dia-tb-k'
+  k.textContent = label
+  r.appendChild(k)
+  r.appendChild(optionSeg(target, prop, options))
+  return r
+}
+
+function widthSeg(r: HTMLDivElement, target: SVGGElement, prop: string): void {
+  const k = document.createElement('span')
+  k.className = 'dia-tb-k'
+  k.textContent = 'w'
+  r.appendChild(k)
+  r.appendChild(optionSeg(target, prop, WIDTHS))
+}
+
+/** a segment over [name, cssValue] options — sets a custom property as an op */
+function optionSeg(target: SVGGElement, prop: string, options: [string, string][]): HTMLSpanElement {
+  const current = target.style.getPropertyValue(prop).trim()
+  const currentName = (options.find(([, v]) => v === current) ?? options[0])[0]
+  return seg(options.map(([n]) => [n, n] as [string, string]), currentName, (name) => {
+    const value = options.find(([n]) => n === name)?.[1] ?? ''
+    if (target.style.getPropertyValue(prop).trim() === value) return
+    ensureSceneStyleRules()
+    state.apply(setStyleProp(target, prop, value))
+  })
+}
+
+function row(el: HTMLDivElement): HTMLDivElement {
+  const r = document.createElement('div')
+  r.className = 'dia-tb-row'
+  el.appendChild(r)
+  return r
 }
 
 function seg<T extends string>(items: [T, string][], current: T, pick: (v: T) => void): HTMLSpanElement {
@@ -120,7 +208,8 @@ function position(): void {
   const sel = state.selection
   const target =
     sel.kind === 'scene-node' ? sel.node :
-    sel.kind === 'scene-edge' ? sel.edge : null
+    sel.kind === 'scene-edge' ? sel.edge :
+    selectedScene()
   if (!target || !target.isConnected) {
     bar.hidden = true
     return

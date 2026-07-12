@@ -66,6 +66,25 @@ child shapes/paths are derived artifacts.
 | `scene/edge-route` | error | `data-route` ∈ straight · ortho · curve |
 | `scene/edge-anchors` | error | `data-anchors` sides ∈ N · S · E · W · auto |
 
+**Shapes** are label-less nodes — a circle is an `ellipse` node with equal
+sides, a square a `rect`; nothing further is required.
+
+**Per-node / per-edge styling** is expressed as scoped custom properties on
+the group element, consumed by theme rules with token fallbacks:
+
+```html
+<g data-dia-node="disc" data-shape="ellipse" …
+   style="--dia-node-fill: var(--dia-rule); --dia-node-stroke-w: 2.5">
+```
+
+Recognized properties: `--dia-node-fill`, `--dia-node-stroke`,
+`--dia-node-stroke-w`, `--dia-node-ink` (label) · `--dia-edge-stroke`,
+`--dia-edge-w`, `--dia-edge-ink` (label). Values should be token
+references (`var(--dia-…)`); literals fall under `content/inline-color`
+advisory like anywhere else. Decks written before these rules existed
+gain the consuming CSS automatically the first time the editor styles a
+scene.
+
 ## 4. Media
 
 Figures carry crop and focal point as style (`object-fit`,

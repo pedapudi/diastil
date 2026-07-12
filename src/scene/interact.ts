@@ -308,10 +308,17 @@ function beginResize(scene: SVGSVGElement, node: SVGGElement, corner: Corner, e:
       }
       const p = toScene(scene, ev.clientX, ev.clientY)
       const px = snapGrid(p.x), py = snapGrid(p.y)
-      const x = west ? Math.min(px, right - MIN_W) : start.x
-      const w = west ? right - x : Math.max(MIN_W, px - start.x)
-      const y = north ? Math.min(py, bottom - MIN_H) : start.y
-      const h = north ? bottom - y : Math.max(MIN_H, py - start.y)
+      let x = west ? Math.min(px, right - MIN_W) : start.x
+      let w = west ? right - x : Math.max(MIN_W, px - start.x)
+      let y = north ? Math.min(py, bottom - MIN_H) : start.y
+      let h = north ? bottom - y : Math.max(MIN_H, py - start.y)
+      if (ev.shiftKey) {
+        // aspect lock: true circles and squares
+        const s = Math.max(w, h)
+        if (west) x = right - s
+        if (north) y = bottom - s
+        w = s; h = s
+      }
       setNodeGeom(node, { x, y, w, h })
       routeEdgesOf(scene, nid)
       drawNodeSelection(scene, node)
@@ -371,6 +378,50 @@ function insertEdgeFlow(scene: SVGSVGElement, from: string, to: string): void {
   routeEdge(scene, edgeEl)
   syncEdgeHits(scene)
   state.selection = { kind: 'scene-edge', edge: edgeEl, scene, slide: slideOf(scene) }
+}
+
+/* ------------------------------------- standalone shapes / new diagrams */
+
+/** Theme rules that make per-node/per-edge styling work: shapes read scoped
+ * custom properties with token fallbacks. Appended to the deck theme once,
+ * when a deck predating them meets the styling controls or gets a new
+ * diagram. Additive CSS — never overrides an existing rule of the same name
+ * because later rules of equal specificity win only for the props they set. */
+export const SCENE_STYLE_RULES = `
+.dia-scene .dia-node-shape { fill: var(--dia-node-fill, var(--dia-paper)); stroke: var(--dia-node-stroke, var(--dia-ink)); stroke-width: var(--dia-node-stroke-w, 1.3); }
+.dia-scene .dia-node-label { font: 12px var(--dia-face-body); fill: var(--dia-node-ink, var(--dia-ink)); }
+.dia-scene .dia-edge-path { stroke: var(--dia-edge-stroke, var(--dia-ink)); stroke-width: var(--dia-edge-w, 1.2); fill: none; color: var(--dia-edge-stroke, var(--dia-ink)); }
+.dia-scene .dia-edge-label { font: 10px var(--dia-face-label); fill: var(--dia-edge-ink, var(--dia-ink-soft)); }
+.dia-scene [data-dia-emphasis] .dia-node-shape { stroke: var(--dia-accent); stroke-width: 2; }`
+
+/** make sure the deck theme can express scene styling (idempotent) */
+export function ensureSceneStyleRules(): void {
+  const theme = state.deck?.themeStyle
+  if (!theme || (theme.textContent ?? '').includes('--dia-node-fill')) return
+  theme.textContent = `${theme.textContent ?? ''}\n${SCENE_STYLE_RULES}\n`
+}
+
+/** insert a standalone shape (circle/square = a label-less node) or a plain
+ * labeled node near the scene center — ONE op, selected afterwards */
+export function insertShapeNode(scene: SVGSVGElement, kind: 'node' | 'circle' | 'square'): void {
+  ensureSceneStyleRules()
+  const vb = scene.viewBox.baseVal
+  const cx = vb && vb.width > 0 ? vb.x + vb.width / 2 : 170
+  const cy = vb && vb.height > 0 ? vb.y + vb.height / 2 : 120
+  const n = nodesOf(scene).length
+  const size = kind === 'node' ? { w: 120, h: 40 } : { w: 72, h: 72 }
+  const geom: NodeGeom = {
+    x: snapGrid(cx - size.w / 2 + (n % 5) * 12 - 24),
+    y: snapGrid(cy - size.h / 2 + (n % 5) * 10 - 20),
+    w: size.w, h: size.h,
+  }
+  const shape: NodeShape = kind === 'circle' ? 'ellipse' : kind === 'square' ? 'rect' : 'rounded'
+  const nid = freshNodeId(scene)
+  const nodeEl = createNode(scene, nid, geom, kind === 'node' ? 'node' : '', shape)
+  nodeEl.remove()
+  state.apply(insertEl(scene, scene.children.length, nodeEl, `Insert ${kind} ${nid}`))
+  state.selection = { kind: 'scene-node', node: nodeEl, scene, slide: slideOf(scene) }
+  if (kind === 'node') openLabelEdit(scene, nodeEl)
 }
 
 /** drop on empty canvas → new node + connecting edge as ONE batch op */

@@ -151,7 +151,14 @@ export function routeEdge(scene: SVGSVGElement, edge: SVGGElement): void {
   path.setAttribute('fill', 'none')
   path.setAttribute('marker-end', 'url(#dia-arrow)')
 
-  const label = edge.querySelector<SVGTextElement>('.dia-edge-label')
+  let label = edge.querySelector<SVGTextElement>('.dia-edge-label')
+  if (!label && edge.getAttribute('data-label')) {
+    // declarative label (data-label) materializes on first route
+    label = document.createElementNS(NS, 'text')
+    label.setAttribute('class', 'dia-edge-label')
+    label.textContent = edge.getAttribute('data-label')
+    edge.appendChild(label)
+  }
   if (label) {
     label.setAttribute('x', fmt(labelAt.x)); label.setAttribute('y', fmt(labelAt.y - 6))
     label.setAttribute('text-anchor', 'middle')

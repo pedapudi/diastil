@@ -16,7 +16,7 @@ function mount(html: string, name = 'demo.html') {
 describe('parse', () => {
   it('loads the demo deck', () => {
     const deck = mount(demoRaw)
-    expect(deck.root.querySelectorAll('section.dia-slide').length).toBe(6)
+    expect(deck.root.querySelectorAll('section.dia-slide').length).toBe(7)
     expect(deck.title).toBe('diastil demo deck')
     expect(deck.version).toBe('1')
     expect(deck.themeStyle.textContent).toContain('--dia-paper')
@@ -60,7 +60,7 @@ describe('round-trip', () => {
     const report = validateDeckHtml(serializeDeck(mount(demoRaw)))
     expect(report.findings.filter((f) => f.level === 'error')).toEqual([])
     expect(report.ok).toBe(true)
-    expect(report.slideCount).toBe(6)
+    expect(report.slideCount).toBe(7)
   })
 
   it('content survives an edit + save', () => {

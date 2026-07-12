@@ -8,13 +8,23 @@
   position: fixed;
   z-index: 60;
   display: flex;
-  align-items: center;
-  gap: 6px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
   padding: 4px 6px;
   font-family: var(--mono);
   font-size: calc(10.5px * var(--dt-font-scale, 1));
   color: var(--ink-soft);
   user-select: none;
+}
+.dia-scene-toolbar .dia-tb-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dia-scene-toolbar .dia-tb-k {
+  min-width: 30px;
+  color: var(--ink-faint);
 }
 .dia-scene-toolbar .dn-seg button {
   padding: 2px 7px;
