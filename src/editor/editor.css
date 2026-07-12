@@ -42,7 +42,7 @@
 /* ---------- layout ---------- */
 .de-layout {
   flex: 1; min-height: 0;
-  display: grid; grid-template-columns: 132px minmax(0, 1fr) 300px;
+  display: grid; grid-template-columns: 132px minmax(0, 1fr) var(--de-rail-w, 300px);
 }
 .de-main {
   position: relative; min-width: 0; min-height: 0;
@@ -170,8 +170,16 @@
   border-top: 1px solid var(--rule); background: var(--panel);
 }
 .de-rail-split:hover { background: var(--rule-soft); }
-.de-cop-dock { flex: 0 0 var(--de-cop-h, 42%); min-height: 140px; display: flex; min-width: 0; }
-.de-cop-dock .dia-cop { border-left: 0; flex: 1; min-width: 0; }
+.de-cop-slot { flex: 0 0 var(--de-cop-h, 42%); min-height: 140px; display: flex; min-width: 0; }
+.de-cop-dock { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.de-cop-dock .dia-cop, .de-cop-dock.dia-cop { border-left: 0; flex: 1; min-width: 0; }
+/* copilot maximized: the full pane hosts the chat; dock + divider retire */
+.de-rail.de-cop-max .de-rail-split, .de-rail.de-cop-max .de-cop-slot { display: none; }
+.de-rail-wgrip {
+  position: absolute; left: -3px; top: 0; bottom: 0; width: 7px;
+  cursor: col-resize; z-index: 30;
+}
+.de-rail { position: relative; }
 .de-tabs { display: flex; border-bottom: 1px solid var(--rule); flex: none; }
 .de-tabs button {
   flex: 1; font-family: var(--mono); font-size: calc(10.5px * var(--dt-font-scale, 1));

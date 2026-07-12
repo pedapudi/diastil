@@ -110,31 +110,53 @@ export function mountEditor(host: HTMLElement): void {
 
   /* ---------- rail: inspect · copilot · tokens ---------- */
 
-  // rail anatomy: [tabs: inspect · tokens] scrollable top region, then a
-  // drag-resizable divider, then the copilot DOCK — always present (chat is
-  // a companion, not a mode), pinned to the bottom so it never wanders
+  // rail anatomy: [tabs: inspect · tokens · copilot] scrollable top region,
+  // a drag-resizable divider, then the copilot DOCK — always present (chat
+  // is a companion, not a mode). The 'copilot' tab MAXIMIZES the same chat
+  // to the full rail (enabled once the service is reachable); the other
+  // tabs return it to the dock.
   const tabsBar = h('div', 'de-tabs')
   const inspectPane = h('div', 'de-pane de-on')
   const tokensPane = h('div', 'de-pane')
-  const copilotPane = h('div', 'de-cop-dock')
+  const copilotFullPane = h('div', 'de-pane')
+  const copilotPane = h('div', 'de-cop-dock') // the chat element; lives in the dock or the full pane
   const inspectBody = h('div', 'de-pane-pad')
   const tokensBody = h('div', 'de-pane-pad')
   inspectPane.append(inspectBody)
   tokensPane.append(tokensBody)
   const tabs: Array<{ btn: HTMLButtonElement; pane: HTMLElement }> = []
-  for (const [label, pane] of [['inspect', inspectPane], ['tokens', tokensPane]] as const) {
+  let copilotTabBtn!: HTMLButtonElement
+  for (const [label, pane] of [
+    ['inspect', inspectPane], ['tokens', tokensPane], ['copilot', copilotFullPane],
+  ] as const) {
     const btn = h('button', label === 'inspect' ? 'de-on' : '', label)
     btn.type = 'button'
     btn.addEventListener('click', () => {
+      if (btn.disabled) return
       for (const t of tabs) {
         t.btn.classList.toggle('de-on', t.btn === btn)
         t.pane.classList.toggle('de-on', t.pane === pane)
       }
+      const maximized = pane === copilotFullPane
+      rail.classList.toggle('de-cop-max', maximized)
+      if (maximized) copilotFullPane.append(copilotPane)
+      else railDockSlot.append(copilotPane)
       if (pane === tokensPane) renderTokens()
     })
     tabsBar.append(btn)
     tabs.push({ btn, pane })
+    if (label === 'copilot') copilotTabBtn = btn
   }
+  copilotTabBtn.disabled = true
+  copilotTabBtn.title = 'maximize the copilot (needs the dia service)'
+  window.addEventListener('dia-service-status', (e) => {
+    const online = (e as CustomEvent).detail?.online === true
+    copilotTabBtn.disabled = !online
+    copilotTabBtn.title = online
+      ? 'maximize the copilot to the full rail'
+      : 'maximize the copilot (needs the dia service)'
+    if (!online && rail.classList.contains('de-cop-max')) tabs[0].btn.click()
+  })
   const railHide = h('button', 'de-rail-hide', '⇥')
   railHide.type = 'button'
   railHide.title = 'hide the rail (\\)'
@@ -142,7 +164,9 @@ export function mountEditor(host: HTMLElement): void {
   tabsBar.append(railHide)
 
   const railTop = h('div', 'de-rail-top')
-  railTop.append(tabsBar, inspectPane, tokensPane)
+  railTop.append(tabsBar, inspectPane, tokensPane, copilotFullPane)
+  const railDockSlot = h('div', 'de-cop-slot')
+  railDockSlot.append(copilotPane)
 
   const split = h('div', 'de-rail-split')
   split.title = 'drag to resize the copilot'
@@ -165,7 +189,27 @@ export function mountEditor(host: HTMLElement): void {
     if (saved) rail.style.setProperty('--de-cop-h', saved)
   } catch { /* private mode */ }
 
-  rail.append(railTop, split, copilotPane)
+  // rail width: drag the left edge (persisted); the dock divider handles height
+  const widthGrip = h('div', 'de-rail-wgrip')
+  widthGrip.title = 'drag to resize the rail'
+  widthGrip.addEventListener('pointerdown', (e) => {
+    e.preventDefault()
+    const ac = new AbortController()
+    window.addEventListener('pointermove', (ev) => {
+      const w = Math.min(Math.max(window.innerWidth - ev.clientX, 240), 560)
+      layout.style.setProperty('--de-rail-w', `${Math.round(w)}px`)
+    }, { signal: ac.signal })
+    window.addEventListener('pointerup', () => {
+      ac.abort()
+      try { localStorage.setItem('dia-rail-w', layout.style.getPropertyValue('--de-rail-w')) } catch { /* private mode */ }
+    }, { signal: ac.signal })
+  })
+  try {
+    const savedW = localStorage.getItem('dia-rail-w')
+    if (savedW) layout.style.setProperty('--de-rail-w', savedW)
+  } catch { /* private mode */ }
+
+  rail.append(railTop, split, railDockSlot, widthGrip)
 
   const railRestore = h('button', 'de-rail-restore', '⇤')
   railRestore.type = 'button'

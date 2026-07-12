@@ -86,6 +86,8 @@ export function mountCopilot(host: HTMLElement): void {
     const h = await service.health()
     online = h.ok
     model.textContent = h.ok ? (h.model ?? '') : ''
+    // let the shell react (e.g. enable the copilot maximize tab)
+    window.dispatchEvent(new CustomEvent('dia-service-status', { detail: { online } }))
     setComposerEnabled(h.ok && !busy)
     if (!h.ok) {
       if (!offlineLine) {
