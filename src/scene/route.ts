@@ -124,13 +124,21 @@ export function routeEdge(scene: SVGSVGElement, edge: SVGGElement): void {
 
   const routeKind = (edge.getAttribute('data-route') as EdgeRoute) || 'ortho'
   let d: string
+  let labelAt: Pt
   if (routeKind === 'straight') {
     d = `M${fmt(p1.x)},${fmt(p1.y)} L${fmt(p2.x)},${fmt(p2.y)}`
+    labelAt = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 }
   } else if (routeKind === 'curve') {
     const mx = (p1.x + p2.x) / 2
     d = `M${fmt(p1.x)},${fmt(p1.y)} C${fmt(mx)},${fmt(p1.y)} ${fmt(mx)},${fmt(p2.y)} ${fmt(p2.x)},${fmt(p2.y)}`
+    labelAt = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 }
   } else {
-    d = orthoPath(p1, sideA, p2, sideB)
+    const obstacles = nodesOf(scene)
+      .filter((n) => n !== a && n !== b)
+      .map((n) => getNodeGeom(n))
+    const pts = routeOrtho(p1, sideA, p2, sideB, obstacles)
+    d = polylineD(pts)
+    labelAt = polylineMidpoint(pts)
   }
 
   let path = edge.querySelector<SVGPathElement>('.dia-edge-path')
@@ -145,33 +153,177 @@ export function routeEdge(scene: SVGSVGElement, edge: SVGGElement): void {
 
   const label = edge.querySelector<SVGTextElement>('.dia-edge-label')
   if (label) {
-    const mid = pathMidpoint(p1, p2)
-    label.setAttribute('x', fmt(mid.x)); label.setAttribute('y', fmt(mid.y - 6))
+    label.setAttribute('x', fmt(labelAt.x)); label.setAttribute('y', fmt(labelAt.y - 6))
     label.setAttribute('text-anchor', 'middle')
   }
 }
 
-/** simple 1–2 bend orthogonal route between two anchor points */
-function orthoPath(
-  p1: { x: number; y: number }, s1: Exclude<AnchorSide, 'auto'>,
-  p2: { x: number; y: number }, s2: Exclude<AnchorSide, 'auto'>,
-): string {
+/* ---------- orthogonal routing with obstacle avoidance ----------
+ * A* over the coordinate grid induced by obstacle rects inflated by
+ * AVOID_MARGIN (plus the two anchor stubs). Small scenes → tiny grids;
+ * bends are penalized so routes stay calm. Falls back to the classic
+ * 1–2 bend route when no clear path exists (e.g. overlapping nodes).
+ * The attribute format stays routing-algorithm-neutral: only the emitted
+ * path changes. */
+
+export interface Pt { x: number; y: number }
+
+const AVOID_MARGIN = 12
+const BEND_PENALTY = 40
+
+/** orthogonal polyline from p1 (leaving via s1) to p2 (arriving via s2) */
+export function routeOrtho(
+  p1: Pt, s1: Exclude<AnchorSide, 'auto'>,
+  p2: Pt, s2: Exclude<AnchorSide, 'auto'>,
+  obstacles: NodeGeom[] = [],
+): Pt[] {
+  const start = pushOut(p1, s1, AVOID_MARGIN)
+  const goal = pushOut(p2, s2, AVOID_MARGIN)
+  const rects = obstacles.map((g) => ({
+    x: g.x - AVOID_MARGIN, y: g.y - AVOID_MARGIN,
+    w: g.w + 2 * AVOID_MARGIN, h: g.h + 2 * AVOID_MARGIN,
+  }))
+
+  const inside = (p: Pt) => rects.some((r) => p.x > r.x && p.x < r.x + r.w && p.y > r.y && p.y < r.y + r.h)
+  if (rects.length === 0 || inside(start) || inside(goal)) {
+    return simplify([p1, ...fallbackOrtho(start, s1, goal, s2), p2])
+  }
+
+  const xs = uniqSorted([start.x, goal.x, ...rects.flatMap((r) => [r.x, r.x + r.w])])
+  const ys = uniqSorted([start.y, goal.y, ...rects.flatMap((r) => [r.y, r.y + r.h])])
+  const pts = astar(xs, ys, start, goal, rects)
+  if (!pts) return simplify([p1, ...fallbackOrtho(start, s1, goal, s2), p2])
+  return simplify([p1, ...pts, p2])
+}
+
+function pushOut(p: Pt, side: Exclude<AnchorSide, 'auto'>, by: number): Pt {
+  switch (side) {
+    case 'N': return { x: p.x, y: p.y - by }
+    case 'S': return { x: p.x, y: p.y + by }
+    case 'E': return { x: p.x + by, y: p.y }
+    case 'W': return { x: p.x - by, y: p.y }
+  }
+}
+
+/** the pre-avoidance 1–2 bend route, kept as the honest fallback */
+function fallbackOrtho(
+  p1: Pt, s1: Exclude<AnchorSide, 'auto'>,
+  p2: Pt, s2: Exclude<AnchorSide, 'auto'>,
+): Pt[] {
   const h1 = s1 === 'E' || s1 === 'W'
   const h2 = s2 === 'E' || s2 === 'W'
   if (h1 && h2) {
     const mx = (p1.x + p2.x) / 2
-    return `M${fmt(p1.x)},${fmt(p1.y)} H${fmt(mx)} V${fmt(p2.y)} H${fmt(p2.x)}`
+    return [p1, { x: mx, y: p1.y }, { x: mx, y: p2.y }, p2]
   }
   if (!h1 && !h2) {
     const my = (p1.y + p2.y) / 2
-    return `M${fmt(p1.x)},${fmt(p1.y)} V${fmt(my)} H${fmt(p2.x)} V${fmt(p2.y)}`
+    return [p1, { x: p1.x, y: my }, { x: p2.x, y: my }, p2]
   }
-  if (h1 && !h2) return `M${fmt(p1.x)},${fmt(p1.y)} H${fmt(p2.x)} V${fmt(p2.y)}`
-  return `M${fmt(p1.x)},${fmt(p1.y)} V${fmt(p2.y)} H${fmt(p2.x)}`
+  if (h1) return [p1, { x: p2.x, y: p1.y }, p2]
+  return [p1, { x: p1.x, y: p2.y }, p2]
 }
 
-function pathMidpoint(p1: { x: number; y: number }, p2: { x: number; y: number }) {
-  return { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 }
+type Rect = { x: number; y: number; w: number; h: number }
+
+function astar(xs: number[], ys: number[], start: Pt, goal: Pt, rects: Rect[]): Pt[] | null {
+  const si = xs.indexOf(start.x), sj = ys.indexOf(start.y)
+  const gi = xs.indexOf(goal.x), gj = ys.indexOf(goal.y)
+  // state: grid point + incoming axis (0 none, 1 horizontal, 2 vertical)
+  const key = (i: number, j: number, dir: number) => (i * ys.length + j) * 3 + dir
+  const dist = new Map<number, number>()
+  const prev = new Map<number, number>()
+  const open: Array<{ k: number; i: number; j: number; dir: number; f: number; g: number }> = []
+  const h = (i: number, j: number) => Math.abs(xs[i] - xs[gi]) + Math.abs(ys[j] - ys[gj])
+  const push = (k: number, i: number, j: number, dir: number, g: number, from: number) => {
+    const known = dist.get(k)
+    if (known !== undefined && known <= g) return
+    dist.set(k, g)
+    prev.set(k, from)
+    open.push({ k, i, j, dir, f: g + h(i, j), g })
+  }
+  push(key(si, sj, 0), si, sj, 0, 0, -1)
+
+  while (open.length > 0) {
+    // small grids: linear extract-min is fine
+    let bi = 0
+    for (let n = 1; n < open.length; n++) if (open[n].f < open[bi].f) bi = n
+    const cur = open.splice(bi, 1)[0]
+    if (dist.get(cur.k)! < cur.g) continue
+    if (cur.i === gi && cur.j === gj) {
+      const out: Pt[] = []
+      let k: number | undefined = cur.k
+      while (k !== undefined && k !== -1) {
+        const cell = Math.floor(k / 3)
+        out.unshift({ x: xs[Math.floor(cell / ys.length)], y: ys[cell % ys.length] })
+        k = prev.get(k)
+      }
+      return out
+    }
+    const steps: Array<{ i: number; j: number; dir: number }> = [
+      { i: cur.i + 1, j: cur.j, dir: 1 }, { i: cur.i - 1, j: cur.j, dir: 1 },
+      { i: cur.i, j: cur.j + 1, dir: 2 }, { i: cur.i, j: cur.j - 1, dir: 2 },
+    ]
+    for (const s of steps) {
+      if (s.i < 0 || s.j < 0 || s.i >= xs.length || s.j >= ys.length) continue
+      if (!segmentClear(xs[cur.i], ys[cur.j], xs[s.i], ys[s.j], rects)) continue
+      const len = Math.abs(xs[s.i] - xs[cur.i]) + Math.abs(ys[s.j] - ys[cur.j])
+      const turn = cur.dir !== 0 && cur.dir !== s.dir ? BEND_PENALTY : 0
+      push(key(s.i, s.j, s.dir), s.i, s.j, s.dir, cur.g + len + turn, cur.k)
+    }
+  }
+  return null
+}
+
+/** axis-aligned segment (between adjacent grid coords) vs rect interiors */
+function segmentClear(x1: number, y1: number, x2: number, y2: number, rects: Rect[]): boolean {
+  const lox = Math.min(x1, x2), hix = Math.max(x1, x2)
+  const loy = Math.min(y1, y2), hiy = Math.max(y1, y2)
+  for (const r of rects) {
+    if (lox < r.x + r.w && hix > r.x && loy < r.y + r.h && hiy > r.y) return false
+  }
+  return true
+}
+
+/** drop collinear and duplicate intermediate points */
+function simplify(pts: Pt[]): Pt[] {
+  const out: Pt[] = []
+  for (const p of pts) {
+    const a = out[out.length - 2], b = out[out.length - 1]
+    if (b && b.x === p.x && b.y === p.y) continue
+    if (a && b && ((a.x === b.x && b.x === p.x) || (a.y === b.y && b.y === p.y))) out.pop()
+    out.push(p)
+  }
+  return out
+}
+
+function polylineD(pts: Pt[]): string {
+  let d = `M${fmt(pts[0].x)},${fmt(pts[0].y)}`
+  for (let i = 1; i < pts.length; i++) {
+    const p = pts[i], q = pts[i - 1]
+    d += p.y === q.y ? ` H${fmt(p.x)}` : p.x === q.x ? ` V${fmt(p.y)}` : ` L${fmt(p.x)},${fmt(p.y)}`
+  }
+  return d
+}
+
+/** point at half the polyline's length — where the label sits */
+function polylineMidpoint(pts: Pt[]): Pt {
+  let total = 0
+  for (let i = 1; i < pts.length; i++) total += Math.abs(pts[i].x - pts[i - 1].x) + Math.abs(pts[i].y - pts[i - 1].y)
+  let walk = total / 2
+  for (let i = 1; i < pts.length; i++) {
+    const seg = Math.abs(pts[i].x - pts[i - 1].x) + Math.abs(pts[i].y - pts[i - 1].y)
+    if (walk <= seg && seg > 0) {
+      const t = walk / seg
+      return { x: pts[i - 1].x + (pts[i].x - pts[i - 1].x) * t, y: pts[i - 1].y + (pts[i].y - pts[i - 1].y) * t }
+    }
+    walk -= seg
+  }
+  return pts[Math.floor(pts.length / 2)] ?? pts[0]
+}
+
+function uniqSorted(ns: number[]): number[] {
+  return [...new Set(ns.map((n) => Math.round(n * 100) / 100))].sort((a, b) => a - b)
 }
 
 /** reroute every edge touching node `id` */
