@@ -151,6 +151,11 @@ def _compose_message(req: ChatRequest) -> str:
     if tokens:
         lines.append("theme-tokens:")
         lines.append(str(tokens))
+    neighbors = ctx.get("flowNeighborsHtml") or []
+    if neighbors:
+        lines.append("slides-in-view (document order around the current slide):")
+        for n in neighbors:
+            lines.append(str(n))
     lines.append("</editor-context>")
     lines.append("")
     lines.append(req.message)
