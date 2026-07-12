@@ -75,9 +75,49 @@ class ReviewController {
   private unforceOrig: (() => void) | null = null
 
   /** decks that hide non-current slides (any root without a layout box) —
-   * for these the review controls slide visibility outright */
+   * for these the review must NAVIGATE the deck rather than force styles */
   private oneAtATime(): boolean {
     return this.origRoots.length > 1 && this.origRoots.some((r) => r.offsetWidth === 0)
+  }
+
+  /** Present slide i in the original pane THROUGH the deck's own runtime —
+   * activation often does more than display (split layouts, reveals,
+   * lazily-drawn figures), so forcing styles under-renders the original.
+   * Ladder: hash deep-link → arrow keys → style forcing as a last resort. */
+  private async showOriginal(i: number): Promise<void> {
+    const doc = this.origFrame.contentDocument
+    const win = doc?.defaultView
+    const root = this.origRoots[i]
+    if (!doc || !win || !root || !this.oneAtATime()) return
+    // undo any earlier forcing so the runtime is in charge again
+    for (const r of this.origRoots) {
+      r.style.removeProperty('display')
+      r.style.removeProperty('visibility')
+    }
+    if (root.offsetWidth > 0) return // already showing
+    // arrow keys from whichever slide is showing. No hash deep-links: setting
+    // the srcdoc frame's hash pollutes its URL (about:srcdoc#n) and breaks
+    // capture/devtools access to the page.
+    const cur = this.origRoots.findIndex((r) => r.offsetWidth > 0)
+    if (cur >= 0 && cur !== i) {
+      const key = i > cur ? 'ArrowRight' : 'ArrowLeft'
+      const code = i > cur ? 39 : 37
+      for (let k = 0; k < Math.abs(i - cur); k++) {
+        for (const target of [doc, win] as const) {
+          const ev = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+          // legacy handlers check e.keyCode/e.which, which synthetic events
+          // report as 0 — shim both
+          Object.defineProperty(ev, 'keyCode', { get: () => code })
+          Object.defineProperty(ev, 'which', { get: () => code })
+          target.dispatchEvent(ev)
+        }
+      }
+      await pause(380)
+      if (root.offsetWidth > 0) return
+    }
+    // last resort — geometry without activation styling
+    this.origRoots.forEach((r, j) => { r.style.display = j === i ? 'block' : 'none' })
+    root.style.visibility = 'visible'
   }
 
   private onKey = (e: KeyboardEvent): void => {
@@ -154,9 +194,11 @@ class ReviewController {
       window.setTimeout(() => {
         const d = this.origFrame.contentDocument
         if (d) this.origRoots = findSlideRoots(d).roots
-        this.layout()
-        this.origReady = true
-        void this.maybeRunFidelity()
+        void this.showOriginal(this.current).then(() => {
+          this.layout()
+          this.origReady = true
+          void this.maybeRunFidelity()
+        })
       }, 350)
     })
     this.origViewport.appendChild(this.origFrame)
@@ -320,6 +362,8 @@ class ReviewController {
     this.renderVerdict()
     this.verdictMsg.textContent = ''
     this.layout()
+    // one-at-a-time decks: drive the original's own runtime, then re-crop
+    void this.showOriginal(this.current).then(() => this.layout())
   }
 
   /** reassemble the converted doc after a per-slide change */
@@ -341,17 +385,9 @@ class ReviewController {
 
   private layout(): void {
     requestAnimationFrame(() => {
-      // hidden-slide decks: the review OWNS visibility — show exactly the
-      // compared slide. Revealing it while the deck's runtime keeps its own
-      // current slide shown would ghost two slides over each other (they
-      // share the same absolutely-positioned stage).
       const orig = this.origRoots[this.current] ?? null
-      if (this.oneAtATime()) {
-        this.origRoots.forEach((r, i) => {
-          r.style.display = i === this.current ? 'block' : 'none'
-          if (i === this.current) r.style.visibility = 'visible'
-        })
-      } else {
+      if (!this.oneAtATime()) {
+        // flow decks: reveal the compared slide if it happens to be hidden
         this.unforceOrig?.()
         this.unforceOrig = orig ? forceVisible(orig) : null
       }
@@ -426,7 +462,11 @@ class ReviewController {
     for (let i = 0; i < this.conversions.length && !this.closed; i++) {
       await this.measureSlide(i)
     }
-    if (!(await this.healthCheck) || this.closed) return
+    if (!(await this.healthCheck) || this.closed) {
+      await this.showOriginal(this.current) // back to the slide under review
+      this.layout()
+      return
+    }
     for (let i = 0; i < this.conversions.length && !this.closed; i++) {
       for (let round = 1; round <= MAX_AUTO_REPAIR_ROUNDS && !this.closed; round++) {
         const c = this.conversions[i]
@@ -437,6 +477,8 @@ class ReviewController {
       }
     }
     this.verdictMsg.textContent = ''
+    await this.showOriginal(this.current)
+    this.layout()
   }
 
   private convRoots(): HTMLElement[] {
@@ -447,8 +489,10 @@ class ReviewController {
   private async measureSlide(i: number): Promise<void> {
     const orig = this.origRoots[i]
     const conv = this.convRoots()[i]
-    // one-visible-at-a-time decks hide non-current slides — reveal for the raster
-    const unforce = orig ? forceVisible(orig) : null
+    // present the slide through the deck's own runtime (true activation
+    // state — reveals, split layouts) before rasterizing it
+    await this.showOriginal(i)
+    const unforce = orig && !this.oneAtATime() ? forceVisible(orig) : null
     let score = null
     try {
       score = orig && conv ? await scoreSlideFidelity(orig, conv) : null
@@ -611,6 +655,10 @@ class ReviewController {
 }
 
 /* ---------- dom helpers ---------- */
+
+function pause(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
 
 function h(tag: string, cls?: string, text?: string): HTMLElement {
   const el = document.createElement(tag)
