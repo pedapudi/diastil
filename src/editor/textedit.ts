@@ -5,7 +5,7 @@
  * the scene module owns those. */
 
 import { state } from '../state'
-import { setText } from '../model/ops'
+import { setInlineHtml } from '../model/ops'
 
 const ROLE_SELECTOR = '.dia-title, .dia-kicker, .dia-body, .dia-caption'
 
@@ -102,16 +102,27 @@ function editableFor(target: HTMLElement, slide: HTMLElement): HTMLElement | nul
   return target !== slide && isTextLeaf(target) ? target : null
 }
 
+/** inline formatting that may live INSIDE an editable text leaf — imported
+ * decks are full of strong/em/span runs; rejecting them made most imported
+ * text silently uneditable */
+const INLINE_TAGS = new Set([
+  'STRONG', 'EM', 'B', 'I', 'U', 'S', 'CODE', 'A', 'SPAN', 'MARK',
+  'SMALL', 'SUB', 'SUP', 'BR', 'ABBR', 'KBD', 'WBR',
+])
+
 function isTextLeaf(el: HTMLElement): boolean {
-  if (el.childElementCount !== 0) return false
   const tag = el.tagName
   if (tag === 'IMG' || tag === 'BR' || tag === 'HR' || tag === 'INPUT') return false
-  return (el.textContent ?? '').trim().length > 0
+  if ((el.textContent ?? '').trim().length === 0) return false
+  // a leaf may contain inline formatting, but no block structure
+  return [...el.querySelectorAll('*')].every((c) => INLINE_TAGS.has(c.tagName))
 }
 
 function beginEdit(el: HTMLElement): void {
-  // capture prev BEFORE editing starts, so the op's inverse is the original
-  editing = { el, original: el.textContent ?? '' }
+  // capture prev BEFORE editing starts, so the op's inverse is the original.
+  // innerHTML, not textContent: leaves may carry inline markup (strong/em/…)
+  // which the commit must preserve, not flatten
+  editing = { el, original: el.innerHTML }
   el.setAttribute('contenteditable', supportsPlaintextOnly ? 'plaintext-only' : 'true')
   el.spellcheck = false
   el.addEventListener('keydown', onEditKey)
@@ -143,12 +154,12 @@ function onEditBlur(): void {
 function commitEdit(): void {
   if (!editing) return
   const { el, original } = editing
-  const text = el.textContent ?? ''
+  const html = el.innerHTML
   cleanupEdit(el)
-  if (text !== original) {
-    // restore the original first so setText captures it as prev (undo works)
-    el.textContent = original
-    state.apply(setText(el, text))
+  if (html !== original) {
+    // restore the original first so the op captures it as prev (undo works)
+    el.innerHTML = original
+    state.apply(setInlineHtml(el, html))
   }
 }
 
@@ -156,7 +167,7 @@ function cancelEdit(): void {
   if (!editing) return
   const { el, original } = editing
   cleanupEdit(el)
-  el.textContent = original
+  el.innerHTML = original
 }
 
 function cleanupEdit(el: HTMLElement): void {
