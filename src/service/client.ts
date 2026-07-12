@@ -69,28 +69,35 @@ export class ServiceClient {
     yield { type: 'done' }
   }
 
-  /** model-assisted translation for one slide (ingest); throws when offline */
-  async translateSlide(sourceHtml: string, tokensCss: string): Promise<string> {
-    return this.skill('translate-slide', { sourceHtml, tokensCss }, 'slideHtml')
+  /** model-assisted translation for one slide (ingest); throws when offline.
+   * images (optional): a render of the ORIGINAL slide, so a vision model
+   * sees the layout it must reproduce. feedback: reviewer notes. */
+  async translateSlide(
+    sourceHtml: string, tokensCss: string, images: string[] = [], feedback = '',
+  ): Promise<string> {
+    return this.skill('translate-slide', { sourceHtml, tokensCss, images, feedback }, 'slideHtml')
   }
 
   /** one fidelity-loop repair round: corrected slide for a reported mismatch.
    * images (PNG data URLs, optional): original render, candidate render,
-   * diff heatmap — a vision model uses them to see the miss directly. */
+   * diff heatmap — a vision model uses them to see the miss directly.
+   * feedback: reviewer notes riding along with the mismatch. */
   async repairFidelity(
     sourceHtml: string,
     candidateHtml: string,
     tokensCss: string,
     mismatch: string,
     images: string[] = [],
+    feedback = '',
   ): Promise<string> {
-    return this.skill('repair-fidelity', { sourceHtml, candidateHtml, tokensCss, mismatch, images }, 'slideHtml')
+    return this.skill('repair-fidelity', { sourceHtml, candidateHtml, tokensCss, mismatch, images, feedback }, 'slideHtml')
   }
 
   /** lift a raw SVG diagram into the scene vocabulary.
-   * images (optional): a render of the source diagram for vision models. */
-  async liftDiagram(svgHtml: string, images: string[] = []): Promise<string> {
-    return this.skill('lift-diagram', { svgHtml, images }, 'sceneHtml')
+   * images (optional): a render of the source diagram for vision models.
+   * feedback: reviewer notes. */
+  async liftDiagram(svgHtml: string, images: string[] = [], feedback = ''): Promise<string> {
+    return this.skill('lift-diagram', { svgHtml, images, feedback }, 'sceneHtml')
   }
 
   private async skill(name: string, body: object, field: string): Promise<string> {

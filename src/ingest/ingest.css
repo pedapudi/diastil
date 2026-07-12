@@ -201,6 +201,50 @@ iframe.dia-ingest-exec {
   color: var(--bad);
 }
 
+/* ---------- lift decision (keep / revert, inline in the verdict row) ---------- */
+
+.dia-lift-decision {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.dia-lift-q {
+  font-family: var(--sans);
+  font-size: calc(10.5px * var(--dt-font-scale, 1));
+  color: var(--caution);
+}
+
+/* ---------- reviewer notes to the model ---------- */
+
+.dia-feedback {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.dia-feedback-label {
+  flex: none;
+  padding-top: 6px;
+  font-family: var(--sans);
+  font-size: calc(10px * var(--dt-font-scale, 1));
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.dia-feedback-input {
+  flex: 1;
+  resize: vertical;
+  min-height: 30px;
+  font-family: var(--sans);
+  font-size: calc(11px * var(--dt-font-scale, 1));
+  line-height: 1.45;
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  padding: 5px 8px;
+}
+.dia-feedback-input::placeholder { color: var(--ink-faint); }
+
 /* ---------- region notes ---------- */
 
 .dia-notes {
