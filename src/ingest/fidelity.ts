@@ -54,7 +54,11 @@ export async function rasterizeRegion(el: HTMLElement): Promise<ImageData | null
   canvas.height = SAMPLE_H
   const ctx = canvas.getContext('2d')
   if (!ctx) return null
-  ctx.fillStyle = '#ffffff'
+  // composite over the element's EFFECTIVE background: slides are often
+  // transparent with the deck's paper painted on an ancestor — compositing
+  // over white would rasterize a dark deck's original as white-on-white
+  // and score a faithful conversion near zero
+  ctx.fillStyle = effectiveBackground(el, win)
   ctx.fillRect(0, 0, SAMPLE_W, SAMPLE_H)
   try {
     ctx.drawImage(img, 0, 0, SAMPLE_W, SAMPLE_H)
@@ -115,4 +119,17 @@ function cloneWithComputedStyles(el: HTMLElement, win: Window): HTMLElement {
 
 function collectElements(root: Element): Element[] {
   return [root, ...root.querySelectorAll('*')]
+}
+
+/** first non-transparent background color on the element or its ancestors */
+function effectiveBackground(el: HTMLElement, win: Window): string {
+  let cur: Element | null = el
+  while (cur) {
+    const bg = win.getComputedStyle(cur).backgroundColor
+    if (bg && bg !== 'transparent' && !/rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*0\s*\)/.test(bg)) {
+      return bg
+    }
+    cur = cur.parentElement
+  }
+  return '#ffffff'
 }
