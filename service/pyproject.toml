@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dia-service"
+version = "0.1.0"
+description = "Local inference service for the diastil editor (ADK-based). The editor works fully without it."
+requires-python = ">=3.11"
+dependencies = [
+    "google-adk",
+    "litellm",
+    "fastapi",
+    "uvicorn",
+    "sse-starlette",
+]
+
+[project.scripts]
+dia-serve = "dia_service.main:run"
+
+[tool.setuptools.packages.find]
+include = ["dia_service*"]
+
+[tool.setuptools.package-data]
+dia_service = ["skills/*.md"]
