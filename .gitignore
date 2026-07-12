@@ -5,3 +5,5 @@ dist/
 service/.venv/
 __pycache__/
 service/evals/results.json
+service/config.toml
+.claude/
