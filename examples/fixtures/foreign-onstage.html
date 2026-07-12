@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Field notes</title>
+<style>
+  /* one-visible-at-a-time bespoke deck: the runtime hides every slide but
+   * the current one and marks it with a state class ("slide on") — slide
+   * detection must fold the state class and accept the hidden majority */
+  body { margin: 0; background: #101418; font-family: ui-monospace, monospace; }
+  .slide { display: none; width: 1280px; height: 720px; margin: 0 auto;
+           background: #171d24; color: #cfd8e3; padding: 64px; box-sizing: border-box; }
+  .slide.on { display: block; }
+  h1 { font-size: 40px; color: #fff; margin: 0 0 14px; }
+  p { font-size: 17px; line-height: 1.6; color: #93a1b1; }
+</style>
+</head>
+<body>
+<div class="deck">
+  <div class="slide on">
+    <h1>Field notes</h1>
+    <p>Observations from the pilot rollout, June.</p>
+  </div>
+  <div class="slide">
+    <h1>What worked</h1>
+    <p>Import-then-edit beat authoring from scratch in every session we watched.</p>
+  </div>
+  <div class="slide">
+    <h1>What did not</h1>
+    <p>Nobody found the keyboard shortcuts without the cheat sheet.</p>
+  </div>
+</div>
+<script>
+  var slides = document.querySelectorAll('.slide'), cur = 0;
+  addEventListener('keydown', function (e) {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    slides[cur].classList.remove('on');
+    cur = Math.max(0, Math.min(slides.length - 1, cur + (e.key === 'ArrowRight' ? 1 : -1)));
+    slides[cur].classList.add('on');
+  });
+</script>
+</body>
+</html>

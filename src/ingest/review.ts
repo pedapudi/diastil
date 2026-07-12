@@ -10,7 +10,7 @@ import { service } from '../service/client'
 import type { ExecuteResult } from './execute'
 import { EXEC_W, EXEC_H } from './execute'
 import type { Extraction } from './extract'
-import { findSlideRoots } from './extract'
+import { findSlideRoots, forceVisible } from './extract'
 import { scoreSlideFidelity, REPAIR_THRESHOLD } from './fidelity'
 
 /** cap on automatic service repair rounds per slide (more is manual) */
@@ -71,6 +71,8 @@ class ReviewController {
   private hover!: HTMLElement
   private segButtons: HTMLButtonElement[] = []
   private origRoots: HTMLElement[] = []
+  /** restore fn for the original slide the compare pane force-revealed */
+  private unforceOrig: (() => void) | null = null
 
   private onKey = (e: KeyboardEvent): void => {
     if (e.key === 'Escape') { e.preventDefault(); this.cancel() }
@@ -333,7 +335,11 @@ class ReviewController {
 
   private layout(): void {
     requestAnimationFrame(() => {
-      this.layoutPane(this.origFrame, this.origViewport, this.origRoots[this.current] ?? null, EXEC_W)
+      // hidden-slide decks: reveal the slide this pane is comparing
+      const orig = this.origRoots[this.current] ?? null
+      this.unforceOrig?.()
+      this.unforceOrig = orig ? forceVisible(orig) : null
+      this.layoutPane(this.origFrame, this.origViewport, orig, EXEC_W)
       // render the converted doc at the source slide's width so both panes
       // scale identically — keeps the difference overlay comparable
       const srcW = this.input.extraction.slides[this.current]?.rect.w
@@ -425,7 +431,14 @@ class ReviewController {
   private async measureSlide(i: number): Promise<void> {
     const orig = this.origRoots[i]
     const conv = this.convRoots()[i]
-    const score = orig && conv ? await scoreSlideFidelity(orig, conv) : null
+    // one-visible-at-a-time decks hide non-current slides — reveal for the raster
+    const unforce = orig ? forceVisible(orig) : null
+    let score = null
+    try {
+      score = orig && conv ? await scoreSlideFidelity(orig, conv) : null
+    } finally {
+      unforce?.()
+    }
     this.conversions[i].fidelity = score ? score.score : null
     this.renderStrip()
     if (i === this.current) { this.renderNotes(); this.renderVerdict() }
@@ -559,6 +572,8 @@ class ReviewController {
 
   private close(): void {
     this.closed = true
+    this.unforceOrig?.()
+    this.unforceOrig = null
     window.removeEventListener('keydown', this.onKey, true)
     window.removeEventListener('resize', this.onResize)
     this.overlay.remove()

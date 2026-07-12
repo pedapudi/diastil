@@ -47,3 +47,44 @@ describe('framework extractors', () => {
     expect(roots.length).toBe(1)
   })
 })
+
+describe('siblings extractor (layout simulated)', () => {
+  function rect(w: number, h: number, top = 0): () => DOMRect {
+    return () => ({ width: w, height: h, top, bottom: top + h, left: 0, right: w, x: 0, y: top, toJSON: () => ({}) }) as DOMRect
+  }
+
+  it('one-visible-at-a-time deck: state class folds, hidden majority accepted', () => {
+    // the zicato shape: 12 div.slide under one wrapper, the runtime marks the
+    // current slide `slide on`; the other 11 are display:none (zero rect)
+    document.body.innerHTML = '<div id="wrap"></div>'
+    const wrap = document.getElementById('wrap')!
+    for (let i = 0; i < 12; i++) {
+      const d = document.createElement('div')
+      d.className = i === 0 ? 'slide on' : 'slide'
+      d.getBoundingClientRect = rect(i === 0 ? 1280 : 0, i === 0 ? 720 : 0)
+      wrap.appendChild(d)
+    }
+    const { roots, method } = findSlideRoots(document)
+    expect(method).toBe('siblings')
+    expect(roots.length).toBe(12)
+    document.body.innerHTML = ''
+  })
+
+  it('a larger deeper group beats a shallow qualifying pair', () => {
+    document.body.innerHTML = '<div id="a"></div><div id="b"></div>'
+    const a = document.getElementById('a')!
+    const b = document.getElementById('b')!
+    a.getBoundingClientRect = rect(1280, 720, 0)
+    b.getBoundingClientRect = rect(1280, 720, 720)
+    for (let i = 0; i < 3; i++) {
+      const d = document.createElement('div')
+      d.className = 'page'
+      d.getBoundingClientRect = rect(1280, 720, i * 720)
+      a.appendChild(d)
+    }
+    const { roots } = findSlideRoots(document)
+    expect(roots.length).toBe(3)
+    expect(roots[0].className).toBe('page')
+    document.body.innerHTML = ''
+  })
+})
