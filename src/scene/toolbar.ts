@@ -8,11 +8,12 @@
 
 import type { EdgeRoute, NodeShape } from '../types'
 import { state } from '../state'
-import { setStyleProp } from '../model/ops'
+import { moveEl, setAttr, setStyleProp } from '../model/ops'
 import { getShape } from './route'
 import {
-  deleteSceneSelection, ensureSceneStyleRules, insertShapeNode,
-  setAnchorsOp, setRouteOp, setShapeOp, spawnConnectedNode,
+  contentEndIndex, deleteSceneSelection, ensureSceneStyleRules, getDrawTool,
+  insertShapeNode, setAnchorsOp, setDrawTool, setRouteOp, setShapeOp,
+  spawnConnectedNode, type DrawTool,
 } from './interact'
 
 const SHAPES: [NodeShape, string][] = [
@@ -68,12 +69,13 @@ function ensureBar(): HTMLDivElement {
   return bar
 }
 
-/** the scene svg itself, when the selection is a scene background click */
+/** any editable svg when the selection is a background click (dia-scene or
+ * a plain imported svg — both are editing surfaces now) */
 function selectedScene(): SVGSVGElement | null {
   const sel = state.selection
   if (sel.kind !== 'element') return null
   const el = sel.el as unknown as Element
-  return el instanceof SVGSVGElement && el.classList.contains('dia-scene') ? el : null
+  return el instanceof SVGSVGElement ? el : null
 }
 
 function refresh(): void {
@@ -83,6 +85,7 @@ function refresh(): void {
   const target =
     sel.kind === 'scene-node' ? sel.node :
     sel.kind === 'scene-edge' ? sel.edge :
+    sel.kind === 'scene-free' ? sel.el :
     scene
   if (suppressed || !target || !target.isConnected) {
     el.hidden = true
@@ -91,16 +94,83 @@ function refresh(): void {
   el.textContent = ''
   if (sel.kind === 'scene-node') buildNodeBar(el, sel.scene, sel.node)
   else if (sel.kind === 'scene-edge') buildEdgeBar(el, sel.scene, sel.edge)
+  else if (sel.kind === 'scene-free') buildFreeBar(el, sel.scene, sel.el)
   else if (scene) buildSceneBar(el, scene)
   el.hidden = false
   position()
 }
 
 function buildSceneBar(el: HTMLDivElement, scene: SVGSVGElement): void {
+  if (scene.classList.contains('dia-scene')) {
+    const r = row(el)
+    r.appendChild(btn('+ node', () => insertShapeNode(scene, 'node')))
+    r.appendChild(btn('+ circle', () => insertShapeNode(scene, 'circle')))
+    r.appendChild(btn('+ square', () => insertShapeNode(scene, 'square')))
+  } else {
+    // a plain imported svg: drawing works everywhere; nodes/edges need the
+    // scene vocabulary — one click opts the svg in
+    const r = row(el)
+    r.appendChild(btn('make diagram', () => {
+      ensureSceneStyleRules()
+      const cls = scene.getAttribute('class') ?? ''
+      state.apply(setAttr(scene, 'class', cls ? `${cls} dia-scene` : 'dia-scene'))
+      refresh()
+    }))
+  }
+  drawRow(el)
+}
+
+/** draw-tool toggles (pen / line); active tool highlighted, Esc exits */
+function drawRow(el: HTMLDivElement): void {
   const r = row(el)
-  r.appendChild(btn('+ node', () => insertShapeNode(scene, 'node')))
-  r.appendChild(btn('+ circle', () => insertShapeNode(scene, 'circle')))
-  r.appendChild(btn('+ square', () => insertShapeNode(scene, 'square')))
+  const k = document.createElement('span')
+  k.className = 'dia-tb-k'
+  k.textContent = 'draw'
+  r.appendChild(k)
+  const active = getDrawTool()
+  r.appendChild(seg(
+    [['off', 'off'], ['line', 'line'], ['pen', 'pen']],
+    active ?? 'off',
+    (v) => { setDrawTool(v === 'off' ? null : (v as DrawTool)); refresh() },
+  ))
+}
+
+/* free elements: arbitrary svg content — style, z-order, delete */
+
+const FREE_FILLS: [string, string][] = [
+  ['keep', ''], ['paper', 'var(--dia-paper)'], ['rule', 'var(--dia-rule)'],
+  ['accent', 'var(--dia-accent)'], ['ink', 'var(--dia-ink)'], ['none', 'none'],
+]
+const FREE_STROKES: [string, string][] = [
+  ['keep', ''], ['ink', 'var(--dia-ink)'], ['soft', 'var(--dia-ink-soft)'],
+  ['accent', 'var(--dia-accent)'], ['none', 'none'],
+]
+
+function buildFreeBar(el: HTMLDivElement, scene: SVGSVGElement, target: SVGGraphicsElement): void {
+  const top = row(el)
+  const tag = document.createElement('span')
+  tag.className = 'dia-tb-k'
+  tag.textContent = `<${target.tagName.toLowerCase()}>`
+  top.appendChild(tag)
+  top.appendChild(btn('front', () => {
+    state.apply(moveEl(target, scene, contentEndIndex(scene) - 1, 'ToFront'))
+  }))
+  top.appendChild(btn('back', () => {
+    state.apply(moveEl(target, scene, firstContentIndex(scene), 'ToBack'))
+  }))
+  top.appendChild(btn('del', () => deleteSceneSelection()))
+
+  styleRow(el, 'fill', target, 'fill', FREE_FILLS)
+  const lineRow = styleRow(el, 'line', target, 'stroke', FREE_STROKES)
+  lineRow.appendChild(document.createTextNode(' '))
+  widthSeg(lineRow, target, 'stroke-width')
+}
+
+/** first index past defs/style/title — where "send to back" lands */
+function firstContentIndex(scene: SVGSVGElement): number {
+  const kids = [...scene.children]
+  const i = kids.findIndex((c) => !/^(defs|style|title|desc|metadata)$/.test(c.tagName))
+  return i === -1 ? 0 : i
 }
 
 function buildNodeBar(el: HTMLDivElement, scene: SVGSVGElement, node: SVGGElement): void {
@@ -140,7 +210,7 @@ function buildEdgeBar(el: HTMLDivElement, scene: SVGSVGElement, edge: SVGGElemen
 /* ---- style rows: scoped custom properties as undoable ops ---- */
 
 function styleRow(
-  el: HTMLDivElement, label: string, target: SVGGElement, prop: string, options: [string, string][],
+  el: HTMLDivElement, label: string, target: SVGGraphicsElement, prop: string, options: [string, string][],
 ): HTMLDivElement {
   const r = row(el)
   const k = document.createElement('span')
@@ -151,7 +221,7 @@ function styleRow(
   return r
 }
 
-function widthSeg(r: HTMLDivElement, target: SVGGElement, prop: string): void {
+function widthSeg(r: HTMLDivElement, target: SVGGraphicsElement, prop: string): void {
   const k = document.createElement('span')
   k.className = 'dia-tb-k'
   k.textContent = 'w'
@@ -159,8 +229,8 @@ function widthSeg(r: HTMLDivElement, target: SVGGElement, prop: string): void {
   r.appendChild(optionSeg(target, prop, WIDTHS))
 }
 
-/** a segment over [name, cssValue] options — sets a custom property as an op */
-function optionSeg(target: SVGGElement, prop: string, options: [string, string][]): HTMLSpanElement {
+/** a segment over [name, cssValue] options — sets a style property as an op */
+function optionSeg(target: SVGGraphicsElement, prop: string, options: [string, string][]): HTMLSpanElement {
   const current = target.style.getPropertyValue(prop).trim()
   const currentName = (options.find(([, v]) => v === current) ?? options[0])[0]
   return seg(options.map(([n]) => [n, n] as [string, string]), currentName, (name) => {

@@ -122,6 +122,53 @@ export function drawEdgeSelection(scene: SVGSVGElement, edge: SVGGElement): void
   }
 }
 
+/** selection ring + scale handles for a free element (bbox in scene coords) */
+export function drawFreeSelection(scene: SVGSVGElement, el: SVGGraphicsElement): void {
+  const g = layerOf(scene, 'dia-ov-sel')
+  g.textContent = ''
+  const b = freeBBox(scene, el)
+  if (!b) return
+  g.appendChild(rect(b.x, b.y, b.w, b.h, 'dia-sel-shape'))
+  const s = 7 / pxScale(scene)
+  const corners: [string, number, number][] = [
+    ['nw', b.x, b.y], ['ne', b.x + b.w, b.y],
+    ['sw', b.x, b.y + b.h], ['se', b.x + b.w, b.y + b.h],
+  ]
+  for (const [c, x, y] of corners) {
+    const h = rect(x - s / 2, y - s / 2, s, s, 'dia-handle')
+    h.setAttribute('data-dia-handle', c)
+    g.appendChild(h)
+  }
+}
+
+/** a free element's bounding box in scene coordinates (transforms applied) */
+export function freeBBox(
+  scene: SVGSVGElement, el: SVGGraphicsElement,
+): { x: number; y: number; w: number; h: number } | null {
+  try {
+    const b = el.getBBox()
+    const toSceneM = scene.getScreenCTM()?.inverse()
+    const elM = el.getScreenCTM()
+    if (!toSceneM || !elM) return { x: b.x, y: b.y, w: b.width, h: b.height }
+    const m = toSceneM.multiply(elM)
+    const pts = [
+      [b.x, b.y], [b.x + b.width, b.y], [b.x, b.y + b.height], [b.x + b.width, b.y + b.height],
+    ].map(([x, y]) => ({ x: m.a * x + m.c * y + m.e, y: m.b * x + m.d * y + m.f }))
+    const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y)
+    const x = Math.min(...xs), y = Math.min(...ys)
+    return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y }
+  } catch {
+    return null
+  }
+}
+
+/** live preview of a drawing in progress (pen / line tools) */
+export function drawTempPath(scene: SVGSVGElement, d: string): void {
+  const g = layerOf(scene, 'dia-ov-temp')
+  g.textContent = ''
+  if (d) g.appendChild(path(d, 'dia-temp-edge'))
+}
+
 export function clearSelectionVisuals(scene: SVGSVGElement): void {
   layerOf(scene, 'dia-ov-sel').textContent = ''
 }
@@ -190,15 +237,41 @@ export function clearTempEdge(scene: SVGSVGElement): void {
   layerOf(scene, 'dia-ov-temp').textContent = ''
 }
 
-export function highlightCandidate(scene: SVGSVGElement, node: SVGGElement | null): void {
+export function highlightCandidate(
+  scene: SVGSVGElement, node: SVGGElement | null, hotSide: Exclude<AnchorSide, 'auto'> | null = null,
+): void {
   const g = layerOf(scene, 'dia-ov-cand')
   g.textContent = ''
   if (!node) return
   const geom = getNodeGeom(node)
-  const m = 3 / pxScale(scene)
+  const k = pxScale(scene)
+  const m = 3 / k
   const r = rect(geom.x - m, geom.y - m, geom.w + 2 * m, geom.h + 2 * m, 'dia-candidate')
-  r.setAttribute('rx', String(4 / pxScale(scene)))
+  r.setAttribute('rx', String(4 / k))
   g.appendChild(r)
+  // sink anchors: aim at a dot to pin the side the edge lands on; the hot
+  // one (nearest the pointer) renders larger — drop pins it
+  for (const side of ['N', 'S', 'E', 'W'] as const) {
+    const p = anchorPoint(geom, side)
+    const dot = circle(p.x, p.y, (side === hotSide ? 5 : 3) / k, 'dia-anchor')
+    g.appendChild(dot)
+  }
+}
+
+/** the candidate side nearest p, when within snapping distance; null = auto */
+export function nearestAnchorSide(
+  scene: SVGSVGElement, node: SVGGElement, p: { x: number; y: number },
+): Exclude<AnchorSide, 'auto'> | null {
+  const geom = getNodeGeom(node)
+  const snap = 16 / Math.min(1, pxScale(scene)) // generous in small scenes
+  let best: Exclude<AnchorSide, 'auto'> | null = null
+  let bestD = snap
+  for (const side of ['N', 'S', 'E', 'W'] as const) {
+    const a = anchorPoint(geom, side)
+    const d = Math.hypot(a.x - p.x, a.y - p.y)
+    if (d < bestD) { bestD = d; best = side }
+  }
+  return best
 }
 
 /* ---------- edge hit paths (fat invisible strokes for edge picking) ---------- */

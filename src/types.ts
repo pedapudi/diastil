@@ -27,6 +27,8 @@ export type Selection =
   | { kind: 'element'; el: HTMLElement; slide: SlideEl }
   | { kind: 'scene-node'; node: SVGGElement; scene: SVGSVGElement; slide: SlideEl }
   | { kind: 'scene-edge'; edge: SVGGElement; scene: SVGSVGElement; slide: SlideEl }
+  /** any other svg graphics content — imported art, drawings; coarse editing */
+  | { kind: 'scene-free'; el: SVGGraphicsElement; scene: SVGSVGElement; slide: SlideEl }
 
 /* ---------- ops ---------- */
 

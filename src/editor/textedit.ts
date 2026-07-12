@@ -38,7 +38,8 @@ function onClick(e: MouseEvent): void {
   const target = e.composedPath()[0]
   if (!(target instanceof Element)) return
   if (editing && editing.el.contains(target)) return // clicks inside the live edit
-  if (target.closest('svg.dia-scene')) return // scene module owns these
+  // the scene module owns every svg except island content
+  if (target.closest('svg') && !target.closest('[data-dia-island]')) return
   const slide = target.closest<HTMLElement>('section.dia-slide')
   if (!slide) {
     state.selection = { kind: 'none' }
@@ -74,7 +75,7 @@ function onDblClick(e: MouseEvent): void {
   if (editing) return
   const target = e.composedPath()[0]
   if (!(target instanceof Element)) return
-  if (target.closest('svg.dia-scene')) return
+  if (target.closest('svg') && !target.closest('[data-dia-island]')) return
   const slide = target.closest<HTMLElement>('section.dia-slide')
   if (!slide) return
   const el = target instanceof HTMLElement ? target : null
