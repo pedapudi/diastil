@@ -32,9 +32,10 @@ section.dia-slide:last-of-type { margin-block-end: 0; }
 :host(.dia-stage) section.dia-slide { margin-block: 0; }
 :host(.dia-stage) section.dia-slide:not([data-dia-current]) { display: none !important; }
 [data-dia-selected] { outline: 1.5px solid var(--accent); outline-offset: 4px; }
-/* blank svg areas are click-through by default (visiblePainted) — the scene
- * background must be selectable in the editor for the creation toolbar */
-svg.dia-scene { pointer-events: bounding-box; }
+/* blank svg areas are click-through by default (visiblePainted) — every
+ * editable svg background must be selectable; islands stay untouched */
+section.dia-slide svg { pointer-events: bounding-box; }
+[data-dia-island] svg { pointer-events: auto; }
 [contenteditable] { outline: 2px solid var(--accent); outline-offset: 2px; cursor: text; }
 `
 
@@ -351,9 +352,11 @@ export function mountEditor(host: HTMLElement): void {
       inspectBody.append(h('div', 'de-hint', 'click an element in a slide to inspect it'))
       return
     }
-    if (sel.kind === 'scene-node' || sel.kind === 'scene-edge') {
+    if (sel.kind === 'scene-node' || sel.kind === 'scene-edge' || sel.kind === 'scene-free') {
       inspectBody.append(
-        kv('role', sel.kind === 'scene-node' ? 'scene node' : 'scene edge'),
+        kv('role', sel.kind === 'scene-node' ? 'scene node'
+          : sel.kind === 'scene-edge' ? 'scene edge'
+          : `svg <${sel.el.tagName.toLowerCase()}>`),
         h('div', 'de-hint', 'scene selections are edited on the canvas'),
       )
       return

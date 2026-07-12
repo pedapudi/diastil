@@ -268,6 +268,7 @@ function describeSelection(sel: Selection): string | null {
     }
     case 'scene-node': return `node ${sel.node.getAttribute('data-dia-node') ?? ''}`.trim()
     case 'scene-edge': return `edge ${sel.edge.getAttribute('data-dia-edge') ?? ''}`.trim()
+    case 'scene-free': return `svg <${sel.el.tagName.toLowerCase()}>`
   }
 }
 
@@ -278,5 +279,6 @@ function selectionHtml(sel: Selection): string | null {
     case 'element': return sel.el.outerHTML
     case 'scene-node': return sel.node.outerHTML
     case 'scene-edge': return sel.edge.outerHTML
+    case 'scene-free': return sel.el.outerHTML
   }
 }

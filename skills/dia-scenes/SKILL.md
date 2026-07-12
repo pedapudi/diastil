@@ -79,7 +79,18 @@ the op log, no inference:
   the scene background → toolbar offers `+ node · + circle · + square`
 - node toolbar rows: `fill` / `line` / `w` — per-shape color and weight as
   token-scoped properties; edge toolbar rows: `ink` / `w`
-- connector handles on hover → drag to retarget an edge's anchor
+- edges: drag from a selected node's anchor dot to start one; while aiming,
+  the candidate node shows its anchor dots — **drop on a dot to pin the
+  side the edge lands on** (else auto); endpoint handles retarget the same way
+- **free elements**: ANY other svg content — imported art, drawn strokes,
+  raw paths/text/groups — is selectable (moves as its top-level group),
+  draggable, scalable via handles (⇧ = uniform), nudgeable, deletable,
+  restylable (fill/line/w rows set style properties), and z-orderable
+  (front/back). Plain svgs in slides get the same treatment; 'make diagram'
+  opts one into the node/edge vocabulary
+- **drawing**: with the scene background selected, toggle `line` or `pen`
+  in the toolbar — strokes commit as token-styled `path.dia-draw` elements
+  (one op each); Esc exits the tool
 - double-click a node → edit its label in place
 - double-click empty scene space → create a node with the label editor open
 - box-select (marquee), group operations, align/distribute via the

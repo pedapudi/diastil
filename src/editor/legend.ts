@@ -23,11 +23,14 @@ const SECTIONS: Array<[string, Array<[string, string]>]> = [
     ['double-click', 'edit text in place'],
     ['Enter · Esc', 'commit · cancel the edit'],
   ]],
-  ['diagram (node or edge selected)', [
-    ['drag', 'move a node — edges reroute live'],
+  ['diagram', [
+    ['drag', 'move a node or any svg element — edges reroute live'],
+    ['⇧ + resize', 'lock the aspect (true circles / squares)'],
     ['arrows', 'nudge 1px (⇧ = 10px)'],
+    ['drag from an anchor dot', 'new edge — drop on a dot to pin the side it lands on'],
     ['double-click node', 'edit its label'],
     ['double-click empty scene', 'create a node'],
+    ['pen / line (toolbar)', 'draw — release commits, Esc exits the tool'],
     ['Delete / Backspace', 'delete the selection'],
   ]],
   ['import review', [

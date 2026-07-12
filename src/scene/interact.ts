@@ -5,16 +5,17 @@
 
 import type { AnchorSide, EdgeRoute, NodeGeom, NodeShape, Op, SlideEl } from '../types'
 import { state } from '../state'
-import { batch, insertEl, moveSceneNode, removeEl } from '../model/ops'
+import { batch, insertEl, moveSceneNode, removeEl, setAttr } from '../model/ops'
 import {
   anchorPoint, createEdge, createNode, edgesOf, freshNodeId, getNodeGeom, getShape,
   nodesOf, parseEdgeRef, renderNodeShape, routeEdge, routeEdgesOf, setNodeGeom,
 } from './route'
 import type { Guide } from './overlay'
 import {
-  clearGuides, clearSelectionVisuals, clearTempEdge, drawEdgeSelection, drawGuides,
-  drawNodeSelection, edgeEndpoints, edgeForHit, ensureEditorStyles, hideToast,
-  highlightCandidate, pxScale, showTempEdge, showToast, syncEdgeHits,
+  clearGuides, clearSelectionVisuals, clearTempEdge, drawEdgeSelection, drawFreeSelection,
+  drawGuides, drawNodeSelection, drawTempPath, edgeEndpoints, edgeForHit, ensureEditorStyles,
+  freeBBox, hideToast, highlightCandidate, nearestAnchorSide, pxScale, showTempEdge,
+  showToast, syncEdgeHits,
 } from './overlay'
 import { attachToolbar, setToolbarSuppressed } from './toolbar'
 import './scene.css'
@@ -63,8 +64,26 @@ function wire(): void {
   for (const scene of scenesOf(deck.root)) syncEdgeHits(scene)
 }
 
+/** Every editable svg surface: dia-scenes AND plain svgs in slides (imported
+ * art becomes free-editable). Islands stay untouched; nested svgs resolve to
+ * their outermost element. */
 function scenesOf(root: ShadowRoot): SVGSVGElement[] {
-  return [...root.querySelectorAll<SVGSVGElement>('svg.dia-scene')]
+  return [...root.querySelectorAll<SVGSVGElement>('section.dia-slide svg')]
+    .filter((s) => !s.closest('[data-dia-island]') && !s.parentElement?.closest('svg'))
+}
+
+/** the outermost editable svg for a pointer target; null for islands */
+function sceneFor(target: Element): SVGSVGElement | null {
+  if (target.closest('[data-dia-island]')) return null
+  let svg = target.closest('svg')
+  if (!svg) return null
+  let outer = svg.parentElement?.closest('svg')
+  while (outer) { svg = outer; outer = svg.parentElement?.closest('svg') }
+  return svg as SVGSVGElement
+}
+
+function isDiaScene(scene: SVGSVGElement): boolean {
+  return scene.classList.contains('dia-scene')
 }
 
 /* ============================================================= bus sync */
@@ -72,6 +91,7 @@ function scenesOf(root: ShadowRoot): SVGSVGElement[] {
 function onSelectionChanged(): void {
   const sel = state.selection
   if (pendingNudge && !(sel.kind === 'scene-node' && sel.node === pendingNudge.node)) flushNudge()
+  if (pendingFreeNudge && !(sel.kind === 'scene-free' && sel.el === pendingFreeNudge.el)) flushFreeNudge()
   refreshOverlaySelection()
 }
 
@@ -82,7 +102,8 @@ function onDocMutated(): void {
   const sel = state.selection
   if (
     (sel.kind === 'scene-node' && !sel.node.isConnected) ||
-    (sel.kind === 'scene-edge' && !sel.edge.isConnected)
+    (sel.kind === 'scene-edge' && !sel.edge.isConnected) ||
+    (sel.kind === 'scene-free' && !sel.el.isConnected)
   ) {
     state.selection = sel.scene.isConnected
       ? { kind: 'element', el: sel.scene as unknown as HTMLElement, slide: sel.slide }
@@ -99,6 +120,7 @@ function refreshOverlaySelection(): void {
   const sel = state.selection
   if (sel.kind === 'scene-node' && sel.node.isConnected) drawNodeSelection(sel.scene, sel.node)
   else if (sel.kind === 'scene-edge' && sel.edge.isConnected) drawEdgeSelection(sel.scene, sel.edge)
+  else if (sel.kind === 'scene-free' && sel.el.isConnected) drawFreeSelection(sel.scene, sel.el)
 }
 
 /* ============================================================== pointer */
@@ -107,12 +129,25 @@ function onPointerDown(e: PointerEvent): void {
   if (e.button !== 0) return
   const target = e.target as Element | null
   if (!(target instanceof Element)) return
-  const scene = target.closest('svg.dia-scene') as SVGSVGElement | null
+  const scene = sceneFor(target)
   if (!scene) return
   flushNudge()
+  flushFreeNudge()
   const sel = state.selection
 
+  // an active drawing tool owns every press inside a scene
+  if (drawTool) {
+    e.preventDefault()
+    beginDraw(scene, drawTool, e)
+    return
+  }
+
   const handle = target.closest('[data-dia-handle]')
+  if (handle && sel.kind === 'scene-free') {
+    e.preventDefault()
+    beginFreeScale(scene, sel.el, (handle.getAttribute('data-dia-handle') ?? 'se') as Corner, e)
+    return
+  }
   if (handle && sel.kind === 'scene-node') {
     e.preventDefault()
     beginResize(scene, sel.node, (handle.getAttribute('data-dia-handle') ?? 'se') as Corner, e)
@@ -143,8 +178,27 @@ function onPointerDown(e: PointerEvent): void {
     state.selection = { kind: 'scene-edge', edge, scene, slide: slideOf(scene) }
     return
   }
+  // free element: any other graphics content — imported art, drawings
+  const free = freeTargetOf(scene, target)
+  if (free) {
+    e.preventDefault()
+    beginFreeDrag(scene, free, e)
+    return
+  }
   // empty scene space
   state.selection = { kind: 'element', el: scene as unknown as HTMLElement, slide: slideOf(scene) }
+}
+
+/** Resolve a press on arbitrary svg content to the direct child of the scene
+ * that owns it (groups move as one) — never editor artifacts or dia groups. */
+function freeTargetOf(scene: SVGSVGElement, target: Element): SVGGraphicsElement | null {
+  if (target === scene) return null
+  if (target.closest('.dia-editor-artifact, defs, [data-dia-node], [data-dia-edge]')) return null
+  let el: Element = target
+  while (el.parentElement && el.parentElement !== (scene as unknown as Element)) el = el.parentElement
+  if (el.parentElement !== (scene as unknown as Element)) return null
+  if (el.tagName === 'defs' || el.tagName === 'style' || el.tagName === 'title') return null
+  return el instanceof SVGGraphicsElement ? el : null
 }
 
 function onDblClick(e: MouseEvent): void {
@@ -335,6 +389,205 @@ function beginResize(scene: SVGSVGElement, node: SVGGElement, corner: Corner, e:
   )
 }
 
+/* ------------------------------------------------ free elements (any svg) */
+
+/** insertion index that keeps editor artifact layers (hit layer, overlay)
+ * as the last children — content ops must land before them */
+export function contentEndIndex(scene: SVGSVGElement): number {
+  const kids = [...scene.children]
+  const first = kids.findIndex((c) => c.classList.contains('dia-editor-artifact'))
+  return first === -1 ? kids.length : first
+}
+
+function composeTranslate(base: string | null, dx: number, dy: number): string {
+  const prefix = `translate(${round2(dx)} ${round2(dy)})`
+  return base ? `${prefix} ${base}` : prefix
+}
+
+function restoreTransform(el: SVGGraphicsElement, base: string | null): void {
+  if (base === null) el.removeAttribute('transform')
+  else el.setAttribute('transform', base)
+}
+
+function round2(n: number): number { return Math.round(n * 100) / 100 }
+
+function beginFreeDrag(scene: SVGSVGElement, el: SVGGraphicsElement, e: PointerEvent): void {
+  state.selection = { kind: 'scene-free', el, scene, slide: slideOf(scene) }
+  const base = el.getAttribute('transform')
+  const p0 = toScene(scene, e.clientX, e.clientY)
+  const c0 = { x: e.clientX, y: e.clientY }
+  let moved = false
+
+  startSession(
+    (ev) => {
+      if (!moved && Math.hypot(ev.clientX - c0.x, ev.clientY - c0.y) < DRAG_MIN) return
+      if (!moved) {
+        moved = true
+        setToolbarSuppressed(true)
+        showToast(`drag writes to <${el.tagName.toLowerCase()}> · transform`)
+        document.body.style.cursor = 'grabbing'
+      }
+      const p = toScene(scene, ev.clientX, ev.clientY)
+      el.setAttribute('transform', composeTranslate(base, p.x - p0.x, p.y - p0.y))
+      drawFreeSelection(scene, el)
+    },
+    () => {
+      cleanupDragUi(scene)
+      if (!moved) return
+      suppressNextClick()
+      const final = el.getAttribute('transform')
+      restoreTransform(el, base) // the op must capture the true prev
+      if (final !== null && final !== base) state.apply(setAttr(el, 'transform', final))
+      refreshOverlaySelection()
+    },
+    () => { restoreTransform(el, base); cleanupDragUi(scene); refreshOverlaySelection() },
+  )
+}
+
+function beginFreeScale(scene: SVGSVGElement, el: SVGGraphicsElement, corner: Corner, e: PointerEvent): void {
+  const b0 = freeBBox(scene, el)
+  if (!b0 || b0.w < 0.01 || b0.h < 0.01) return
+  const base = el.getAttribute('transform')
+  // scale about the corner opposite the handle
+  const ax = corner.includes('w') ? b0.x + b0.w : b0.x
+  const ay = corner.includes('n') ? b0.y + b0.h : b0.y
+  const c0 = { x: e.clientX, y: e.clientY }
+  let moved = false
+
+  startSession(
+    (ev) => {
+      if (!moved && Math.hypot(ev.clientX - c0.x, ev.clientY - c0.y) < DRAG_MIN) return
+      if (!moved) {
+        moved = true
+        setToolbarSuppressed(true)
+        showToast(`drag writes to <${el.tagName.toLowerCase()}> · scale`)
+      }
+      const p = toScene(scene, ev.clientX, ev.clientY)
+      let sx = Math.max(0.05, (p.x - ax) / ((corner.includes('w') ? -1 : 1) * b0.w))
+      let sy = Math.max(0.05, (p.y - ay) / ((corner.includes('n') ? -1 : 1) * b0.h))
+      if (ev.shiftKey) { const s = Math.max(sx, sy); sx = s; sy = s }
+      const prefix = `translate(${round2(ax)} ${round2(ay)}) scale(${round2(sx)} ${round2(sy)}) translate(${round2(-ax)} ${round2(-ay)})`
+      el.setAttribute('transform', base ? `${prefix} ${base}` : prefix)
+      drawFreeSelection(scene, el)
+    },
+    () => {
+      cleanupDragUi(scene)
+      if (!moved) return
+      suppressNextClick()
+      const final = el.getAttribute('transform')
+      restoreTransform(el, base)
+      if (final !== null && final !== base) state.apply(setAttr(el, 'transform', final))
+      refreshOverlaySelection()
+    },
+    () => { restoreTransform(el, base); cleanupDragUi(scene); refreshOverlaySelection() },
+  )
+}
+
+/* coalesced arrow-key nudges for free elements (mirrors node nudging) */
+let pendingFreeNudge: {
+  scene: SVGSVGElement; el: SVGGraphicsElement; base: string | null
+  dx: number; dy: number; timer: number
+} | null = null
+
+function nudgeFree(scene: SVGSVGElement, el: SVGGraphicsElement, dx: number, dy: number): void {
+  if (pendingFreeNudge && pendingFreeNudge.el !== el) flushFreeNudge()
+  if (!pendingFreeNudge) {
+    pendingFreeNudge = { scene, el, base: el.getAttribute('transform'), dx: 0, dy: 0, timer: 0 }
+  }
+  clearTimeout(pendingFreeNudge.timer)
+  pendingFreeNudge.dx += dx
+  pendingFreeNudge.dy += dy
+  el.setAttribute('transform', composeTranslate(pendingFreeNudge.base, pendingFreeNudge.dx, pendingFreeNudge.dy))
+  drawFreeSelection(scene, el)
+  pendingFreeNudge.timer = window.setTimeout(flushFreeNudge, 400)
+}
+
+function flushFreeNudge(): void {
+  if (!pendingFreeNudge) return
+  const { el, base } = pendingFreeNudge
+  const final = el.getAttribute('transform')
+  clearTimeout(pendingFreeNudge.timer)
+  pendingFreeNudge = null
+  restoreTransform(el, base)
+  if (final !== null && final !== base) state.apply(setAttr(el, 'transform', final))
+}
+
+/* ------------------------------------------------------- drawing tools */
+
+export type DrawTool = 'pen' | 'line'
+
+let drawTool: DrawTool | null = null
+
+export function getDrawTool(): DrawTool | null { return drawTool }
+
+export function setDrawTool(tool: DrawTool | null): void {
+  drawTool = tool
+  document.body.style.cursor = tool ? 'crosshair' : ''
+}
+
+function beginDraw(scene: SVGSVGElement, tool: DrawTool, e: PointerEvent): void {
+  ensureSceneStyleRules()
+  const pts: Pt[] = [toScene(scene, e.clientX, e.clientY)]
+  showToast(tool === 'pen' ? 'drawing — release to commit, Esc exits the tool' : 'line — release to commit (⇧ snaps to 45°)')
+
+  startSession(
+    (ev) => {
+      const p = toScene(scene, ev.clientX, ev.clientY)
+      if (tool === 'line') {
+        pts[1] = ev.shiftKey ? snap45(pts[0], p) : p
+      } else {
+        const last = pts[pts.length - 1]
+        if (Math.hypot(p.x - last.x, p.y - last.y) >= 2) pts.push(p)
+      }
+      drawTempPath(scene, drawnPathD(tool, pts))
+    },
+    () => {
+      drawTempPath(scene, '')
+      hideToast()
+      const d = drawnPathD(tool, pts)
+      const span = pathSpan(pts)
+      if (!d || span < 4) return // a click, not a drawing
+      suppressNextClick()
+      const pathEl = document.createElementNS(NS, 'path') as SVGPathElement
+      pathEl.setAttribute('class', 'dia-draw')
+      pathEl.setAttribute('d', d)
+      pathEl.setAttribute('style',
+        'fill: none; stroke: var(--dia-ink); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round')
+      state.apply(insertEl(scene, contentEndIndex(scene), pathEl, `Draw ${tool}`))
+      state.selection = { kind: 'scene-free', el: pathEl, scene, slide: slideOf(scene) }
+    },
+    () => { drawTempPath(scene, ''); hideToast() },
+  )
+}
+
+function drawnPathD(tool: DrawTool, pts: Pt[]): string {
+  if (pts.length < 2) return ''
+  if (tool === 'line') return `M${round2(pts[0].x)},${round2(pts[0].y)} L${round2(pts[1].x)},${round2(pts[1].y)}`
+  // pen: quadratic smoothing through segment midpoints
+  let d = `M${round2(pts[0].x)},${round2(pts[0].y)}`
+  for (let i = 1; i < pts.length - 1; i++) {
+    const mx = (pts[i].x + pts[i + 1].x) / 2
+    const my = (pts[i].y + pts[i + 1].y) / 2
+    d += ` Q${round2(pts[i].x)},${round2(pts[i].y)} ${round2(mx)},${round2(my)}`
+  }
+  const last = pts[pts.length - 1]
+  d += ` L${round2(last.x)},${round2(last.y)}`
+  return d
+}
+
+function pathSpan(pts: Pt[]): number {
+  if (pts.length < 2) return 0
+  const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y)
+  return Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys))
+}
+
+function snap45(a: Pt, b: Pt): Pt {
+  const dx = b.x - a.x, dy = b.y - a.y
+  const angle = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4)
+  const len = Math.hypot(dx, dy)
+  return { x: a.x + Math.cos(angle) * len, y: a.y + Math.sin(angle) * len }
+}
+
 /* -------------------------------------- create edge / node (anchor drag) */
 
 function beginCreateEdge(
@@ -351,30 +604,37 @@ function beginCreateEdge(
       if (!moved) {
         moved = true
         setToolbarSuppressed(true)
-        showToast(`drag writes to scene · new edge from ${from}`)
+        showToast(`drag writes to scene · new edge from ${from} — aim at an anchor dot to pin the side`)
       }
       const p = toScene(scene, ev.clientX, ev.clientY)
       showTempEdge(scene, a, p)
-      highlightCandidate(scene, hitNode(scene, p, node))
+      const cand = hitNode(scene, p, node, 10)
+      highlightCandidate(scene, cand, cand ? nearestAnchorSide(scene, cand, p) : null)
     },
     (ev) => {
       cleanupDragUi(scene)
       if (!moved) return
       suppressNextClick()
       const p = toScene(scene, ev.clientX, ev.clientY)
-      const cand = hitNode(scene, p, node)
-      if (cand) insertEdgeFlow(scene, from, idOf(cand))
-      else insertNodeWithEdge(scene, from, p)
+      const cand = hitNode(scene, p, node, 10)
+      if (cand) {
+        // sink side: pinned when dropped on/near an anchor dot, else auto
+        const sink = nearestAnchorSide(scene, cand, p) ?? 'auto'
+        insertEdgeFlow(scene, from, idOf(cand), `${side},${sink}`)
+      } else {
+        insertNodeWithEdge(scene, from, p, side)
+      }
     },
     () => cleanupDragUi(scene),
   )
 }
 
-/** drop on a node → ONE InsertEdge op */
-function insertEdgeFlow(scene: SVGSVGElement, from: string, to: string): void {
+/** drop on a node → ONE InsertEdge op (anchors: "sourceSide,sinkSide") */
+function insertEdgeFlow(scene: SVGSVGElement, from: string, to: string, anchors = 'auto,auto'): void {
   const edgeEl = createEdge(scene, from, to) // builds + routes, appended
+  edgeEl.setAttribute('data-anchors', anchors)
   edgeEl.remove()                            // detach; the op does the insert
-  state.apply(insertEl(scene, scene.children.length, edgeEl, `InsertEdge ${from}->${to}`))
+  state.apply(insertEl(scene, contentEndIndex(scene), edgeEl, `InsertEdge ${from}->${to}`))
   routeEdge(scene, edgeEl)
   syncEdgeHits(scene)
   state.selection = { kind: 'scene-edge', edge: edgeEl, scene, slide: slideOf(scene) }
@@ -425,13 +685,14 @@ export function insertShapeNode(scene: SVGSVGElement, kind: 'node' | 'circle' | 
 }
 
 /** drop on empty canvas → new node + connecting edge as ONE batch op */
-function insertNodeWithEdge(scene: SVGSVGElement, from: string, p: Pt): void {
+function insertNodeWithEdge(scene: SVGSVGElement, from: string, p: Pt, sourceSide: AnchorSide = 'auto'): void {
   const nid = freshNodeId(scene)
   const nodeEl = createNode(scene, nid, dropGeom(p), 'node')
   const edgeEl = createEdge(scene, from, nid)
+  edgeEl.setAttribute('data-anchors', `${sourceSide},auto`)
   nodeEl.remove()
   edgeEl.remove()
-  const base = scene.children.length
+  const base = contentEndIndex(scene)
   state.apply(batch(`InsertNode ${nid} + InsertEdge ${from}->${nid}`, [
     insertEl(scene, base, nodeEl),
     insertEl(scene, base + 1, edgeEl),
@@ -457,6 +718,7 @@ function beginRetarget(scene: SVGSVGElement, edge: SVGGElement, end: 'from' | 't
   const c0 = { x: e.clientX, y: e.clientY }
   let moved = false
   let cand: SVGGElement | null = null
+  let lastP: Pt | null = null
 
   startSession(
     (ev) => {
@@ -464,23 +726,30 @@ function beginRetarget(scene: SVGSVGElement, edge: SVGGElement, end: 'from' | 't
       if (!moved) {
         moved = true
         setToolbarSuppressed(true)
-        showToast(`drag writes to edge/${ref.from}->${ref.to} · endpoints`)
+        showToast(`drag writes to edge/${ref.from}->${ref.to} · endpoints — aim at an anchor dot to pin the side`)
         clearSelectionVisuals(scene)
       }
       const p = toScene(scene, ev.clientX, ev.clientY)
+      lastP = p
       showTempEdge(scene, end === 'from' ? p : fixed, end === 'from' ? fixed : p)
       cand = hitNode(scene, p, null, 8)
       if (cand && idOf(cand) === stays) cand = null // no self-loops
-      highlightCandidate(scene, cand)
+      highlightCandidate(scene, cand, cand ? nearestAnchorSide(scene, cand, p) : null)
     },
     () => {
       cleanupDragUi(scene)
       if (moved) suppressNextClick()
       if (moved && cand) {
         const newRef = end === 'from' ? `${idOf(cand)}->${ref.to}` : `${ref.from}->${idOf(cand)}`
-        if (newRef !== edge.getAttribute('data-dia-edge')) {
-          state.apply(retargetEdgeOp(scene, edge, newRef))
-        }
+        // the dragged end's anchor: pinned when dropped on a dot, else auto
+        const pinned = lastP ? nearestAnchorSide(scene, cand, lastP) ?? 'auto' : 'auto'
+        const declared = (edge.getAttribute('data-anchors') ?? 'auto,auto').split(',')
+        const anchors = end === 'from' ? `${pinned},${declared[1] ?? 'auto'}` : `${declared[0] ?? 'auto'},${pinned}`
+        const ops: Op[] = []
+        if (newRef !== edge.getAttribute('data-dia-edge')) ops.push(retargetEdgeOp(scene, edge, newRef))
+        if (anchors !== (edge.getAttribute('data-anchors') ?? 'auto,auto')) ops.push(setAnchorsOp(scene, edge, anchors))
+        if (ops.length === 1) state.apply(ops[0])
+        else if (ops.length > 1) state.apply(batch(`RetargetEdge ${newRef}`, ops))
       }
       refreshOverlaySelection()
     },
@@ -499,8 +768,14 @@ function onKeydown(e: KeyboardEvent): void {
     t instanceof HTMLElement &&
     (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
   ) return
+  if (e.key === 'Escape' && drawTool) {
+    e.preventDefault()
+    e.stopPropagation()
+    setDrawTool(null)
+    return
+  }
   const sel = state.selection
-  if (sel.kind !== 'scene-node' && sel.kind !== 'scene-edge') return
+  if (sel.kind !== 'scene-node' && sel.kind !== 'scene-edge' && sel.kind !== 'scene-free') return
 
   if (e.key === 'Delete' || e.key === 'Backspace') {
     e.preventDefault()
@@ -508,14 +783,18 @@ function onKeydown(e: KeyboardEvent): void {
     deleteSceneSelection()
     return
   }
-  if (sel.kind === 'scene-node') {
-    const d = e.shiftKey ? 10 : 1
-    const dx = e.key === 'ArrowLeft' ? -d : e.key === 'ArrowRight' ? d : 0
-    const dy = e.key === 'ArrowUp' ? -d : e.key === 'ArrowDown' ? d : 0
-    if (dx || dy) {
+  const d = e.shiftKey ? 10 : 1
+  const dx = e.key === 'ArrowLeft' ? -d : e.key === 'ArrowRight' ? d : 0
+  const dy = e.key === 'ArrowUp' ? -d : e.key === 'ArrowDown' ? d : 0
+  if (dx || dy) {
+    if (sel.kind === 'scene-node') {
       e.preventDefault()
-      e.stopPropagation() // arrows nudge the node; they must not change slides
+      e.stopPropagation() // arrows nudge; they must not change slides
       nudgeNode(sel.scene, sel.node, dx, dy)
+    } else if (sel.kind === 'scene-free') {
+      e.preventDefault()
+      e.stopPropagation()
+      nudgeFree(sel.scene, sel.el, dx, dy)
     }
   }
 }
@@ -567,6 +846,10 @@ export function deleteSceneSelection(): void {
     state.selection = { kind: 'element', el: sel.scene as unknown as HTMLElement, slide: sel.slide }
   } else if (sel.kind === 'scene-edge') {
     state.apply(removeEl(sel.edge, `DeleteEdge ${sel.edge.getAttribute('data-dia-edge') ?? ''}`))
+    state.selection = { kind: 'element', el: sel.scene as unknown as HTMLElement, slide: sel.slide }
+  } else if (sel.kind === 'scene-free') {
+    flushFreeNudge()
+    state.apply(removeEl(sel.el, `Delete <${sel.el.tagName.toLowerCase()}>`))
     state.selection = { kind: 'element', el: sel.scene as unknown as HTMLElement, slide: sel.slide }
   }
 }
