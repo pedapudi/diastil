@@ -78,10 +78,15 @@ export function setToolbarSuppressed(on: boolean): void {
 
 function ensureBar(): HTMLDivElement {
   if (!bar) {
-    bar = document.createElement('div')
-    bar.className = 'dn-panel dia-scene-toolbar'
+    // adopt a bar left by an interrupted hot reload rather than stacking a
+    // zombie copy that nothing will ever hide again
+    bar = document.querySelector<HTMLDivElement>('.dia-scene-toolbar')
+    if (!bar) {
+      bar = document.createElement('div')
+      bar.className = 'dn-panel dia-scene-toolbar'
+      document.body.appendChild(bar)
+    }
     bar.hidden = true
-    document.body.appendChild(bar)
   }
   return bar
 }
