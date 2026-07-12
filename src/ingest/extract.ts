@@ -89,6 +89,36 @@ function harvestSlide(
   win: Window,
   counter: { n: number },
 ): ExtractedSlide {
+  // one-visible-at-a-time decks hide non-current slides; reveal this one
+  // for the duration of sampling so geometry and computed styles are real
+  const unforce = forceVisible(root)
+  try {
+    return harvestVisibleSlide(root, index, doc, win, counter)
+  } finally {
+    unforce?.()
+  }
+}
+
+/** temporarily force a hidden slide root to lay out; returns the restore fn */
+export function forceVisible(root: HTMLElement): (() => void) | null {
+  if (root.getBoundingClientRect().width > 1) return null
+  const prevDisplay = root.style.display
+  const prevVisibility = root.style.visibility
+  root.style.display = 'block'
+  root.style.visibility = 'visible'
+  return () => {
+    root.style.display = prevDisplay
+    root.style.visibility = prevVisibility
+  }
+}
+
+function harvestVisibleSlide(
+  root: HTMLElement,
+  index: number,
+  doc: Document,
+  win: Window,
+  counter: { n: number },
+): ExtractedSlide {
   const samples: Record<number, ElementSample> = {}
   const gaps: number[] = []
 
