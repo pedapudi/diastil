@@ -69,6 +69,7 @@ export function mountEditor(host: HTMLElement): void {
   host.append(topbar, layout)
 
   const canvasHost = h('div', 'de-canvas')
+  canvasHost.id = 'deck-host' // ingest loads accepted imports through this id
 
   /* ---------- rail: inspect · copilot · tokens ---------- */
 
