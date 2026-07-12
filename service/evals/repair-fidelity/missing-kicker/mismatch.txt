@@ -1,0 +1,4 @@
+pixel diff: 6% of sampled pixels differ between the source render and the converted render.
+slide 1: source text missing after conversion — "People"
+The small uppercase label above the title ("People") is present in the
+source render and absent from the converted render.

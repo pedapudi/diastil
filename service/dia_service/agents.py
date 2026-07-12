@@ -46,6 +46,21 @@ def load_skill(name: str) -> str:
 # endpoint config
 # ---------------------------------------------------------------------------
 
+def load_config() -> dict[str, Any]:
+    """config.toml from the working directory, then the service directory.
+    Missing config is fine: defaults point at a local endpoint."""
+    import tomllib
+
+    for candidate in (
+        Path.cwd() / "config.toml",
+        Path(__file__).parent.parent / "config.toml",
+    ):
+        if candidate.is_file():
+            with candidate.open("rb") as f:
+                return tomllib.load(f)
+    return {}
+
+
 _DEFAULT_ENDPOINT: dict[str, str] = {
     "base_url": "http://localhost:11434/v1",
     "model": "openai/qwen2.5-coder:14b",
@@ -119,3 +134,43 @@ def make_session_service():
     """One in-memory session store for the whole service; one ADK session
     per deck sessionId keeps copilot context consistent across turns."""
     return InMemorySessionService()
+
+
+# ---------------------------------------------------------------------------
+# single-shot skill execution (shared by the HTTP surface and the evals)
+# ---------------------------------------------------------------------------
+
+async def run_skill_once(skill: str, prompt: str, config: dict[str, Any]) -> str:
+    """One skill agent, one fresh session, one prompt, final text out.
+    Raises RuntimeError when adk is unavailable; model errors propagate."""
+    if not ADK_AVAILABLE:
+        raise RuntimeError(f"adk not installed: {ADK_IMPORT_ERROR}")
+
+    from google.genai import types as genai_types
+
+    agent = make_skill_agent(skill, config)
+    session_service = make_session_service()
+    runner = Runner(agent=agent, app_name="dia", session_service=session_service)
+    session = await session_service.create_session(app_name="dia", user_id="local")
+
+    content = genai_types.Content(role="user", parts=[genai_types.Part(text=prompt)])
+    chunks: list[str] = []
+    async for event in runner.run_async(
+        user_id="local", session_id=session.id, new_message=content
+    ):
+        if getattr(event, "partial", False):
+            continue  # collect only final content
+        for part in (event.content.parts if event.content else []) or []:
+            text = getattr(part, "text", None)
+            if text:
+                chunks.append(text)
+    return strip_fences("".join(chunks).strip())
+
+
+def strip_fences(text: str) -> str:
+    """Skill prompts demand raw HTML, but smaller models fence anyway."""
+    if text.startswith("```"):
+        first_newline = text.find("\n")
+        if first_newline != -1 and text.rstrip().endswith("```"):
+            return text[first_newline + 1 :].rstrip().removesuffix("```").rstrip()
+    return text
