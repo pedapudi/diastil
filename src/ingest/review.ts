@@ -74,6 +74,12 @@ class ReviewController {
   /** restore fn for the original slide the compare pane force-revealed */
   private unforceOrig: (() => void) | null = null
 
+  /** decks that hide non-current slides (any root without a layout box) —
+   * for these the review controls slide visibility outright */
+  private oneAtATime(): boolean {
+    return this.origRoots.length > 1 && this.origRoots.some((r) => r.offsetWidth === 0)
+  }
+
   private onKey = (e: KeyboardEvent): void => {
     if (e.key === 'Escape') { e.preventDefault(); this.cancel() }
     else if (e.key === 'ArrowLeft') { e.preventDefault(); this.go(this.current - 1) }
@@ -335,10 +341,20 @@ class ReviewController {
 
   private layout(): void {
     requestAnimationFrame(() => {
-      // hidden-slide decks: reveal the slide this pane is comparing
+      // hidden-slide decks: the review OWNS visibility — show exactly the
+      // compared slide. Revealing it while the deck's runtime keeps its own
+      // current slide shown would ghost two slides over each other (they
+      // share the same absolutely-positioned stage).
       const orig = this.origRoots[this.current] ?? null
-      this.unforceOrig?.()
-      this.unforceOrig = orig ? forceVisible(orig) : null
+      if (this.oneAtATime()) {
+        this.origRoots.forEach((r, i) => {
+          r.style.display = i === this.current ? 'block' : 'none'
+          if (i === this.current) r.style.visibility = 'visible'
+        })
+      } else {
+        this.unforceOrig?.()
+        this.unforceOrig = orig ? forceVisible(orig) : null
+      }
       this.layoutPane(this.origFrame, this.origViewport, orig, EXEC_W)
       // render the converted doc at the source slide's width so both panes
       // scale identically — keeps the difference overlay comparable
