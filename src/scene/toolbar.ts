@@ -48,6 +48,16 @@ export function attachToolbar(): void {
   })
   window.addEventListener('scroll', position, true)
   window.addEventListener('resize', position)
+  // click-away: interacting anywhere outside the toolbar and outside the
+  // deck's svgs hides the bar (the scene keeps its own clicks; the deck's
+  // click handlers change selection, which re-renders the bar anyway)
+  window.addEventListener('pointerdown', (e) => {
+    if (!bar || bar.hidden) return
+    const path = e.composedPath()
+    if (path.includes(bar)) return
+    if (path.some((t) => t instanceof Element && t.tagName?.toLowerCase() === 'svg')) return
+    bar.hidden = true
+  }, { capture: true })
 }
 
 /** hide the toolbar during live drags (interact drives this) */

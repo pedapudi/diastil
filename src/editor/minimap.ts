@@ -1,4 +1,4 @@
-/* Minimap: persistent left filmstrip in both altitudes. One thumbnail per
+/* Minimap: persistent left filmstrip. One thumbnail per
  * slide, cloned into its own tiny shadow root (deck styles copied in, so
  * the clone renders correctly outside the deck's shadow root) and scaled
  * down with transform. Click = navigate (never changes altitude), drag =
@@ -6,6 +6,7 @@
 
 import { state } from '../state'
 import { batch, insertEl, removeEl } from '../model/ops'
+import { isPinnedSlide, onContextChange, togglePinnedSlide } from '../copilot/rail'
 import { scrollToSlide } from './table'
 import { assignFreshIds, makeTemplateSlide } from './slides'
 
@@ -42,6 +43,7 @@ export function mountMinimap(host: HTMLElement): void {
     else if (e.type === 'op' || e.type === 'undo' || e.type === 'redo' || e.type === 'slides-changed') debounced()
     else if (e.type === 'current-slide') highlight()
   })
+  onContextChange(rebuild) // pin markers live on the thumbnails
 }
 
 function ctxButton(glyph: string, label: string, onClick: () => void): HTMLButtonElement {
@@ -93,7 +95,18 @@ section.dia-slide { margin: 0 !important; box-shadow: none !important; }`
     num.textContent = String(i + 1)
 
     item.append(shot, num)
-    item.addEventListener('click', () => navigate(i))
+    if (isPinnedSlide(i)) {
+      const pin = document.createElement('div')
+      pin.className = 'de-mm-pin'
+      pin.textContent = '◆'
+      pin.title = 'pinned into copilot context'
+      item.append(pin)
+    }
+    item.addEventListener('click', (e) => {
+      // ⌥-click pins/unpins the slide into the copilot's context
+      if (e.altKey) togglePinnedSlide(i)
+      else navigate(i)
+    })
     item.addEventListener('dragstart', (e) => {
       dragFrom = i
       e.dataTransfer?.setData('text/plain', String(i))
@@ -143,7 +156,7 @@ function highlight(): void {
 
 function navigate(i: number): void {
   state.setCurrentSlide(i)
-  if (state.altitude === 'table') scrollToSlide(i, 'smooth')
+  scrollToSlide(i, 'smooth')
   highlight() // in case index was already current elsewhere
 }
 
@@ -174,7 +187,7 @@ function moveSlide(from: number, to: number): void {
   ]))
   state.bus.emit({ type: 'slides-changed' })
   state.setCurrentSlide(to)
-  if (state.altitude === 'table') scrollToSlide(to, 'auto')
+  scrollToSlide(to, 'auto')
 }
 
 function addSlide(): void {
@@ -185,7 +198,7 @@ function addSlide(): void {
   state.apply(insertEl(deck.root as unknown as Element, idx, makeTemplateSlide(), 'Insert slide'))
   state.bus.emit({ type: 'slides-changed' })
   state.setCurrentSlide(pos)
-  if (state.altitude === 'table') scrollToSlide(pos, 'smooth')
+  scrollToSlide(pos, 'smooth')
 }
 
 function duplicateCurrent(): void {

@@ -12,6 +12,36 @@ import { compileOps } from './compile'
 
 const HEALTH_MIN_INTERVAL = 30_000
 
+/* ---------- context slice: which slides ride along ----------
+ * auto = previous · current · next; pins add more (⌥-click in the minimap
+ * or click a chip). The rail shows exactly this set — no hidden context. */
+
+const pinnedSlides = new Set<number>()
+const contextListeners = new Set<() => void>()
+
+export function togglePinnedSlide(i: number): void {
+  if (pinnedSlides.has(i)) pinnedSlides.delete(i)
+  else pinnedSlides.add(i)
+  for (const fn of [...contextListeners]) fn()
+}
+
+export function isPinnedSlide(i: number): boolean {
+  return pinnedSlides.has(i)
+}
+
+export function onContextChange(fn: () => void): void {
+  contextListeners.add(fn)
+}
+
+/** slide indices in the copilot's context, in document order */
+export function contextSlideIndices(): number[] {
+  const n = state.slides().length
+  const i = state.currentSlide
+  const set = new Set<number>([i - 1, i, i + 1].filter((k) => k >= 0 && k < n))
+  for (const p of pinnedSlides) if (p >= 0 && p < n) set.add(p)
+  return [...set].sort((a, b) => a - b)
+}
+
 export function mountCopilot(host: HTMLElement): void {
   host.classList.add('dia-cop')
 
@@ -83,15 +113,33 @@ export function mountCopilot(host: HTMLElement): void {
   /* ---------- context line ---------- */
 
   function renderContext(): void {
-    const n = state.currentSlide + 1
+    context.replaceChildren()
+    const label = document.createElement('span')
+    label.textContent = 'sees slides '
+    context.appendChild(label)
+    const indices = contextSlideIndices()
+    for (const i of indices) {
+      const chip = document.createElement('button')
+      chip.type = 'button'
+      const pinned = isPinnedSlide(i)
+      chip.className = `dia-cop-chip${pinned ? ' is-pinned' : ''}`
+      chip.textContent = String(i + 1)
+      chip.title = pinned
+        ? `slide ${i + 1} is pinned into context — click to unpin`
+        : `slide ${i + 1} rides along automatically (around the current slide) — click to pin it`
+      chip.addEventListener('click', () => togglePinnedSlide(i))
+      context.appendChild(chip)
+    }
     const what = describeSelection(state.selection)
-    const scope = state.altitude === 'table' ? 'deck overview' : `slide ${n}`
-    context.textContent = `sees: ${scope}${what ? ` › ${what}` : ''} + theme tokens`
+    const tail = document.createElement('span')
+    tail.textContent = `${what ? ` › ${what}` : ''} + tokens · ⌥-click a minimap slide to pin`
+    context.appendChild(tail)
   }
   renderContext()
+  onContextChange(renderContext)
 
   state.bus.on((e) => {
-    if (e.type === 'selection' || e.type === 'altitude' || e.type === 'current-slide') {
+    if (e.type === 'selection' || e.type === 'altitude' || e.type === 'current-slide' || e.type === 'slides-changed') {
       renderContext()
     } else if (e.type === 'deck-loaded') {
       sessionId = newSessionId()
@@ -157,11 +205,9 @@ export function mountCopilot(host: HTMLElement): void {
 
   function buildContext(): ChatContext {
     const deck = state.deck
-    // multi-slide awareness: the previous, current, and next slides ride
-    // along (size-capped) so answers can reason across the flow, not just
-    // the selection — the same context in either altitude
+    // the exact slide set the context chips display: neighbors + pins,
+    // size-capped, in document order — what you see is what it sees
     const slides = state.slides()
-    const i = state.currentSlide
     const cap = (el: HTMLElement | undefined): string | null => {
       if (!el) return null
       const html = el.outerHTML
@@ -169,10 +215,11 @@ export function mountCopilot(host: HTMLElement): void {
     }
     return {
       altitude: state.altitude,
-      slideIndex: i,
+      slideIndex: state.currentSlide,
       selectionHtml: selectionHtml(state.selection),
       tokensCss: deck?.themeStyle.textContent ?? '',
-      flowNeighborsHtml: [cap(slides[i - 1]), cap(slides[i]), cap(slides[i + 1])]
+      flowNeighborsHtml: contextSlideIndices()
+        .map((i) => cap(slides[i]))
         .filter((s): s is string => s !== null),
     }
   }

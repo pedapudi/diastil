@@ -1,12 +1,12 @@
 /* Editor shell: topbar, three-column layout (minimap | main | rail),
- * altitude orchestration with the FLIP lift, global keyboard, and the
+ * the single table surface with zoom, global keyboard, and the
  * inspect / copilot / tokens rail. mountEditor(host) builds the whole app. */
 
 import './editor.css'
 import '../chrome/tokens.css'
 import '../chrome/base.css'
 import demoDeckRaw from '../../examples/demo-deck.html?raw'
-import type { Altitude, Deck } from '../types'
+import type { Deck } from '../types'
 import { state } from '../state'
 import { loadDeck } from '../model/parse'
 import { insertEl, setStyleProp, setToken } from '../model/ops'
@@ -15,10 +15,10 @@ import { ensureSceneStyleRules } from '../scene/interact'
 import { assignFreshIds } from './slides'
 import { mountThemePicker, mountTypePicker } from '../chrome/pickers'
 import { mountCopilot } from '../copilot/rail'
-import { mountTable, activateTable, deactivateTable, scrollToSlide } from './table'
-import { mountStage, enterStage, exitStage, stageFlipTarget } from './stage'
+import { mountTable, scrollToSlide } from './table'
 import { mountMinimap } from './minimap'
 import { installHistory } from './history'
+import { installImageEditing } from './imagedrag'
 import { legendOpen, toggleLegend, closeLegend } from './legend'
 import { installTextEditing } from './textedit'
 import { bootFromCli, openDeck, saveDeck, presentDeck } from './slides'
@@ -29,8 +29,6 @@ const ARTIFACT_CSS = `
 section.dia-slide { margin-block: 34px; }
 section.dia-slide:first-of-type { margin-block-start: 0; }
 section.dia-slide:last-of-type { margin-block-end: 0; }
-:host(.dia-stage) section.dia-slide { margin-block: 0; }
-:host(.dia-stage) section.dia-slide:not([data-dia-current]) { display: none !important; }
 [data-dia-selected] { outline: 1.5px solid var(--accent); outline-offset: 4px; }
 /* blank svg areas are click-through by default (visiblePainted) — every
  * editable svg background must be selectable; islands stay untouched */
@@ -48,14 +46,36 @@ export function mountEditor(host: HTMLElement): void {
   const brand = h('div', 'de-brand', 'diastil')
   const crumbs = h('div', 'de-crumbs')
 
+  // one surface: the table. zoom replaces the old stage altitude's larger
+  // working area (s = compact, m = reading, l = stage-scale for detail work)
+  const ZOOMS: Array<[string, string, string]> = [
+    ['s', '760px', 'compact — more slides in view'],
+    ['m', '980px', 'reading size'],
+    ['l', '1280px', 'large — diagram and detail work'],
+  ]
   const seg = h('div', 'dn-seg')
-  const segTable = segButton('table', () => state.setAltitude('table'))
-  segTable.title = 'all slides in a vertical flow — read, reorder, edit in place'
-  const segStage = segButton('stage', () => state.setAltitude('stage'))
-  segStage.title = 'one slide fills the view — detail and diagram work (Esc returns)'
+  const zoomButtons = new Map<string, HTMLButtonElement>()
+  for (const [name, width, tip] of ZOOMS) {
+    const b = segButton(name, () => setZoom(name, width))
+    b.title = tip
+    b.classList.remove('dn-on')
+    zoomButtons.set(name, b)
+    seg.append(b)
+  }
+  function setZoom(name: string, width: string): void {
+    document.documentElement.style.setProperty('--de-deck-w', width)
+    for (const [n, b] of zoomButtons) b.classList.toggle('dn-on', n === name)
+    try { localStorage.setItem('dia-zoom', name) } catch { /* private mode */ }
+  }
+  {
+    let saved = 'm'
+    try { saved = localStorage.getItem('dia-zoom') ?? 'm' } catch { /* private mode */ }
+    const z = ZOOMS.find(([n]) => n === saved) ?? ZOOMS[1]
+    setZoom(z[0], z[1])
+  }
   const segPresent = segButton('present', () => { if (state.deck) presentDeck(state.deck) })
   segPresent.title = 'open the saved deck in a new tab, self-running'
-  seg.append(segTable, segStage, segPresent)
+  seg.append(segPresent)
 
   const btnOpen = dnButton('open', () => { void openDeck(canvasHost) })
   btnOpen.title = 'open any HTML deck — diastil files load directly; foreign decks convert through review'
@@ -183,19 +203,15 @@ export function mountEditor(host: HTMLElement): void {
         updateCrumbs()
         break
       }
-      case 'altitude': {
-        onAltitude(e.altitude)
-        break
-      }
     }
   })
 
   /* ---------- mount submodules ---------- */
 
   mountTable(main, canvasHost)
-  mountStage(main, canvasHost)
   mountMinimap(minimapEl)
   installTextEditing(canvasHost)
+  installImageEditing()
   installHistory(canvasHost)
   mountThemePicker(pickerSlot)
   mountTypePicker(pickerSlot)
@@ -235,16 +251,9 @@ export function mountEditor(host: HTMLElement): void {
       return
     }
     if (!state.deck) return
-    if (state.altitude === 'table') {
-      if (e.key === 'ArrowDown' || e.key === 'j') { e.preventDefault(); stepSlide(1) }
-      else if (e.key === 'ArrowUp' || e.key === 'k') { e.preventDefault(); stepSlide(-1) }
-      else if (e.key === 'Enter') { e.preventDefault(); state.setAltitude('stage') }
-      else if (e.key === 'Escape') { state.selection = { kind: 'none' } }
-    } else {
-      if (e.key === 'ArrowRight') { e.preventDefault(); state.setCurrentSlide(state.currentSlide + 1) }
-      else if (e.key === 'ArrowLeft') { e.preventDefault(); state.setCurrentSlide(state.currentSlide - 1) }
-      else if (e.key === 'Escape') { e.preventDefault(); state.setAltitude('table') }
-    }
+    if (e.key === 'ArrowDown' || e.key === 'j' || e.key === 'ArrowRight') { e.preventDefault(); stepSlide(1) }
+    else if (e.key === 'ArrowUp' || e.key === 'k' || e.key === 'ArrowLeft') { e.preventDefault(); stepSlide(-1) }
+    else if (e.key === 'Escape') { state.selection = { kind: 'none' } }
   })
 
   /* ---------- boot: CLI file (?file= / ?import=), else the demo deck ---------- */
@@ -272,41 +281,6 @@ export function mountEditor(host: HTMLElement): void {
     updateCrumbs()
   }
 
-  /* ----- altitude + FLIP lift ----- */
-
-  function onAltitude(a: Altitude): void {
-    segTable.classList.toggle('dn-on', a === 'table')
-    segStage.classList.toggle('dn-on', a === 'stage')
-    const slide = state.slides()[state.currentSlide]
-    const from = slide?.getBoundingClientRect() ?? null
-    if (a === 'stage') {
-      deactivateTable()
-      enterStage()
-      if (slide && from) flipFrom(stageFlipTarget(), from)
-    } else {
-      exitStage()
-      activateTable(state.currentSlide)
-      if (slide && from) flipFrom(slide, from)
-    }
-    updateCrumbs()
-  }
-
-  function flipFrom(el: Element, from: DOMRect): void {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-    const to = el.getBoundingClientRect()
-    if (!from.width || !to.width) return
-    const dx = from.left - to.left
-    const dy = from.top - to.top
-    const s = from.width / to.width
-    el.animate(
-      [
-        { transformOrigin: '0 0', transform: `translate(${dx}px, ${dy}px) scale(${s})` },
-        { transformOrigin: '0 0', transform: 'none' },
-      ],
-      { duration: 200, easing: 'ease' },
-    )
-  }
-
   /* ----- crumbs + status ----- */
 
   function updateCrumbs(): void {
@@ -316,14 +290,14 @@ export function mountEditor(host: HTMLElement): void {
       return
     }
     const file = h('b', '', d.fileName)
-    if (state.altitude === 'table') {
-      const n = state.slides().length
-      const dirty = tick !== savedTick
-      const stateWord = dirty ? h('span', 'de-unsaved', 'unsaved') : document.createTextNode('saved')
-      crumbs.replaceChildren(file, document.createTextNode(` · ${n} slides · `), stateWord)
-    } else {
-      crumbs.replaceChildren(file, document.createTextNode(` · slide ${state.currentSlide + 1} › ${selectionRole()}`))
-    }
+    const n = state.slides().length
+    const dirty = tick !== savedTick
+    const stateWord = dirty ? h('span', 'de-unsaved', 'unsaved') : document.createTextNode('saved')
+    crumbs.replaceChildren(
+      file,
+      document.createTextNode(` · slide ${state.currentSlide + 1}/${n} › ${selectionRole()} · `),
+      stateWord,
+    )
   }
 
   function selectionRole(): string {
@@ -333,6 +307,7 @@ export function mountEditor(host: HTMLElement): void {
       case 'slide': return 'slide'
       case 'scene-node': return 'scene node'
       case 'scene-edge': return 'scene edge'
+      case 'scene-free': return `svg <${sel.el.tagName.toLowerCase()}>`
       default: return 'slide'
     }
   }
