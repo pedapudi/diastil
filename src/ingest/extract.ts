@@ -58,66 +58,10 @@ export interface Extraction {
 
 /* ---------------- slide detection ---------------- */
 
-/** Heuristics in order: reveal sections (vertical stacks flattened) →
- * repeated body-level siblings (>2, tag+class shared, area ≥40% viewport) →
- * Marp/remark markers → whole body as one slide. */
-export function findSlideRoots(doc: Document): { roots: HTMLElement[]; method: string } {
-  // (1) reveal.js
-  // note: elements live in the iframe's realm, so instanceof against this
-  // window's classes is unreliable — use tagName/nodeType checks throughout
-  const reveal = [...doc.querySelectorAll<HTMLElement>('.reveal .slides > section')]
-  if (reveal.length > 0) {
-    const flat: HTMLElement[] = []
-    for (const s of reveal) {
-      const vertical = [...s.children].filter((c) => c.tagName === 'SECTION') as HTMLElement[]
-      if (vertical.length > 0) flat.push(...vertical)
-      else flat.push(s)
-    }
-    return { roots: flat, method: 'reveal' }
-  }
-
-  // (2) repeated sibling candidates (needs layout)
-  const win = doc.defaultView
-  if (win && doc.body) {
-    const vw = win.innerWidth || EXEC_W
-    const vh = win.innerHeight || EXEC_H
-    const minArea = 0.4 * vw * vh
-    const queue: Array<{ el: HTMLElement; depth: number }> = [{ el: doc.body, depth: 0 }]
-    while (queue.length > 0) {
-      const { el, depth } = queue.shift()!
-      const groups = new Map<string, HTMLElement[]>()
-      for (const c of el.children) {
-        if (SKIP_TAGS.has(c.tagName.toUpperCase())) continue
-        const key = `${c.tagName}|${c.getAttribute('class') ?? ''}`
-        const g = groups.get(key)
-        if (g) g.push(c as HTMLElement)
-        else groups.set(key, [c as HTMLElement])
-      }
-      let best: HTMLElement[] | null = null
-      for (const g of groups.values()) {
-        if (g.length <= 2) continue
-        const areas = g
-          .map((n) => { const r = n.getBoundingClientRect(); return r.width * r.height })
-          .sort((a, b) => a - b)
-        if (areas[Math.floor(areas.length / 2)] < minArea) continue
-        if (!best || g.length > best.length) best = g
-      }
-      if (best) return { roots: best, method: 'siblings' }
-      if (depth < 3) {
-        for (const c of el.children) {
-          if (!SKIP_TAGS.has(c.tagName.toUpperCase())) queue.push({ el: c as HTMLElement, depth: depth + 1 })
-        }
-      }
-    }
-  }
-
-  // (3) Marp / remark markers
-  const marp = [...doc.querySelectorAll<HTMLElement>('section[data-marpit-fragment], .remark-slide')]
-  if (marp.length > 0) return { roots: marp, method: 'marp/remark' }
-
-  // (4) whole body
-  return { roots: [doc.body], method: 'body' }
-}
+/* Detection lives in the extractor plugin registry (extractors/); re-exported
+ * here so extraction consumers keep one import surface. */
+import { findSlideRoots } from './extractors/index'
+export { findSlideRoots }
 
 /* ---------------- extraction ---------------- */
 

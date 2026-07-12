@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Postmortem: cache stampede</title>
+<style>
+  /* remark-shaped runtime DOM: containers + scaled content, one visible */
+  body { margin: 0; background: #1c1c1c; font-family: "Trebuchet MS", sans-serif; }
+  .remark-slide-container { position: absolute; inset: 0; display: none; }
+  .remark-slide-container.remark-visible { display: block; }
+  .remark-slide-scaler { width: 908px; height: 681px; margin: 20px auto; overflow: hidden; }
+  .remark-slide-content {
+    width: 908px; height: 681px; box-sizing: border-box; padding: 1em 4em;
+    background: #fff; color: #262626; font-size: 20px;
+  }
+  .remark-slide-content h1 { font-size: 44px; }
+  .remark-slide-content h2 { font-size: 32px; }
+  .remark-slide-number { position: absolute; right: 1em; bottom: 1em; color: #999; font-size: 12px; }
+</style>
+</head>
+<body>
+  <div class="remark-slide-container remark-visible">
+    <div class="remark-slide-scaler">
+      <div class="remark-slide">
+        <div class="remark-slide-content">
+          <h1>Postmortem: cache stampede</h1>
+          <p>2026-06-02 · 41 minutes of elevated latency</p>
+          <div class="remark-slide-number">1 / 3</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="remark-slide-container">
+    <div class="remark-slide-scaler">
+      <div class="remark-slide">
+        <div class="remark-slide-content">
+          <h2>Timeline</h2>
+          <ul>
+            <li>14:02 deploy invalidates the hot key space</li>
+            <li>14:03 origin QPS 40×</li>
+            <li>14:19 request coalescing enabled</li>
+            <li>14:43 recovered</li>
+          </ul>
+          <div class="remark-slide-number">2 / 3</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="remark-slide-container">
+    <div class="remark-slide-scaler">
+      <div class="remark-slide">
+        <div class="remark-slide-content">
+          <h2>Action items</h2>
+          <p>Stale-while-revalidate on the pricing cache; deploy-time cache warming; alert on origin QPS ratio.</p>
+          <div class="remark-slide-number">3 / 3</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

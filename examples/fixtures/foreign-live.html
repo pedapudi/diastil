@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Systems demo</title>
+<style>
+  body { margin: 0; background: #14181c; font-family: "Courier New", monospace; }
+  .slide { width: 960px; height: 540px; margin: 20px auto; background: #1d242b; color: #d7e1ea; padding: 44px; box-sizing: border-box; }
+  h1 { font-size: 32px; color: #fff; margin: 0 0 10px; }
+  p { font-size: 15px; line-height: 1.6; color: #9fb0c0; }
+  canvas { border: 1px solid #3a4650; background: #10151a; }
+</style>
+</head>
+<body>
+  <div class="slide">
+    <h1>Queue depth, live</h1>
+    <p>The chart below animates forever — a genuinely interactive region that should be preserved as an island, not converted.</p>
+    <canvas id="chart" width="640" height="240"></canvas>
+    <script>
+      const ctx = document.getElementById('chart').getContext('2d');
+      const points = new Array(64).fill(120);
+      let t = 0;
+      (function frame() {
+        t += 0.11;
+        points.push(120 + Math.sin(t) * 60 + Math.sin(t * 2.7) * 25);
+        points.shift();
+        ctx.clearRect(0, 0, 640, 240);
+        ctx.beginPath();
+        points.forEach((y, i) => { i ? ctx.lineTo(i * 10, y) : ctx.moveTo(0, y); });
+        ctx.strokeStyle = '#e8734a';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        requestAnimationFrame(frame);
+      })();
+    </script>
+  </div>
+  <div class="slide">
+    <h1>Why it matters</h1>
+    <p>Backpressure signals reach the scheduler within 50ms; shedding starts before the queue saturates.</p>
+    <p>Static text like this converts normally even when a sibling slide stays live.</p>
+  </div>
+  <div class="slide">
+    <h1>Rollout</h1>
+    <p>Shadow mode this week, 10% next week, default-on at month end.</p>
+  </div>
+</body>
+</html>
