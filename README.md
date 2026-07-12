@@ -11,9 +11,45 @@ a direct-manipulation editor on top: typesetting, photosetting, and
 first-class diagramming, with an inference copilot that emits the same
 typed edit operations a human does.
 
-**Status: design phase.** The architecture is in [PLAN.md](PLAN.md);
-four candidate editor designs are in
-[design/studies/](design/studies/README.md).
+**Status: implemented through M6** — document core, editor (table/stage
++ minimap per [design/DECISION.md](design/DECISION.md)), scene layer
+with obstacle-avoiding edge routing, verified ingest with a
+pixel-fidelity loop, copilot + inference service, and the `dia` CLI.
+Architecture: [PLAN.md](PLAN.md). Dialect contract:
+[profile/PROFILE.md](profile/PROFILE.md).
+
+## Getting started
+
+```sh
+npm install
+npm run dev          # → http://localhost:5199
+```
+
+The editor opens on the built-in demo deck (six slides, one scene
+diagram). Double-click text to edit (`Enter` commits), `Enter`/`Esc` to
+move between the table and stage altitudes, drag diagram nodes and watch
+edges reroute, `⌘S` to save — the saved file is self-contained HTML that
+presents itself when opened.
+
+To try **import**, click `import` and pick any file in
+[examples/fixtures/](examples/fixtures/) — eight foreign decks covering
+the input taxonomy (reveal-, marp-, remark-, impress-shaped, utility-class
+soup, PDF-like, live-canvas, one-visible-at-a-time). The review screen
+shows original vs converted with a difference overlay and per-slide
+pixel-fidelity scores.
+
+The CLI and the optional inference service (model-assisted conversion
+repair, diagram lifting, the copilot rail):
+
+```sh
+cd service && python3 -m venv .venv && .venv/bin/pip install -e .
+dia deck.html            # edit a local file, ⌘S writes back
+dia ingest foreign.html  # convert a foreign deck
+dia validate deck.html   # profile-check (stdlib-only, no venv needed)
+dia serve                # inference sidecar — see service/README.md
+```
+
+Tests: `npm test`. Agent operating manuals: [skills/](skills/README.md).
 
 ## Invariants
 
