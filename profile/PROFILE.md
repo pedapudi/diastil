@@ -128,7 +128,18 @@ Session-only attributes (`data-dia-id`, `data-dia-selected`,
 `spellcheck`) are stripped by the serializer and are `error`-level if
 found in a saved document.
 
-## 8. Round-trip guarantee
+## 8. Reference originals (imported decks)
+
+An imported deck may carry the source it was converted from:
+`<script type="text/x-dia-original" id="dia-originals">` in the HEAD,
+holding `{"version":1,"slides":[…]}` — one self-contained page per
+slide (`<` escaped as `\u003c`). The block is inert data, never
+executed, and lives outside the body so no frame rule applies; the
+parser preserves it across saves. It exists so repairs, lifts, and
+humans can consult the original implementation and content of each
+slide long after import.
+
+## 9. Round-trip guarantee
 
 `serialize(parse(deck))` is byte-stable: attribute order untouched,
 2-space top-level layout, editor artifacts stripped. The golden tests in

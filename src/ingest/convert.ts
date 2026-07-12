@@ -208,17 +208,30 @@ export function tokensToCss(tokens: Record<string, string>): string {
 /** Assemble the final dialect document — same shape serialize.ts produces:
  * doctype, data-dia-version="1", <style id="dia-theme"> (extracted tokens +
  * the slide/role rules from defaultThemeCss keyed to those tokens), slides,
- * empty dia-runtime script. */
-export function assembleDeck(slides: string[], tokens: Record<string, string>, title: string): string {
+ * empty dia-runtime script. When originals are given (per-slide
+ * self-contained source pages), they ride in the head as an INERT
+ * text/x-dia-original data block, so the imported deck permanently carries
+ * the reference implementation and content of what it was converted from —
+ * for later repairs, lifts, and human comparison. Positioned before the
+ * theme style to match where serialize.ts re-emits head extras, keeping the
+ * round-trip byte-stable. */
+export function assembleDeck(
+  slides: string[], tokens: Record<string, string>, title: string, originals: string[] = [],
+): string {
   const base = defaultThemeCss()
   const roleRules = base.slice(base.indexOf('}') + 1).trim()
+  const originalsBlock = originals.length
+    ? `<script type="text/x-dia-original" id="dia-originals">${
+      JSON.stringify({ version: 1, slides: originals }).replace(/</g, '\\u003c')
+    }</script>\n`
+    : ''
   return `<!doctype html>
 <html lang="en" data-dia-version="1">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)}</title>
-<style id="dia-theme">
+${originalsBlock}<style id="dia-theme">
 ${tokensToCss(tokens)}
 ${roleRules}
 </style>
@@ -230,6 +243,21 @@ ${slides.join('\n\n')}
 </body>
 </html>
 `
+}
+
+/** read back the reference originals embedded by assembleDeck (null when the
+ * deck was not imported or the block is unreadable) */
+export function readEmbeddedOriginals(doc: Document): string[] | null {
+  const el = doc.querySelector('script#dia-originals[type="text/x-dia-original"]')
+  if (!el) return null
+  try {
+    const parsed = JSON.parse(el.textContent ?? '') as { slides?: unknown }
+    return Array.isArray(parsed.slides) && parsed.slides.every((s) => typeof s === 'string')
+      ? parsed.slides as string[]
+      : null
+  } catch {
+    return null
+  }
 }
 
 /* ---------------- role picks ---------------- */

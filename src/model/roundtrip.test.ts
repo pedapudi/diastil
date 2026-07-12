@@ -72,3 +72,31 @@ describe('round-trip', () => {
     expect(serializeDeck(mount(out))).toBe(out)
   })
 })
+
+describe('reference originals (profile §8)', () => {
+  const block =
+    '<script type="text/x-dia-original" id="dia-originals">' +
+    '{"version":1,"slides":["\\u003c!doctype html>\\u003chtml>…\\u003c/html>"]}</script>'
+
+  it('parse keeps the inert originals block; saves stay byte-stable', () => {
+    const withOriginals = demoRaw.replace('<style id="dia-theme">', `${block}\n<style id="dia-theme">`)
+    const s1 = serializeDeck(mount(withOriginals))
+    expect(s1).toContain('text/x-dia-original')
+    expect(serializeDeck(mount(s1))).toBe(s1)
+    expect(validateDeckHtml(s1).ok).toBe(true)
+  })
+
+  it('assembleDeck embeds originals readable via readEmbeddedOriginals', async () => {
+    const { assembleDeck, readEmbeddedOriginals } = await import('../ingest/convert')
+    const html = assembleDeck(
+      ['<section class="dia-slide"><h1 class="dia-title">t</h1></section>'],
+      { '--dia-paper': '#fff' }, 'test',
+      ['<!doctype html><html><body>original with </script> hazard</body></html>'],
+    )
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+    const originals = readEmbeddedOriginals(doc)
+    expect(originals?.length).toBe(1)
+    expect(originals?.[0]).toContain('original with </script> hazard')
+    expect(validateDeckHtml(html).ok).toBe(true)
+  })
+})

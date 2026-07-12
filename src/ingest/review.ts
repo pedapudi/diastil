@@ -65,6 +65,12 @@ class ReviewController {
   private convFrame!: HTMLIFrameElement
   private notesEl!: HTMLElement
   private verdictMsg!: HTMLElement
+  private liftDecision!: HTMLElement
+  private feedbackEl!: HTMLTextAreaElement
+  /** per-slide reviewer notes — ride along with retry / repair / lift */
+  private feedback: string[] = []
+  /** a lift that re-measured lower, awaiting the reviewer's keep/revert call */
+  private pendingLift: { index: number; before: SlideConversion; prev: number | null; after: number | null } | null = null
   private acceptSlideBtn!: HTMLButtonElement
   private retryBtn!: HTMLButtonElement
   private repairBtn!: HTMLButtonElement
@@ -259,12 +265,26 @@ class ReviewController {
     })
     this.retryWrap.addEventListener('mouseleave', () => this.hideHover())
     this.verdictMsg = h('span', 'dia-verdict-msg')
-    verdict.append(this.acceptSlideBtn, islandBtn, this.retryWrap, this.verdictMsg)
+    this.liftDecision = h('span', 'dia-lift-decision')
+    verdict.append(this.acceptSlideBtn, islandBtn, this.retryWrap, this.liftDecision, this.verdictMsg)
+
+    // per-slide reviewer notes to the model
+    const fb = h('div', 'dia-feedback')
+    fb.appendChild(h('label', 'dia-feedback-label', 'notes to the model'))
+    this.feedbackEl = document.createElement('textarea')
+    this.feedbackEl.className = 'dia-feedback-input'
+    this.feedbackEl.rows = 2
+    this.feedbackEl.placeholder =
+      'what should the model fix or preserve on this slide? sent with retry · repair · lift'
+    this.feedbackEl.addEventListener('input', () => {
+      this.feedback[this.current] = this.feedbackEl.value
+    })
+    fb.appendChild(this.feedbackEl)
 
     // region notes
     this.notesEl = h('div', 'dia-notes')
 
-    main.append(tools, this.cmp, verdict, this.notesEl)
+    main.append(tools, this.cmp, verdict, fb, this.notesEl)
     body.append(this.strip, main)
 
     // hovercard (chrome idiom from base.css, locally owned instance)
@@ -356,11 +376,40 @@ class ReviewController {
 
   private renderVerdict(): void {
     const c = this.conversions[this.current]
+    const pendingHere = this.pendingLift?.index === this.current
     this.acceptSlideBtn.textContent = c.accepted ? 'slide accepted ✓' : 'accept slide'
-    this.retryBtn.disabled = !this.serviceOk
-    this.repairBtn.disabled = !this.serviceOk || c.fidelity === undefined
-    this.liftBtn.disabled = !this.serviceOk || !this.hasLiftableSvg(this.current)
+    this.retryBtn.disabled = !this.serviceOk || pendingHere
+    this.repairBtn.disabled = !this.serviceOk || c.fidelity === undefined || pendingHere
+    this.liftBtn.disabled = !this.serviceOk || !this.hasLiftableSvg(this.current) || pendingHere
     if (this.serviceOk) this.hideHover()
+
+    // a lift that re-measured lower waits for the reviewer, not a veto:
+    // the pane is SHOWING the lifted version — keep it or revert it
+    this.liftDecision.replaceChildren()
+    if (pendingHere && this.pendingLift) {
+      const p = this.pendingLift
+      const fmtF = (v: number | null) => (v == null ? '—' : v.toFixed(3))
+      this.liftDecision.append(
+        h('span', 'dia-lift-q', `lift re-measured lower (${fmtF(p.prev)} → ${fmtF(p.after)}) — keep it?`),
+      )
+      const keep = btn('keep lift', 'dn-btn')
+      keep.addEventListener('click', () => {
+        this.pendingLift = null
+        this.verdictMsg.textContent = 'lift kept — editable scenes retained despite the pixel delta'
+        this.renderStrip(); this.renderNotes(); this.renderVerdict()
+      })
+      const revert = btn('revert', 'dn-btn')
+      revert.addEventListener('click', () => {
+        void (async () => {
+          this.conversions[p.index] = p.before
+          this.pendingLift = null
+          await this.rebuildAndWait()
+          this.verdictMsg.textContent = 'lift reverted — previous candidate restored'
+          this.renderStrip(); this.renderNotes(); this.renderVerdict()
+        })()
+      })
+      this.liftDecision.append(keep, revert)
+    }
   }
 
   private hasLiftableSvg(i: number): boolean {
@@ -381,6 +430,7 @@ class ReviewController {
   private go(i: number): void {
     const n = this.conversions.length
     this.current = Math.max(0, Math.min(i, n - 1))
+    this.feedbackEl.value = this.feedback[this.current] ?? ''
     this.renderStrip()
     this.renderNotes()
     this.renderVerdict()
@@ -399,10 +449,15 @@ class ReviewController {
     this.renderVerdict()
   }
 
-  private deckHtml(): string {
+  /** withOriginals: the ACCEPTED deck carries its reference originals —
+   * implementation and content of what each slide was converted from stays
+   * consultable. The preview iframe rebuilds constantly and skips them. */
+  private deckHtml(withOriginals = false): string {
     const { name, extraction } = this.input
     const title = name.replace(/\.html?$/, '')
-    return assembleDeck(this.conversions.map((c) => c.html), extraction.tokens, title)
+    return assembleDeck(
+      this.conversions.map((c) => c.html), extraction.tokens, title,
+      withOriginals ? extraction.slides.map((s) => s.originalHtml) : [])
   }
 
   /* ---------- geometry: crop each pane to the current slide ---------- */
@@ -464,7 +519,12 @@ class ReviewController {
     this.retryBtn.textContent = 'retrying…'
     this.verdictMsg.textContent = ''
     try {
-      const html = await service.translateSlide(slide.sourceHtml, tokensToCss(this.input.extraction.tokens))
+      // a vision model should SEE the original it must reproduce
+      await this.showOriginal(index)
+      const png = this.origRoots[index] ? await rasterizeToDataUrl(this.origRoots[index]) : null
+      const html = await service.translateSlide(
+        slide.sourceHtml, tokensToCss(this.input.extraction.tokens),
+        png ? [png] : [], this.feedback[index] ?? '')
       this.conversions[index] = revalidateSlide(slide, index, html)
       this.rebuild()
     } catch {
@@ -563,7 +623,7 @@ class ReviewController {
     try {
       const html = await service.repairFidelity(
         slide.sourceHtml, before.html, tokensToCss(this.input.extraction.tokens),
-        this.describeMismatch(i), await this.repairImages(i))
+        this.describeMismatch(i), await this.repairImages(i), this.feedback[i] ?? '')
       const repaired = revalidateSlide(slide, i, html)
       repaired.repairRounds = (before.repairRounds ?? 0) + 1
       this.conversions[i] = repaired
@@ -606,7 +666,7 @@ class ReviewController {
     for (const [k, svg] of svgs.entries()) {
       try {
         const png = liveSvgs[k] ? await rasterizeToDataUrl(liveSvgs[k]) : null
-        const out = await service.liftDiagram(svg.outerHTML, png ? [png] : [])
+        const out = await service.liftDiagram(svg.outerHTML, png ? [png] : [], this.feedback[i] ?? '')
         const scene = new DOMParser().parseFromString(out, 'text/html').querySelector('svg.dia-scene')
         if (!scene || !this.sceneIsValid(scene.outerHTML)) continue
         svg.replaceWith(doc.importNode(scene, true))
@@ -624,10 +684,13 @@ class ReviewController {
     this.conversions[i] = liftedConv
     await this.rebuildAndWait()
     await this.measureSlide(i)
-    if (before.fidelity != null && (this.conversions[i].fidelity ?? -1) < before.fidelity) {
-      this.conversions[i] = before
-      await this.rebuildAndWait()
-      this.verdictMsg.textContent = 'lift changed the rendering — discarded (still available manually later)'
+    const after = this.conversions[i].fidelity ?? null
+    if (before.fidelity != null && (after ?? -1) < before.fidelity) {
+      // the pane shows the lifted version — ask the reviewer instead of
+      // silently reverting (router-drawn edges rarely match source pixels
+      // exactly, so a strict gate would discard nearly every semantic lift)
+      this.pendingLift = { index: i, before, prev: before.fidelity, after }
+      this.verdictMsg.textContent = ''
     } else {
       this.verdictMsg.textContent = `lifted ${lifted} diagram${lifted > 1 ? 's' : ''} into editable scenes`
     }
@@ -665,7 +728,7 @@ class ReviewController {
     const { name, extraction } = this.input
     const outcome: ReviewOutcome = {
       accepted: true,
-      deckHtml: this.deckHtml(),
+      deckHtml: this.deckHtml(true),
       report: buildReport(extraction, name, this.conversions),
     }
     this.close()

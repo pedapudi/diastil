@@ -21,7 +21,9 @@ export function loadDeck(html: string, host: HTMLElement, fileName: string): Dec
   const headExtras = [...doc.head.children]
     .filter((el) => !(el instanceof HTMLTitleElement))
     .filter((el) => !(el instanceof HTMLStyleElement))
-    .filter((el) => !(el instanceof HTMLScriptElement))
+    // executable scripts are dropped; the inert text/x-dia-original data
+    // block (the import's embedded reference originals) must survive saves
+    .filter((el) => !(el instanceof HTMLScriptElement) || el.getAttribute('type') === 'text/x-dia-original')
     .filter((el) => !el.matches('meta[charset], meta[name="viewport"]'))
     .map((el) => el.outerHTML)
     .join('\n')

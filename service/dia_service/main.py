@@ -111,6 +111,10 @@ class ChatRequest(BaseModel):
 class TranslateRequest(BaseModel):
     sourceHtml: str
     tokensCss: str = ""
+    # PNG data URIs: [original slide render] — optional
+    images: list[str] = []
+    # reviewer notes from the import flow — optional
+    feedback: str = ""
 
 
 class FileWrite(BaseModel):
@@ -126,12 +130,16 @@ class RepairRequest(BaseModel):
     # PNG data URIs: [original render, candidate render, diff heatmap] —
     # optional; a vision-capable endpoint sees the mismatch directly
     images: list[str] = []
+    # reviewer notes from the import flow — optional
+    feedback: str = ""
 
 
 class LiftRequest(BaseModel):
     svgHtml: str
     # PNG data URIs: [render of the source diagram] — optional
     images: list[str] = []
+    # reviewer notes from the import flow — optional
+    feedback: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -238,14 +246,24 @@ async def _run_skill(skill: str, prompt: str, images: list[str] | None = None) -
         raise HTTPException(status_code=502, detail=f"{skill} failed: {exc}")
 
 
-@app.post("/skills/translate-slide")
-async def translate_slide(req: TranslateRequest) -> dict[str, str]:
-    prompt = (
-        "<token-css>\n" + req.tokensCss + "\n</token-css>\n\n"
-        "<source-slide>\n" + req.sourceHtml + "\n</source-slide>"
+def _feedback_block(feedback: str) -> str:
+    """Reviewer notes from the import flow, folded into the prompt. The
+    reviewer is the human looking at both renders — their notes outrank
+    machine summaries when the two disagree."""
+    if not feedback.strip():
+        return ""
+    return (
+        "\n\n<reviewer-feedback>\n" + feedback.strip() + "\n</reviewer-feedback>\n"
+        "The reviewer wrote the notes above while comparing the original and "
+        "converted slides. Honor them; they outrank the machine-generated "
+        "summaries when the two disagree."
     )
-    return {"slideHtml": await _run_skill("translate-slide", prompt)}
 
+
+TRANSLATE_IMAGE_NOTE = (
+    "\n\nAttached image: the ORIGINAL slide as rendered. Your translation "
+    "must reproduce this layout and content in the dialect."
+)
 
 REPAIR_IMAGE_NOTE = (
     "\n\nAttached images, in order: (1) the ORIGINAL slide as rendered, "
@@ -260,6 +278,18 @@ LIFT_IMAGE_NOTE = (
 )
 
 
+@app.post("/skills/translate-slide")
+async def translate_slide(req: TranslateRequest) -> dict[str, str]:
+    prompt = (
+        "<token-css>\n" + req.tokensCss + "\n</token-css>\n\n"
+        "<source-slide>\n" + req.sourceHtml + "\n</source-slide>"
+    )
+    if req.images:
+        prompt += TRANSLATE_IMAGE_NOTE
+    prompt += _feedback_block(req.feedback)
+    return {"slideHtml": await _run_skill("translate-slide", prompt, req.images)}
+
+
 @app.post("/skills/repair-fidelity")
 async def repair_fidelity(req: RepairRequest) -> dict[str, str]:
     prompt = (
@@ -270,12 +300,13 @@ async def repair_fidelity(req: RepairRequest) -> dict[str, str]:
     )
     if req.images:
         prompt += REPAIR_IMAGE_NOTE
+    prompt += _feedback_block(req.feedback)
     return {"slideHtml": await _run_skill("repair-fidelity", prompt, req.images)}
 
 
 @app.post("/skills/lift-diagram")
 async def lift_diagram(req: LiftRequest) -> dict[str, str]:
-    prompt = req.svgHtml + (LIFT_IMAGE_NOTE if req.images else "")
+    prompt = req.svgHtml + (LIFT_IMAGE_NOTE if req.images else "") + _feedback_block(req.feedback)
     return {"sceneHtml": await _run_skill("lift-diagram", prompt, req.images)}
 
 
