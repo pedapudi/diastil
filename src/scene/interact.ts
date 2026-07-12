@@ -195,6 +195,31 @@ function startSession(
   }, { signal: ac.signal })
 }
 
+/** A completed drag's pointerup spawns a synthetic click wherever the pointer
+ * ended — often outside the scene svg — which would reach the text-selection
+ * handler and stomp the scene selection (the toolbar vanishes). Swallow
+ * exactly that one click. */
+function suppressNextClick(): void {
+  window.addEventListener(
+    'click',
+    (e) => { e.stopPropagation(); e.preventDefault() },
+    { capture: true, once: true },
+  )
+}
+
+/** keep at least CLAMP_KEEP scene units of a node inside the viewBox so a
+ * drag or nudge can never strand it where it cannot be re-grabbed */
+const CLAMP_KEEP = 24
+function clampToViewBox(scene: SVGSVGElement, g: NodeGeom): NodeGeom {
+  const vb = scene.viewBox.baseVal
+  if (!vb || vb.width <= 0 || vb.height <= 0) return g
+  return {
+    ...g,
+    x: Math.min(Math.max(g.x, vb.x - g.w + CLAMP_KEEP), vb.x + vb.width - CLAMP_KEEP),
+    y: Math.min(Math.max(g.y, vb.y - g.h + CLAMP_KEEP), vb.y + vb.height - CLAMP_KEEP),
+  }
+}
+
 function cleanupDragUi(scene: SVGSVGElement): void {
   clearGuides(scene)
   clearTempEdge(scene)
@@ -231,7 +256,7 @@ function beginNodeDrag(scene: SVGSVGElement, node: SVGGElement, e: PointerEvent)
       const p = toScene(scene, ev.clientX, ev.clientY)
       const raw = { x: start.x + (p.x - p0.x), y: start.y + (p.y - p0.y) }
       const snap = snapNodePos(scene, node, raw, start.w, start.h)
-      setNodeGeom(node, { x: snap.x, y: snap.y, w: start.w, h: start.h })
+      setNodeGeom(node, clampToViewBox(scene, { x: snap.x, y: snap.y, w: start.w, h: start.h }))
       routeEdgesOf(scene, nid)
       drawGuides(scene, snap.guides)
       drawNodeSelection(scene, node)
@@ -252,6 +277,7 @@ function beginNodeDrag(scene: SVGSVGElement, node: SVGGElement, e: PointerEvent)
 function endGeomDrag(scene: SVGSVGElement, node: SVGGElement, start: NodeGeom, moved: boolean): void {
   cleanupDragUi(scene)
   if (!moved) return
+  suppressNextClick()
   const final = getNodeGeom(node)
   if (geomEq(final, start)) return
   setNodeGeom(node, start)          // restore so the op captures the true prev
@@ -327,6 +353,7 @@ function beginCreateEdge(
     (ev) => {
       cleanupDragUi(scene)
       if (!moved) return
+      suppressNextClick()
       const p = toScene(scene, ev.clientX, ev.clientY)
       const cand = hitNode(scene, p, node)
       if (cand) insertEdgeFlow(scene, from, idOf(cand))
@@ -397,6 +424,7 @@ function beginRetarget(scene: SVGSVGElement, edge: SVGGElement, end: 'from' | 't
     },
     () => {
       cleanupDragUi(scene)
+      if (moved) suppressNextClick()
       if (moved && cand) {
         const newRef = end === 'from' ? `${idOf(cand)}->${ref.to}` : `${ref.from}->${idOf(cand)}`
         if (newRef !== edge.getAttribute('data-dia-edge')) {
@@ -425,6 +453,7 @@ function onKeydown(e: KeyboardEvent): void {
 
   if (e.key === 'Delete' || e.key === 'Backspace') {
     e.preventDefault()
+    e.stopPropagation() // scene owns this key — the shell must not also act
     deleteSceneSelection()
     return
   }
@@ -434,6 +463,7 @@ function onKeydown(e: KeyboardEvent): void {
     const dy = e.key === 'ArrowUp' ? -d : e.key === 'ArrowDown' ? d : 0
     if (dx || dy) {
       e.preventDefault()
+      e.stopPropagation() // arrows nudge the node; they must not change slides
       nudgeNode(sel.scene, sel.node, dx, dy)
     }
   }
@@ -448,7 +478,7 @@ function nudgeNode(scene: SVGSVGElement, node: SVGGElement, dx: number, dy: numb
   if (!pendingNudge) pendingNudge = { scene, node, start: getNodeGeom(node), timer: 0 }
   clearTimeout(pendingNudge.timer)
   const g = getNodeGeom(node)
-  setNodeGeom(node, { ...g, x: g.x + dx, y: g.y + dy })
+  setNodeGeom(node, clampToViewBox(scene, { ...g, x: g.x + dx, y: g.y + dy }))
   routeEdgesOf(scene, idOf(node))
   drawNodeSelection(scene, node)
   pendingNudge.timer = window.setTimeout(flushNudge, 400)

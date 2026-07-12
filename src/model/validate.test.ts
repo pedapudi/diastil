@@ -88,6 +88,13 @@ describe('content rules', () => {
     expect(r.ok).toBe(true)
   })
 
+  it('inline token references are fully in-grammar — no findings', () => {
+    // what the inspector's per-element controls write
+    const r = check((d) => slide(d).querySelector('.dia-title')!.setAttribute(
+      'style', 'color: var(--dia-accent); font-size: var(--dia-scale-6); font-family: var(--dia-face-label)'))
+    expect(r.findings).toEqual([])
+  })
+
   it('islands are exempt from every content rule', () => {
     const r = check((d) => {
       const island = d.createElement('div')

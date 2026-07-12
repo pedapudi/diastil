@@ -182,6 +182,13 @@
   color: var(--ink-faint); line-height: 1.7;
 }
 .de-wt b { color: var(--accent); font-weight: 500; }
+.de-style-row { display: flex; align-items: center; gap: 8px; }
+.de-style-row .de-style-k {
+  width: 34px; flex: none;
+  font-family: var(--mono); font-size: calc(10.5px * var(--dt-font-scale, 1));
+  color: var(--ink-soft);
+}
+.de-style-row .dn-seg { flex-wrap: wrap; }
 .de-tok-row { display: flex; align-items: center; gap: 8px; }
 .de-tok-row .de-tok-name {
   flex: 1; min-width: 0;
