@@ -263,35 +263,59 @@ class ReviewController {
     this.liftBtn.title = 'lift static svgs into editable scenes (pixel-gated)'
     this.liftBtn.addEventListener('click', () => void this.liftDiagrams())
     actions.append(this.retryBtn, this.liftBtn)
-    const copComposer = h('div', 'dia-cop-composer')
+    // composer: the textarea owns the full panel width; send sits UNDER it
+    const copComposer = h('div', 'dia-cop-composer dia-cop-composer-stack')
     this.copInput = document.createElement('textarea')
     this.copInput.className = 'dia-cop-input'
     this.copInput.rows = 3
-    this.copInput.placeholder = 'what should the model fix or preserve on this slide? enter sends (repair round)'
+    this.copInput.placeholder = 'what should the model fix or preserve on this slide?'
     this.copSend = btn('send', 'dn-btn dn-btn-accent')
     this.copSend.addEventListener('click', () => void this.chatRepair())
     this.copInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void this.chatRepair() }
       e.stopPropagation() // arrows in the composer must not change slides
     })
-    copComposer.append(this.copInput, this.copSend)
-    // drag the divider to resize the message box — the native corner handle
-    // sits at the screen edge and drags the wrong way for a bottom-pinned box
+    const sendRow = h('div', 'dia-cop-sendrow')
+    sendRow.append(h('span', 'dia-cop-sendhint', 'enter sends · runs a repair round'), this.copSend)
+    copComposer.append(this.copInput, sendRow)
+    // the divider ABOVE the action row resizes the whole bottom block
+    // (actions + composer) against the conversation log
     const grip = h('div', 'dia-cop-grip')
-    grip.title = 'drag to resize the message box'
+    grip.title = 'drag to resize the message area'
     grip.addEventListener('pointerdown', (e) => {
       e.preventDefault()
       const startY = e.clientY
       const startH = this.copInput.offsetHeight
       const ac = new AbortController()
       window.addEventListener('pointermove', (ev) => {
-        const px = Math.min(Math.max(startH + (startY - ev.clientY), 40), Math.round(cop.clientHeight * 0.5))
+        const px = Math.min(Math.max(startH + (startY - ev.clientY), 40), Math.round(cop.clientHeight * 0.6))
         this.copInput.style.height = `${px}px`
       }, { signal: ac.signal })
       window.addEventListener('pointerup', () => ac.abort(), { signal: ac.signal })
       window.addEventListener('pointercancel', () => ac.abort(), { signal: ac.signal })
     })
-    cop.append(copHead, copHint, this.copLog, actions, grip, copComposer)
+    // the panel itself resizes horizontally: drag its left edge (persisted)
+    const wgrip = h('div', 'dia-cop-wgrip')
+    wgrip.title = 'drag to resize the copilot panel'
+    wgrip.addEventListener('pointerdown', (e) => {
+      e.preventDefault()
+      const ac = new AbortController()
+      window.addEventListener('pointermove', (ev) => {
+        const w = Math.min(Math.max(window.innerWidth - ev.clientX, 240), 640)
+        cop.style.width = `${Math.round(w)}px`
+      }, { signal: ac.signal })
+      const done = (): void => {
+        ac.abort()
+        try { localStorage.setItem('dia-review-cop-w', cop.style.width) } catch { /* private mode */ }
+      }
+      window.addEventListener('pointerup', done, { signal: ac.signal })
+      window.addEventListener('pointercancel', done, { signal: ac.signal })
+    })
+    try {
+      const savedW = localStorage.getItem('dia-review-cop-w')
+      if (savedW) cop.style.width = savedW
+    } catch { /* private mode */ }
+    cop.append(wgrip, copHead, copHint, this.copLog, grip, actions, copComposer)
     body.append(cop)
 
     // hovercard (chrome idiom from base.css, locally owned instance)

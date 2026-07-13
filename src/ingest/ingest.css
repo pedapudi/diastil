@@ -207,21 +207,51 @@ iframe.dia-ingest-exec {
   min-width: 0;
   border-left: 1px solid var(--rule);
 }
-.dia-review-cop .dia-cop-input { min-height: 60px; resize: vertical; }
+.dia-review-cop { position: relative; }
+.dia-review-cop .dia-cop-input { min-height: 60px; resize: vertical; width: 100%; }
+/* row-resize divider above the actions: resizes actions+composer vs the log */
 .dia-cop-grip {
   flex: none;
   height: 6px;
   cursor: row-resize;
-  border-top: 1px solid var(--rule-soft);
+  border-top: 1px solid var(--rule);
 }
 .dia-cop-grip:hover { background: var(--rule-soft); }
+/* col-resize grip on the panel's left edge */
+.dia-cop-wgrip {
+  position: absolute;
+  left: -3px;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  cursor: col-resize;
+  z-index: 5;
+}
 .dia-cop-actions {
   display: flex;
   gap: 6px;
   padding: 7px 10px;
-  border-top: 1px solid var(--rule);
 }
 .dia-cop-actions .dn-btn { flex: 1; }
+/* stacked composer: full-width textarea, send underneath */
+.dia-cop-composer-stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  border-top: 0;
+  padding-top: 0;
+}
+.dia-cop-sendrow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.dia-cop-sendhint {
+  font-family: var(--sans);
+  font-size: calc(9.5px * var(--dt-font-scale, 1));
+  color: var(--ink-faint);
+}
 
 .dia-review-pickers {
   display: inline-flex;
