@@ -311,7 +311,13 @@ function convertContainerChildren(el: Element, ctx: Ctx): Node[] {
   const cols = detectColumns(kids, ctx)
   if (cols) {
     const wrap = div('dia-columns')
-    if (cols.length !== 2) wrap.style.gridTemplateColumns = `repeat(${cols.length}, 1fr)`
+    // measured widths become fr weights, so a 5-card pipeline with narrow
+    // arrow separators (or a 40/60 split) keeps the SOURCE's proportions —
+    // equal columns would inflate the separators and shrink the cards
+    const widths = cols.map((c) => Math.max(1, Math.round(ctx.sample(c)?.w ?? 1)))
+    const uniform = widths.every((w) => Math.abs(w - widths[0]) / widths[0] < 0.05)
+    if (!uniform) wrap.style.gridTemplateColumns = widths.map((w) => `${w}fr`).join(' ')
+    else if (cols.length !== 2) wrap.style.gridTemplateColumns = `repeat(${cols.length}, 1fr)`
     for (const col of cols) {
       const stack = div('dia-stack')
       stack.append(...convertNode(col, ctx))
@@ -408,9 +414,10 @@ function convertNode(el: Element, ctx: Ctx): Node[] {
   return []
 }
 
-/** ≥2 rendered rects side by side → columns */
+/** ≥2 rendered rects side by side → columns. The cap tolerates real rows
+ * (a 5-step pipeline with 4 arrow separators is 9 children). */
 function detectColumns(kids: Element[], ctx: Ctx): Element[] | null {
-  if (kids.length < 2 || kids.length > 6) return null
+  if (kids.length < 2 || kids.length > 12) return null
   const rects = kids.map((k) => ctx.sample(k))
   if (rects.some((r) => !r || r.w < 2 || r.h < 2)) return null
   const sorted = kids

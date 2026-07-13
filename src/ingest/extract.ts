@@ -81,6 +81,7 @@ export interface Extraction {
 /* Detection lives in the extractor plugin registry (extractors/); re-exported
  * here so extraction consumers keep one import surface. */
 import { findSlideRoots } from './extractors/index'
+import { settleAnimations } from './fidelity'
 import { DeckNavigator } from './navigate'
 export { findSlideRoots }
 
@@ -165,6 +166,9 @@ function harvestSlide(
   win: Window,
   counter: { n: number },
 ): ExtractedSlide {
+  // activation restarts entrance animations; sampling mid-fade freezes
+  // opacity/transform at a transient frame — settle to the end state first
+  settleAnimations(root)
   // one-visible-at-a-time decks hide non-current slides; reveal this one
   // for the duration of sampling so geometry and computed styles are real
   const unforce = forceVisible(root)
