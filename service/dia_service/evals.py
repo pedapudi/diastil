@@ -114,7 +114,7 @@ async def run_case(skill: str, case_dir: Path, config: dict) -> CaseResult:
             source = (case_dir / "input.html").read_text(encoding="utf-8")
             tokens = _maybe(case_dir / "tokens.css") or ":root { --dia-paper: #fff; }"
             prompt = f"<token-css>\n{tokens}\n</token-css>\n\n<source-slide>\n{source}\n</source-slide>"
-            out = await agents.run_skill_once(skill, prompt, config)
+            out, _thinking = await agents.run_skill_once(skill, prompt, config)
             res.checks["single-dia-slide"] = is_single_slide(out)
             res.checks["in-profile"] = profile_ok(out)
             res.coverage = text_coverage(source, out)
@@ -129,7 +129,7 @@ async def run_case(skill: str, case_dir: Path, config: dict) -> CaseResult:
                 f"<converted-slide>\n{candidate}\n</converted-slide>\n\n"
                 f"<mismatch>\n{mismatch}\n\nRelevant source excerpt:\n{source}\n</mismatch>"
             )
-            out = await agents.run_skill_once(skill, prompt, config, images=_case_images(case_dir))
+            out, _thinking = await agents.run_skill_once(skill, prompt, config, images=_case_images(case_dir))
             res.checks["single-dia-slide"] = is_single_slide(out)
             res.checks["in-profile"] = profile_ok(out)
             # the repair must restore/keep every source text, not only the candidate's
@@ -137,7 +137,7 @@ async def run_case(skill: str, case_dir: Path, config: dict) -> CaseResult:
 
         elif skill == "lift-diagram":
             svg = (case_dir / "input.svg").read_text(encoding="utf-8")
-            out = await agents.run_skill_once(skill, svg, config, images=_case_images(case_dir))
+            out, _thinking = await agents.run_skill_once(skill, svg, config, images=_case_images(case_dir))
             meta = _meta(case_dir / "meta.toml")
             nodes, edges = scene_counts(out)
             res.checks["is-dia-scene"] = 'class="dia-scene"' in out or "dia-scene" in out.split(">", 1)[0]

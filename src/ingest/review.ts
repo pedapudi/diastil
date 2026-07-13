@@ -46,6 +46,14 @@ export function openReview(input: ReviewInput): Promise<ReviewOutcome> {
   return new Promise((resolve) => { new ReviewController(input, resolve).mount() })
 }
 
+/** one line in the per-slide model transcript */
+type ModelLogEntry =
+  | { who: 'user' | 'assistant' | 'quiet'; text: string }
+  | { who: 'detail'; label: string; text: string; images?: string[]; mono?: boolean; open?: boolean }
+
+/** transcripts keep full requests/responses but cap pathological payloads */
+const LOG_TEXT_CAP = 6000
+
 type Mode = 'side' | 'overlay'
 
 class ReviewController {
@@ -74,8 +82,10 @@ class ReviewController {
   private copInput!: HTMLTextAreaElement
   private copSend!: HTMLButtonElement
   private copBusy = false
-  /** per-slide model conversation: what was asked, what came back */
-  private modelLog: Array<Array<{ who: 'user' | 'assistant' | 'quiet'; text: string }>> = []
+  /** per-slide model conversation: what was asked, what came back — the
+   * FULL transcript (requests with images, reasoning, returned html), not
+   * one-line summaries */
+  private modelLog: Array<Array<ModelLogEntry>> = []
   /** a lift that re-measured lower, awaiting the reviewer's keep/revert call */
   private pendingLift: { index: number; before: SlideConversion; prev: number | null; after: number | null } | null = null
   private acceptSlideBtn!: HTMLButtonElement
@@ -120,6 +130,14 @@ class ReviewController {
   }
 
   private onKey = (e: KeyboardEvent): void => {
+    // typing owns its keys: this is a CAPTURE listener, so a bubble-phase
+    // stopPropagation in the composer can never protect it — arrows must
+    // move the caret, not the slide, and Esc leaves the field, not the review
+    const t = e.target as HTMLElement | null
+    if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable)) {
+      if (e.key === 'Escape') { e.preventDefault(); t.blur() }
+      return
+    }
     if (e.key === 'Escape') { e.preventDefault(); this.cancel() }
     else if (e.key === 'ArrowLeft') { e.preventDefault(); this.go(this.current - 1) }
     else if (e.key === 'ArrowRight') { e.preventDefault(); this.go(this.current + 1) }
@@ -574,18 +592,24 @@ class ReviewController {
       // a vision model should SEE the original it must reproduce
       await this.showOriginal(index)
       const png = this.origRoots[index] ? await rasterizeToDataUrl(this.origRoots[index]) : null
-      this.logModel(index, 'user', 'retry: full re-translation of this slide')
-      const html = await service.translateSlide(
+      const feedback = this.feedbackFor(index)
+      this.logModel(index, 'user', 'retranslate: full model re-translation of this slide')
+      this.logDetail(index, `sent → translate-slide${png ? ' · 1 image (original render)' : ''}`,
+        `source slide html (${slide.sourceHtml.length} chars)${feedback ? `\n\nreviewer feedback:\n${feedback}` : ''}\n\n${slide.sourceHtml}`,
+        { images: png ? [png] : [], mono: true })
+      const result = await service.translateSlide(
         slide.sourceHtml, tokensToCss(this.input.extraction.tokens),
-        png ? [png] : [], this.feedbackFor(index))
-      this.conversions[index] = revalidateSlide(slide, index, html)
+        png ? [png] : [], feedback)
+      if (result.thinking) this.logDetail(index, 'model thinking', result.thinking)
+      this.logDetail(index, 'received → translated slide html', result.output, { mono: true })
+      this.conversions[index] = revalidateSlide(slide, index, result.output)
       this.logModel(index, 'assistant', 'retranslated — re-measuring fidelity')
       this.rebuild()
     } catch {
       this.verdictMsg.textContent = 'service translation failed — slide unchanged'
       this.logModel(index, 'quiet', 'retranslation failed — slide unchanged')
     } finally {
-      this.retryBtn.textContent = 'retry with service'
+      this.retryBtn.textContent = 'retranslate slide'
       this.renderVerdict()
     }
   }
@@ -690,10 +714,17 @@ class ReviewController {
     let improved = false
     const feedback = [this.feedbackFor(i), note].filter(Boolean).join('\n')
     try {
-      const html = await service.repairFidelity(
+      const mismatch = this.describeMismatch(i)
+      const images = await this.repairImages(i)
+      this.logDetail(i, `sent → repair-fidelity${images.length ? ` · ${images.length} images (original · candidate · diff)` : ''}`,
+        `${mismatch}${feedback ? `\n\nreviewer feedback:\n${feedback}` : ''}`,
+        { images })
+      const result = await service.repairFidelity(
         slide.sourceHtml, before.html, tokensToCss(this.input.extraction.tokens),
-        this.describeMismatch(i), await this.repairImages(i), feedback)
-      const repaired = revalidateSlide(slide, i, html)
+        mismatch, images, feedback)
+      if (result.thinking) this.logDetail(i, 'model thinking', result.thinking)
+      this.logDetail(i, 'received → repaired slide html', result.output, { mono: true })
+      const repaired = revalidateSlide(slide, i, result.output)
       repaired.repairRounds = (before.repairRounds ?? 0) + 1
       this.conversions[i] = repaired
       await this.rebuildAndWait()
@@ -739,9 +770,16 @@ class ReviewController {
     for (const [k, svg] of svgs.entries()) {
       try {
         const png = liveSvgs[k] ? await rasterizeToDataUrl(liveSvgs[k]) : null
-        const out = await service.liftDiagram(svg.outerHTML, png ? [png] : [], this.feedbackFor(i))
-        const scene = new DOMParser().parseFromString(out, 'text/html').querySelector('svg.dia-scene')
-        if (!scene || !this.sceneIsValid(scene.outerHTML)) continue
+        this.logDetail(i, `sent → lift-diagram ${k + 1}/${svgs.length}${png ? ' · 1 image (diagram render)' : ''}`,
+          svg.outerHTML, { images: png ? [png] : [], mono: true })
+        const result = await service.liftDiagram(svg.outerHTML, png ? [png] : [], this.feedbackFor(i))
+        if (result.thinking) this.logDetail(i, 'model thinking', result.thinking)
+        this.logDetail(i, `received → lifted scene ${k + 1}/${svgs.length}`, result.output, { mono: true })
+        const scene = new DOMParser().parseFromString(result.output, 'text/html').querySelector('svg.dia-scene')
+        if (!scene || !this.sceneIsValid(scene.outerHTML)) {
+          this.logModel(i, 'quiet', `lift ${k + 1}/${svgs.length}: returned scene failed validation — kept the original svg`)
+          continue
+        }
         svg.replaceWith(doc.importNode(scene, true))
         lifted++
       } catch { break }
@@ -780,6 +818,19 @@ class ReviewController {
     if (i === this.current) this.renderModelLog()
   }
 
+  /** a collapsible transcript entry: request payloads, model reasoning,
+   * returned html — with image thumbnails when images rode along */
+  private logDetail(
+    i: number, label: string, text: string,
+    opts: { images?: string[]; mono?: boolean; open?: boolean } = {},
+  ): void {
+    const capped = text.length > LOG_TEXT_CAP
+      ? `${text.slice(0, LOG_TEXT_CAP)}\n… (${text.length - LOG_TEXT_CAP} more characters truncated)`
+      : text
+    ;(this.modelLog[i] ??= []).push({ who: 'detail', label, text: capped, ...opts })
+    if (i === this.current) this.renderModelLog()
+  }
+
   /** everything the reviewer has SAID about slide i — the standing feedback
    * that rides along with retranslate, repair, and lift */
   private feedbackFor(i: number): string {
@@ -799,7 +850,35 @@ class ReviewController {
       this.copLog.appendChild(empty)
     }
     for (const e of entries) {
-      if (e.who === 'quiet') {
+      if (e.who === 'detail') {
+        const box = document.createElement('details')
+        box.className = 'dia-cop-think'
+        if (e.open) box.open = true
+        const sum = document.createElement('summary')
+        sum.textContent = e.label
+        box.appendChild(sum)
+        if (e.images && e.images.length > 0) {
+          const shots = h('div', 'dia-cop-shots')
+          for (const src of e.images) {
+            const im = document.createElement('img')
+            im.src = src
+            im.loading = 'lazy'
+            shots.appendChild(im)
+          }
+          box.appendChild(shots)
+        }
+        const body = h('div', 'dia-cop-think-body')
+        if (e.mono) {
+          const pre = document.createElement('pre')
+          pre.className = 'dia-md-pre'
+          pre.textContent = e.text
+          body.appendChild(pre)
+        } else {
+          body.replaceChildren(renderMarkdown(e.text))
+        }
+        box.appendChild(body)
+        this.copLog.appendChild(box)
+      } else if (e.who === 'quiet') {
         const q = h('div', 'dia-cop-quiet')
         q.replaceChildren(renderMarkdown(e.text))
         this.copLog.appendChild(q)

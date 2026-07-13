@@ -159,11 +159,11 @@ def decode_data_uri(uri: str) -> tuple[str, bytes] | None:
 
 async def run_skill_once(
     skill: str, prompt: str, config: dict[str, Any], images: list[str] | None = None
-) -> str:
-    """One skill agent, one fresh session, one prompt, final text out.
-    images are base64 data URIs attached as inline parts — a vision-capable
-    endpoint sees them, a text-only endpoint gets whatever LiteLLM can pass
-    through (typically an error, so callers keep images optional).
+) -> tuple[str, str]:
+    """One skill agent, one fresh session, one prompt → (output, thinking).
+    Reasoning parts (part.thought) are COLLECTED, not dropped — the editor
+    shows the full transcript of every skill run. images are base64 data
+    URIs attached as inline parts — a vision-capable endpoint sees them.
     Raises RuntimeError when adk is unavailable; model errors propagate."""
     if not ADK_AVAILABLE:
         raise RuntimeError(f"adk not installed: {ADK_IMPORT_ERROR}")
@@ -185,6 +185,7 @@ async def run_skill_once(
             )
     content = genai_types.Content(role="user", parts=parts)
     chunks: list[str] = []
+    thoughts: list[str] = []
     async for event in runner.run_async(
         user_id="local", session_id=session.id, new_message=content
     ):
@@ -192,9 +193,13 @@ async def run_skill_once(
             continue  # collect only final content
         for part in (event.content.parts if event.content else []) or []:
             text = getattr(part, "text", None)
-            if text:
+            if not text:
+                continue
+            if getattr(part, "thought", False):
+                thoughts.append(text)
+            else:
                 chunks.append(text)
-    return strip_fences("".join(chunks).strip())
+    return strip_fences("".join(chunks).strip()), "".join(thoughts).strip()
 
 
 def strip_fences(text: str) -> str:

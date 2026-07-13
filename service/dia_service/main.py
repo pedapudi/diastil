@@ -243,8 +243,8 @@ async def chat(req: ChatRequest) -> EventSourceResponse:
 # /skills/* — single-shot skill runs
 # ---------------------------------------------------------------------------
 
-async def _run_skill(skill: str, prompt: str, images: list[str] | None = None) -> str:
-    """HTTP wrapper over agents.run_skill_once (shared with `dia eval`)."""
+async def _run_skill(skill: str, prompt: str, images: list[str] | None = None) -> tuple[str, str]:
+    """HTTP wrapper over agents.run_skill_once → (output, thinking)."""
     if not agents.ADK_AVAILABLE:
         raise HTTPException(status_code=503, detail=INSTALL_HINT)
     try:
@@ -294,7 +294,8 @@ async def translate_slide(req: TranslateRequest) -> dict[str, str]:
     if req.images:
         prompt += TRANSLATE_IMAGE_NOTE
     prompt += _feedback_block(req.feedback)
-    return {"slideHtml": await _run_skill("translate-slide", prompt, req.images)}
+    out, thinking = await _run_skill("translate-slide", prompt, req.images)
+    return {"slideHtml": out, "thinking": thinking}
 
 
 @app.post("/skills/repair-fidelity")
@@ -308,13 +309,15 @@ async def repair_fidelity(req: RepairRequest) -> dict[str, str]:
     if req.images:
         prompt += REPAIR_IMAGE_NOTE
     prompt += _feedback_block(req.feedback)
-    return {"slideHtml": await _run_skill("repair-fidelity", prompt, req.images)}
+    out, thinking = await _run_skill("repair-fidelity", prompt, req.images)
+    return {"slideHtml": out, "thinking": thinking}
 
 
 @app.post("/skills/lift-diagram")
 async def lift_diagram(req: LiftRequest) -> dict[str, str]:
     prompt = req.svgHtml + (LIFT_IMAGE_NOTE if req.images else "") + _feedback_block(req.feedback)
-    return {"sceneHtml": await _run_skill("lift-diagram", prompt, req.images)}
+    out, thinking = await _run_skill("lift-diagram", prompt, req.images)
+    return {"sceneHtml": out, "thinking": thinking}
 
 
 # ---------------------------------------------------------------------------

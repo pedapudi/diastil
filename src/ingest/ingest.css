@@ -257,6 +257,19 @@ iframe.dia-ingest-exec {
   color: var(--ink-faint);
 }
 
+/* transcript image thumbnails (the exact renders sent to the model) */
+.dia-cop-shots {
+  display: flex;
+  gap: 4px;
+  padding: 4px 0 2px;
+}
+.dia-cop-shots img {
+  width: 88px;
+  height: auto;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+}
+
 .dia-review-pickers {
   display: inline-flex;
   align-items: center;

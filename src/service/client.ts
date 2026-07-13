@@ -3,6 +3,13 @@
 
 import type { ChatContext, ChatEvent, ImportResult } from '../types'
 
+/** a single-shot skill run: the output plus any model reasoning — the
+ * import review shows the FULL transcript, not a one-line summary */
+export interface SkillResult {
+  output: string
+  thinking: string
+}
+
 export const SERVICE_PORT = 8317
 
 /* When the page is served by the dia service itself (dia edit / dia ingest /
@@ -62,7 +69,7 @@ export class ServiceClient {
    * sees the layout it must reproduce. feedback: reviewer notes. */
   async translateSlide(
     sourceHtml: string, tokensCss: string, images: string[] = [], feedback = '',
-  ): Promise<string> {
+  ): Promise<SkillResult> {
     return this.skill('translate-slide', { sourceHtml, tokensCss, images, feedback }, 'slideHtml')
   }
 
@@ -77,18 +84,18 @@ export class ServiceClient {
     mismatch: string,
     images: string[] = [],
     feedback = '',
-  ): Promise<string> {
+  ): Promise<SkillResult> {
     return this.skill('repair-fidelity', { sourceHtml, candidateHtml, tokensCss, mismatch, images, feedback }, 'slideHtml')
   }
 
   /** lift a raw SVG diagram into the scene vocabulary.
    * images (optional): a render of the source diagram for vision models.
    * feedback: reviewer notes. */
-  async liftDiagram(svgHtml: string, images: string[] = [], feedback = ''): Promise<string> {
+  async liftDiagram(svgHtml: string, images: string[] = [], feedback = ''): Promise<SkillResult> {
     return this.skill('lift-diagram', { svgHtml, images, feedback }, 'sceneHtml')
   }
 
-  private async skill(name: string, body: object, field: string): Promise<string> {
+  private async skill(name: string, body: object, field: string): Promise<SkillResult> {
     const r = await fetch(`${this.base}/skills/${name}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -96,7 +103,7 @@ export class ServiceClient {
     })
     if (!r.ok) throw new Error(`${name} failed: ${r.status}`)
     const j = await r.json()
-    return j[field] as string
+    return { output: (j[field] as string) ?? '', thinking: (j.thinking as string) ?? '' }
   }
 }
 

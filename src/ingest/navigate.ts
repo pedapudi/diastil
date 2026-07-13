@@ -74,14 +74,17 @@ const NAV_METHODS: NavMethod[] = [
   },
   {
     name: 'hash',
-    applicable: () => true,
+    // NEVER in srcdoc frames: the fragment lands on about:srcdoc and cannot
+    // be stripped (replaceState refuses), permanently breaking capture and
+    // devtools access to the page — worse than not navigating at all
+    applicable: (win) => !win.location.href.startsWith('about:srcdoc'),
     goto(win, _d, _c, target) {
       win.location.hash = `#${target + 1}`
       // restore a fragment-free URL once the router has seen the change
       win.setTimeout(() => {
         try {
           win.history.replaceState(null, '', win.location.pathname + win.location.search)
-        } catch { /* srcdoc frames may refuse; the deck still navigated */ }
+        } catch { /* some frames refuse; the deck still navigated */ }
       }, 250)
     },
   },
@@ -118,6 +121,9 @@ export class DeckNavigator {
       if (!m.applicable(win, this.doc, cur, i)) return false
       try { m.goto(win, this.doc, cur, i) } catch { return false }
       await pause(380)
+      if (root.offsetWidth > 0) return true
+      // slow slide transitions: one more beat before judging the method dead
+      await pause(300)
       return root.offsetWidth > 0
     }
 
