@@ -54,14 +54,19 @@ export class ServiceClient {
     const reader = res.body.getReader()
     const decoder = new TextDecoder()
     let buf = ''
+    // SSE frames are separated by a blank line: LF (\n\n) from most servers,
+    // CRLF (\r\n\r\n) from others (some sse_starlette builds emit CRLF). Match
+    // either separator, and split fields on \r?\n too — otherwise the frames
+    // never parse and the copilot looks silent even on a 200 response.
+    const frameSep = /\r?\n\r?\n/
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
       buf += decoder.decode(value, { stream: true })
-      let idx: number
-      while ((idx = buf.indexOf('\n\n')) >= 0) {
-        const frame = buf.slice(0, idx); buf = buf.slice(idx + 2)
-        const data = frame.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim()).join('')
+      let m: RegExpExecArray | null
+      while ((m = frameSep.exec(buf)) !== null) {
+        const frame = buf.slice(0, m.index); buf = buf.slice(m.index + m[0].length)
+        const data = frame.split(/\r?\n/).filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim()).join('')
         if (!data) continue
         try { yield JSON.parse(data) as ChatEvent } catch { /* skip malformed frame */ }
       }
