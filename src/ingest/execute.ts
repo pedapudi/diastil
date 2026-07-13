@@ -23,6 +23,28 @@ export interface ExecuteResult {
   warnings: string[]
 }
 
+/** Decks that manage a URL hash (history.pushState/replaceState with an
+ * absolute or fragment URL) THROW SecurityError inside a srcdoc sandbox —
+ * an uncaught throw mid-navigation can leave the deck's runtime wedged and
+ * floods the console during activated sampling. Make both calls no-throw.
+ * MUST be re-applied after every load of the frame: reparenting an iframe
+ * (the review does) reloads srcdoc into a fresh window without the shim. */
+export function shimFrameHistory(win: Window | null): void {
+  if (!win) return
+  const history = win.history
+  for (const m of ['pushState', 'replaceState'] as const) {
+    if (!/native code/.test(String(history[m]))) continue // already shimmed
+    const orig = history[m].bind(history)
+    try {
+      Object.defineProperty(history, m, {
+        value: (...args: Parameters<History['pushState']>) => {
+          try { orig(...args) } catch { /* srcdoc frames refuse URLs — ignore */ }
+        },
+      })
+    } catch { /* history not configurable in this engine — leave as is */ }
+  }
+}
+
 export async function executeSource(html: string): Promise<ExecuteResult> {
   const iframe = document.createElement('iframe')
   iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin')
@@ -43,6 +65,8 @@ export async function executeSource(html: string): Promise<ExecuteResult> {
     iframe.remove()
     throw new Error('ingest: sandboxed document unavailable after load')
   }
+
+  shimFrameHistory(doc.defaultView)
 
   try { await doc.fonts.ready } catch { /* fonts API unavailable in this document */ }
 

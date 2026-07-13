@@ -241,6 +241,10 @@ iframe.dia-ingest-exec {
   border-top: 0;
   padding-top: 0;
 }
+/* the base rail rule sets flex:1 (basis 0), which makes flex IGNORE the
+ * textarea's height — the grip and the native resize handle both set
+ * height, so the stacked composer must let the height property rule */
+.dia-cop-composer-stack .dia-cop-input { flex: none; }
 .dia-cop-sendrow {
   display: flex;
   align-items: center;

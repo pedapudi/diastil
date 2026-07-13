@@ -10,7 +10,7 @@ import { renderMarkdown } from '../copilot/markdown'
 import { validateDeckHtml } from '../model/validate'
 import { service } from '../service/client'
 import type { ExecuteResult } from './execute'
-import { EXEC_W, EXEC_H } from './execute'
+import { EXEC_W, EXEC_H, shimFrameHistory } from './execute'
 import type { Extraction } from './extract'
 import { findSlideRoots, forceVisible } from './extract'
 import { DeckNavigator } from './navigate'
@@ -195,6 +195,9 @@ class ReviewController {
     this.origFrame = execution.iframe
     this.origFrame.classList.remove('dia-ingest-exec')
     this.origFrame.addEventListener('load', () => {
+      // the reparent reloaded srcdoc into a FRESH window — the history shim
+      // from execution is gone and must be re-applied before navigation
+      shimFrameHistory(this.origFrame.contentWindow)
       window.setTimeout(() => {
         const d = this.origFrame.contentDocument
         if (d) this.origRoots = findSlideRoots(d).roots
