@@ -24,6 +24,7 @@ import { installElementDragging } from './elemdrag'
 import { legendOpen, toggleLegend, closeLegend } from './legend'
 import { installTextEditing } from './textedit'
 import { buildSlideTree } from './tree'
+import { openCompare } from './compare'
 import { bootFromCli, openDeck, saveDeck, presentDeck } from './slides'
 
 /* styles that must live inside the deck shadow root; serialization strips
@@ -373,6 +374,19 @@ export function mountEditor(host: HTMLElement): void {
   function appendTree(): void {
     const slide = inspectedSlide()
     if (slide) inspectBody.append(buildSlideTree(slide))
+    // imported decks carry their reference originals (profile §8) — offer
+    // the side-by-side comparison for the slide under inspection
+    const d = state.deck
+    if (d && slide && d.headExtras.includes('dia-originals')) {
+      const row = h('div', 'de-style-row')
+      const b = h('button', 'dn-btn', 'compare with original')
+      b.type = 'button'
+      b.title = 'side-by-side: the imported source of this slide vs its current form (esc closes)'
+      const idx = state.slides().indexOf(slide)
+      b.addEventListener('click', () => openCompare(d, Math.max(0, idx)))
+      row.appendChild(b)
+      inspectBody.append(row)
+    }
   }
 
   function renderInspect(): void {
