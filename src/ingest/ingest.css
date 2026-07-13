@@ -201,6 +201,22 @@ iframe.dia-ingest-exec {
   color: var(--bad);
 }
 
+/* ---------- per-slide model conversation (right column) ---------- */
+
+.dia-review-cop {
+  flex: none;
+  width: 320px;
+  min-width: 0;
+  border-left: 1px solid var(--rule);
+}
+
+.dia-review-pickers {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 8px;
+}
+
 /* ---------- lift decision (keep / revert, inline in the verdict row) ---------- */
 
 .dia-lift-decision {

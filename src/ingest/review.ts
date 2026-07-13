@@ -5,6 +5,8 @@
 
 import './ingest.css'
 import type { ImportReport } from '../types'
+import { mountThemePicker, mountTypePicker } from '../chrome/pickers'
+import { renderMarkdown } from '../copilot/markdown'
 import { validateDeckHtml } from '../model/validate'
 import { service } from '../service/client'
 import type { ExecuteResult } from './execute'
@@ -66,6 +68,13 @@ class ReviewController {
   private notesEl!: HTMLElement
   private verdictMsg!: HTMLElement
   private liftDecision!: HTMLElement
+  private copLog!: HTMLElement
+  private copModel!: HTMLElement
+  private copInput!: HTMLTextAreaElement
+  private copSend!: HTMLButtonElement
+  private copBusy = false
+  /** per-slide model conversation: what was asked, what came back */
+  private modelLog: Array<Array<{ who: 'user' | 'assistant' | 'quiet'; text: string }>> = []
   private feedbackEl!: HTMLTextAreaElement
   /** per-slide reviewer notes — ride along with retry / repair / lift */
   private feedback: string[] = []
@@ -175,13 +184,18 @@ class ReviewController {
       dim(`${conversions.length} slides`),
     )
     const spacer = h('div', 'dia-review-spacer')
+    // the chrome theme/type pickers ride along — reviewing shouldn't mean
+    // losing the pickers under a full-screen overlay
+    const pickers = h('span', 'dia-review-pickers')
+    mountThemePicker(pickers)
+    mountTypePicker(pickers)
     const cancelBtn = btn('cancel', 'dn-btn')
     cancelBtn.addEventListener('click', () => this.cancel())
     const acceptBtn = btn('accept import', 'dn-btn dn-btn-accent')
     acceptBtn.addEventListener('click', () => this.accept())
-    head.append(title, spacer, cancelBtn, acceptBtn)
+    head.append(title, spacer, pickers, cancelBtn, acceptBtn)
 
-    // body: strip + main
+    // body: strip + main + per-slide model conversation
     const body = h('div', 'dia-review-body')
     this.strip = h('aside', 'dia-review-strip')
     const main = h('div', 'dia-review-main')
@@ -287,6 +301,32 @@ class ReviewController {
     main.append(tools, this.cmp, verdict, fb, this.notesEl)
     body.append(this.strip, main)
 
+    // per-slide model conversation: every retry/repair/lift exchange for
+    // the current slide, plus a composer that drives a repair round with
+    // your message as the reviewer feedback
+    const cop = h('aside', 'dia-cop dia-review-cop')
+    const copHead = h('div', 'dia-cop-header')
+    const copTitle = h('div', 'dia-cop-title', 'copilot')
+    this.copModel = h('div', 'dia-cop-model', '…')
+    copHead.append(copTitle, this.copModel)
+    const copHint = h('div', 'dia-cop-context',
+      'the model conversation for this slide — retry · repair · lift log here')
+    this.copLog = h('div', 'dia-cop-log')
+    const copComposer = h('div', 'dia-cop-composer')
+    this.copInput = document.createElement('textarea')
+    this.copInput.className = 'dia-cop-input'
+    this.copInput.rows = 1
+    this.copInput.placeholder = 'tell the model what to fix on this slide…'
+    this.copSend = btn('send', 'dn-btn dn-btn-accent')
+    this.copSend.addEventListener('click', () => void this.chatRepair())
+    this.copInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void this.chatRepair() }
+      e.stopPropagation() // arrows in the composer must not change slides
+    })
+    copComposer.append(this.copInput, this.copSend)
+    cop.append(copHead, copHint, this.copLog, copComposer)
+    body.append(cop)
+
     // hovercard (chrome idiom from base.css, locally owned instance)
     this.hover = h('div', 'dn-hovercard')
 
@@ -298,6 +338,12 @@ class ReviewController {
 
     this.healthCheck = service.health().then((r) => {
       this.serviceOk = r.ok
+      this.copModel.textContent = r.ok ? (r.model ?? '') : 'offline'
+      this.copModel.classList.toggle('is-off', !r.ok)
+      if (!r.ok) {
+        this.logModel(this.current, 'quiet',
+          'service offline — retry, repair, lift, and this composer need it. start it with `dia serve`')
+      }
       this.renderVerdict()
       return r.ok
     })
@@ -434,6 +480,7 @@ class ReviewController {
     this.renderStrip()
     this.renderNotes()
     this.renderVerdict()
+    this.renderModelLog()
     this.verdictMsg.textContent = ''
     this.layout()
     // one-at-a-time decks: drive the original's own runtime, then re-crop
@@ -522,13 +569,16 @@ class ReviewController {
       // a vision model should SEE the original it must reproduce
       await this.showOriginal(index)
       const png = this.origRoots[index] ? await rasterizeToDataUrl(this.origRoots[index]) : null
+      this.logModel(index, 'user', 'retry: full re-translation of this slide')
       const html = await service.translateSlide(
         slide.sourceHtml, tokensToCss(this.input.extraction.tokens),
         png ? [png] : [], this.feedback[index] ?? '')
       this.conversions[index] = revalidateSlide(slide, index, html)
+      this.logModel(index, 'assistant', 'retranslated — re-measuring fidelity')
       this.rebuild()
     } catch {
       this.verdictMsg.textContent = 'service translation failed — slide unchanged'
+      this.logModel(index, 'quiet', 'retranslation failed — slide unchanged')
     } finally {
       this.retryBtn.textContent = 'retry with service'
       this.renderVerdict()
@@ -556,7 +606,11 @@ class ReviewController {
         const c = this.conversions[i]
         if (c.fidelity == null || c.fidelity >= REPAIR_THRESHOLD) break
         this.verdictMsg.textContent = `repairing slide ${i + 1} — round ${round}…`
+        const beforeScore = c.fidelity
         const improved = await this.repairSlide(i, true)
+        const afterScore = this.conversions[i].fidelity
+        this.logModel(i, 'quiet',
+          `auto-repair round ${round}: ${beforeScore.toFixed(3)} → ${afterScore == null ? '—' : afterScore.toFixed(3)}${improved ? '' : ' — kept the previous candidate'}`)
         if (!improved) break
       }
     }
@@ -615,15 +669,16 @@ class ReviewController {
   /** One service repair round for slide i; the result is kept only when it
    * re-measures at least as high as the current candidate. Returns true when
    * the repair improved the score (the auto loop's continue signal). */
-  private async repairSlide(i: number, auto = false): Promise<boolean> {
+  private async repairSlide(i: number, auto = false, note = ''): Promise<boolean> {
     const before = this.conversions[i]
     const slide = this.input.extraction.slides[i]
     this.repairBtn.disabled = true
     let improved = false
+    const feedback = [this.feedback[i] ?? '', note].filter(Boolean).join('\n')
     try {
       const html = await service.repairFidelity(
         slide.sourceHtml, before.html, tokensToCss(this.input.extraction.tokens),
-        this.describeMismatch(i), await this.repairImages(i), this.feedback[i] ?? '')
+        this.describeMismatch(i), await this.repairImages(i), feedback)
       const repaired = revalidateSlide(slide, i, html)
       repaired.repairRounds = (before.repairRounds ?? 0) + 1
       this.conversions[i] = repaired
@@ -637,9 +692,13 @@ class ReviewController {
       } else {
         improved = before.fidelity == null || (after ?? 0) > before.fidelity
       }
-    } catch {
+    } catch (err) {
       this.conversions[i] = before
       if (!auto) this.verdictMsg.textContent = 'service repair failed — slide unchanged'
+      this.renderStrip(); this.renderNotes(); this.renderVerdict()
+      // the conversational path must SEE the failure, not a false success
+      if (note) throw err
+      return improved
     }
     this.renderStrip(); this.renderNotes(); this.renderVerdict()
     return improved
@@ -691,10 +750,72 @@ class ReviewController {
       // exactly, so a strict gate would discard nearly every semantic lift)
       this.pendingLift = { index: i, before, prev: before.fidelity, after }
       this.verdictMsg.textContent = ''
+      this.logModel(i, 'assistant',
+        `lifted ${lifted} diagram${lifted > 1 ? 's' : ''}, but fidelity re-measured lower (${before.fidelity.toFixed(3)} → ${after == null ? '—' : after.toFixed(3)}) — keep or revert in the verdict row`)
     } else {
       this.verdictMsg.textContent = `lifted ${lifted} diagram${lifted > 1 ? 's' : ''} into editable scenes`
+      this.logModel(i, 'assistant', `lifted ${lifted} diagram${lifted > 1 ? 's' : ''} into editable scenes`)
     }
     this.renderStrip(); this.renderNotes(); this.renderVerdict()
+  }
+
+  /* ---------- per-slide model conversation ---------- */
+
+  private logModel(i: number, who: 'user' | 'assistant' | 'quiet', text: string): void {
+    ;(this.modelLog[i] ??= []).push({ who, text })
+    if (i === this.current) this.renderModelLog()
+  }
+
+  private renderModelLog(): void {
+    this.copLog.replaceChildren()
+    const entries = this.modelLog[this.current] ?? []
+    if (entries.length === 0) {
+      const empty = h('div', 'dia-cop-quiet',
+        'no model activity for this slide yet — low-fidelity slides repair automatically when the service is up')
+      this.copLog.appendChild(empty)
+    }
+    for (const e of entries) {
+      if (e.who === 'quiet') {
+        const q = h('div', 'dia-cop-quiet')
+        q.replaceChildren(renderMarkdown(e.text))
+        this.copLog.appendChild(q)
+      } else {
+        const b = h('div', `dia-cop-msg dia-cop-${e.who === 'user' ? 'user' : 'assistant'}`)
+        b.replaceChildren(renderMarkdown(e.text))
+        this.copLog.appendChild(b)
+      }
+    }
+    this.copLog.scrollTop = this.copLog.scrollHeight
+  }
+
+  /** composer → one repair round with the message as reviewer feedback */
+  private async chatRepair(): Promise<void> {
+    const msg = this.copInput.value.trim()
+    if (!msg || this.copBusy) return
+    if (!this.serviceOk) {
+      this.logModel(this.current, 'quiet', 'service offline — start it with `dia serve`, then send again')
+      return
+    }
+    const i = this.current
+    this.copInput.value = ''
+    this.copBusy = true
+    this.copSend.disabled = true
+    this.logModel(i, 'user', msg)
+    const before = this.conversions[i].fidelity
+    try {
+      const improved = await this.repairSlide(i, false, msg)
+      const after = this.conversions[i].fidelity
+      const fmtF = (v: number | null | undefined) => (v == null ? '—' : v.toFixed(3))
+      this.logModel(i, 'assistant', improved || (after ?? -1) >= (before ?? -1)
+        ? `repaired with your note — fidelity ${fmtF(before)} → ${fmtF(after)}`
+        : `the repair re-measured lower (${fmtF(before)} → kept the previous candidate)`)
+    } catch {
+      this.logModel(i, 'quiet', 'repair failed — slide unchanged')
+    } finally {
+      this.copBusy = false
+      this.copSend.disabled = false
+      this.copInput.focus()
+    }
   }
 
   /** validate a lifted scene by planting it in a minimal probe deck */

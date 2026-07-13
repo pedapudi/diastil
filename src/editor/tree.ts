@@ -30,7 +30,7 @@ export function buildSlideTree(slide: SlideEl): HTMLElement {
   wrap.appendChild(list)
 
   const counter = { rows: 0 }
-  addRow(list, slide, 0, 'slide', snippet(slide), { kind: 'slide', slide }, counter)
+  addRow(list, slide, 0, 'slide', snippet(slide), { kind: 'slide', slide }, counter, 'slide')
   for (const child of slide.children) walk(list, child, slide, 1, counter)
   if (counter.rows >= MAX_ROWS) {
     const more = document.createElement('div')
@@ -47,13 +47,13 @@ function walk(list: HTMLElement, el: Element, slide: SlideEl, depth: number, cou
 
   // islands are opaque: one row, no descent
   if (el.hasAttribute('data-dia-island')) {
-    addRow(list, el, depth, 'island', snippet(el), sel(el, slide), counter)
+    addRow(list, el, depth, 'island', snippet(el), sel(el, slide), counter, 'island')
     return
   }
   // scenes show their object structure
   if (el instanceof SVGSVGElement) {
     const isScene = el.classList.contains('dia-scene')
-    addRow(list, el, depth, isScene ? 'scene' : 'svg', '', { kind: 'element', el: el as unknown as HTMLElement, slide }, counter)
+    addRow(list, el, depth, isScene ? 'scene' : 'svg', '', { kind: 'element', el: el as unknown as HTMLElement, slide }, counter, isScene ? 'scene' : 'media')
     if (isScene) {
       for (const child of el.children) {
         if (counter.rows >= MAX_ROWS) return
@@ -61,13 +61,13 @@ function walk(list: HTMLElement, el: Element, slide: SlideEl, depth: number, cou
         if (child.hasAttribute('data-dia-node')) {
           const label = child.querySelector('.dia-node-label')?.textContent?.trim()
           addRow(list, child, depth + 1, `node ${child.getAttribute('data-dia-node')}`, label ?? '',
-            { kind: 'scene-node', node: child as SVGGElement, scene: el, slide }, counter)
+            { kind: 'scene-node', node: child as SVGGElement, scene: el, slide }, counter, 'node')
         } else if (child.hasAttribute('data-dia-edge')) {
           addRow(list, child, depth + 1, `edge ${child.getAttribute('data-dia-edge')}`, '',
-            { kind: 'scene-edge', edge: child as SVGGElement, scene: el, slide }, counter)
+            { kind: 'scene-edge', edge: child as SVGGElement, scene: el, slide }, counter, 'edge')
         } else {
           addRow(list, child, depth + 1, `<${child.tagName.toLowerCase()}>`, snippet(child),
-            { kind: 'scene-free', el: child as SVGGraphicsElement, scene: el, slide }, counter)
+            { kind: 'scene-free', el: child as SVGGraphicsElement, scene: el, slide }, counter, 'free')
         }
       }
     }
@@ -80,7 +80,11 @@ function walk(list: HTMLElement, el: Element, slide: SlideEl, depth: number, cou
   const meaningful = role !== undefined || BLOCK_TAGS.has(el.tagName)
 
   if (meaningful) {
-    addRow(list, el, depth, role ?? el.tagName.toLowerCase(), snippet(el), sel(el, slide), counter)
+    const kind =
+      isContainer ? 'container' :
+      /^(IMG|FIGURE|VIDEO)$/.test(el.tagName) || el.classList.contains('dia-figure') ? 'media' :
+      role !== undefined ? 'text' : 'block'
+    addRow(list, el, depth, role ?? el.tagName.toLowerCase(), snippet(el), sel(el, slide), counter, kind)
   }
   // descend into containers and unlabeled wrappers; leaves stay leaves
   if (isContainer || !meaningful) {
@@ -92,17 +96,28 @@ function sel(el: Element, slide: SlideEl): Selection {
   return { kind: 'element', el: el as HTMLElement, slide }
 }
 
+/** one small glyph per kind — read the tree's shape at a glance */
+const KIND_GLYPHS: Record<string, string> = {
+  slide: '▣', text: '¶', container: '⊟', media: '▨', block: '☰',
+  scene: '⬡', node: '◻', edge: '→', free: '✎', island: '⬒',
+}
+
 function addRow(
   list: HTMLElement, el: Element, depth: number, label: string, hint: string,
-  pick: Selection, counter: { rows: number },
+  pick: Selection, counter: { rows: number }, kind = 'block',
 ): void {
   if (counter.rows >= MAX_ROWS) return
   counter.rows++
   const row = document.createElement('button')
   row.type = 'button'
   row.className = 'de-tree-row'
-  row.style.paddingLeft = `${6 + depth * 12}px`
+  row.dataset.kind = kind
+  row.style.setProperty('--tree-depth', String(depth))
   if (isSelected(el)) row.classList.add('de-on')
+  const glyph = document.createElement('span')
+  glyph.className = 'de-tree-glyph'
+  glyph.textContent = KIND_GLYPHS[kind] ?? '·'
+  row.appendChild(glyph)
   const name = document.createElement('span')
   name.className = 'de-tree-name'
   name.textContent = label

@@ -76,14 +76,21 @@
   color: var(--ink-faint); padding-left: 1px;
 }
 .de-mm-item.de-on .de-mm-num { color: var(--ink-soft); }
-.de-mm-ctx { display: flex; gap: 4px; width: 108px; }
+/* the duplicate/delete row OVERLAYS the current thumbnail's lower edge —
+ * it takes no layout space, so selecting a slide never shifts the list */
+.de-mm-ctx {
+  position: absolute; left: 0; bottom: 15px;
+  display: flex; gap: 4px; width: 108px;
+  padding: 2px;
+}
 .de-mm-ctx button {
   flex: 1; font-family: var(--sans); font-size: calc(10px * var(--dt-font-scale, 1));
   border: 1px solid var(--rule); border-radius: 4px;
-  background: transparent; color: var(--ink-soft);
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  color: var(--ink-soft);
   padding: 1px 0; cursor: pointer; line-height: 1.5;
 }
-.de-mm-ctx button:hover { background: var(--rule-soft); color: var(--ink); }
+.de-mm-ctx button:hover { background: var(--panel); color: var(--ink); }
 .de-mm-add {
   width: 108px; height: 34px; flex: none;
   border: 1px dashed var(--rule); border-radius: 2px;
@@ -235,19 +242,41 @@
 .de-tree { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
 .de-tree-list {
   display: flex; flex-direction: column;
-  border-top: 1px solid var(--rule-soft); padding-top: 4px;
-  max-height: 300px; overflow-y: auto;
+  border-top: 1px solid var(--rule-soft); padding-top: 5px;
+  max-height: 340px; overflow-y: auto;
 }
 .de-tree-row {
   display: flex; align-items: baseline; gap: 7px;
-  border: 0; background: transparent; cursor: pointer;
-  text-align: left; padding: 2.5px 6px; border-radius: 4px;
+  border: 0; border-left: 2px solid transparent;
+  background: transparent; cursor: pointer;
+  text-align: left; padding: 3px 6px;
+  padding-left: calc(8px + var(--tree-depth, 0) * 13px);
+  border-radius: 0 4px 4px 0;
   font-size: calc(10.5px * var(--dt-font-scale, 1));
   color: var(--ink-soft); min-width: 0;
+  /* one hairline guide per indent level */
+  background-image: repeating-linear-gradient(
+    to right, var(--rule-soft) 0 1px, transparent 1px 13px);
+  background-repeat: no-repeat;
+  background-position: 11px 0;
+  background-size: calc(var(--tree-depth, 0) * 13px) 100%;
 }
-.de-tree-row:hover { background: var(--rule-soft); color: var(--ink); }
-.de-tree-row.de-on { background: var(--rule-soft); }
-.de-tree-row.de-on .de-tree-name { color: var(--accent); }
+.de-tree-row:hover { background-color: var(--rule-soft); color: var(--ink); }
+.de-tree-row.de-on {
+  background-color: var(--rule-soft);
+  border-left-color: var(--accent);
+}
+.de-tree-row.de-on .de-tree-name, .de-tree-row.de-on .de-tree-glyph { color: var(--accent); }
+.de-tree-glyph {
+  flex: none; width: 13px; text-align: center;
+  font-size: calc(9px * var(--dt-font-scale, 1));
+  color: var(--ink-faint);
+  transform: translateY(-0.5px);
+}
+.de-tree-row[data-kind="island"] .de-tree-glyph { color: var(--caution); }
+.de-tree-row[data-kind="scene"] .de-tree-glyph,
+.de-tree-row[data-kind="node"] .de-tree-glyph,
+.de-tree-row[data-kind="edge"] .de-tree-glyph { color: var(--flat); }
 .de-tree-name { font-family: var(--mono); flex: none; }
 .de-tree-hint {
   font-family: var(--sans); color: var(--ink-faint);
