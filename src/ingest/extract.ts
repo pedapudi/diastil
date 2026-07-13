@@ -86,7 +86,10 @@ export { findSlideRoots }
 
 /* ---------------- extraction ---------------- */
 
-export async function extractSlides(exec: ExecuteResult): Promise<Extraction> {
+export async function extractSlides(
+  exec: ExecuteResult,
+  onProgress?: (index: number, total: number) => void,
+): Promise<Extraction> {
   const doc = exec.doc
   const win = doc.defaultView
   if (!win) throw new Error('ingest: executed document has no window — cannot harvest computed styles')
@@ -107,6 +110,7 @@ export async function extractSlides(exec: ExecuteResult): Promise<Extraction> {
   const slides: ExtractedSlide[] = []
   let forcedSlides = 0
   for (let i = 0; i < roots.length; i++) {
+    onProgress?.(i, roots.length)
     if (nav.oneAtATime()) {
       const presented = await nav.show(i)
       if (!presented) forcedSlides++

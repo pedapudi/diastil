@@ -275,7 +275,23 @@ class ReviewController {
       e.stopPropagation() // arrows in the composer must not change slides
     })
     copComposer.append(this.copInput, this.copSend)
-    cop.append(copHead, copHint, this.copLog, actions, copComposer)
+    // drag the divider to resize the message box — the native corner handle
+    // sits at the screen edge and drags the wrong way for a bottom-pinned box
+    const grip = h('div', 'dia-cop-grip')
+    grip.title = 'drag to resize the message box'
+    grip.addEventListener('pointerdown', (e) => {
+      e.preventDefault()
+      const startY = e.clientY
+      const startH = this.copInput.offsetHeight
+      const ac = new AbortController()
+      window.addEventListener('pointermove', (ev) => {
+        const px = Math.min(Math.max(startH + (startY - ev.clientY), 40), Math.round(cop.clientHeight * 0.5))
+        this.copInput.style.height = `${px}px`
+      }, { signal: ac.signal })
+      window.addEventListener('pointerup', () => ac.abort(), { signal: ac.signal })
+      window.addEventListener('pointercancel', () => ac.abort(), { signal: ac.signal })
+    })
+    cop.append(copHead, copHint, this.copLog, actions, grip, copComposer)
     body.append(cop)
 
     // hovercard (chrome idiom from base.css, locally owned instance)
