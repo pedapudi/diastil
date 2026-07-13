@@ -219,7 +219,13 @@ function onDblClick(e: MouseEvent): void {
     openLabelEdit(scene, node)
     return
   }
-  if (edgeForHit(target) || target.closest('g[data-dia-edge]')) return
+  // double-click a connector → edit its annotation in place
+  const edgeEl = edgeForHit(target) ?? target.closest<SVGGElement>('g[data-dia-edge]')
+  if (edgeEl) {
+    e.preventDefault()
+    openEdgeLabelEdit(scene, edgeEl)
+    return
+  }
   // double-click empty scene space → bare new node, label edit open
   e.preventDefault()
   const nid = freshNodeId(scene)
@@ -952,6 +958,139 @@ function openLabelEdit(scene: SVGSVGElement, node: SVGGElement): void {
     } else if (value !== prev) {
       state.apply(setSvgTextOp(label!, value))
     }
+  }
+
+  input.addEventListener('keydown', (ke) => {
+    ke.stopPropagation()
+    if (ke.key === 'Enter') commit()
+    else if (ke.key === 'Escape') close()
+  })
+  input.addEventListener('blur', commit)
+}
+
+/** ONE op for a node's label: create, update, or (empty value) remove the
+ * text element — shared by the in-place editor path and the copilot. */
+export function setNodeLabelOp(node: SVGGElement, value: string): Op {
+  const existing = node.querySelector<SVGTextElement>('.dia-node-label')
+  const inner: Op[] = []
+  if (value) {
+    let label = existing
+    if (!label) {
+      label = document.createElementNS(NS, 'text') as SVGTextElement
+      label.setAttribute('class', 'dia-node-label')
+      inner.push(insertEl(node, node.children.length, label))
+    }
+    inner.push(setSvgTextOp(label, value))
+  } else if (existing) {
+    inner.push(removeEl(existing))
+  }
+  const b = batch(`SetNodeLabel ${node.getAttribute('data-dia-node') ?? ''}`, inner)
+  return {
+    label: b.label,
+    author: b.author,
+    apply() { b.apply(); renderNodeShape(node) },
+    invert() {
+      const undo = b.invert()
+      return {
+        label: undo.label, author: undo.author,
+        apply: () => { undo.apply(); renderNodeShape(node) },
+        invert: () => setNodeLabelOp(node, value),
+      }
+    },
+  }
+}
+
+/** ONE op for an edge's annotation: create, update, or (empty value) remove
+ * the label — text element and data-label attribute stay in sync, and the
+ * edge reroutes so the label lands at the path midpoint. Shared by the
+ * in-place editor, the toolbar, and the copilot's set-edge-label action. */
+export function setEdgeLabelOp(scene: SVGSVGElement, edge: SVGGElement, value: string): Op {
+  const existing = edge.querySelector<SVGTextElement>('.dia-edge-label')
+  const inner: Op[] = []
+  if (value) {
+    let label = existing
+    if (!label) {
+      label = document.createElementNS(NS, 'text') as SVGTextElement
+      label.setAttribute('class', 'dia-edge-label')
+      inner.push(insertEl(edge, edge.children.length, label))
+    }
+    inner.push(setSvgTextOp(label, value))
+    inner.push(setAttr(edge, 'data-label', value))
+  } else {
+    if (existing) inner.push(removeEl(existing))
+    inner.push(setAttr(edge, 'data-label', null))
+  }
+  const b = batch(`SetEdgeLabel ${edge.getAttribute('data-dia-edge') ?? ''}`, inner)
+  return {
+    label: b.label,
+    author: b.author,
+    apply() { b.apply(); routeEdge(scene, edge) },
+    invert() {
+      const undo = b.invert()
+      return {
+        label: undo.label, author: undo.author,
+        apply: () => { undo.apply(); routeEdge(scene, edge) },
+        invert: () => setEdgeLabelOp(scene, edge, value),
+      }
+    },
+  }
+}
+
+/** in-place editor for an edge's annotation, mirroring the node label editor */
+export function openEdgeLabelEdit(scene: SVGSVGElement, edge: SVGGElement): void {
+  closeLabelEdit?.()
+  const label = edge.querySelector<SVGTextElement>('.dia-edge-label')
+  const prev = label?.textContent ?? ''
+
+  const input = document.createElement('input')
+  input.className = 'dia-label-input'
+  input.value = prev
+  if (label) input.style.color = getComputedStyle(label).fill
+
+  const place = (): void => {
+    const ctm = scene.getScreenCTM()
+    if (!ctm) return
+    const anchor = label ?? edge.querySelector<SVGGraphicsElement>('.dia-edge-path')
+    if (!anchor) return
+    const b = anchor.getBBox()
+    const c = new DOMPoint(b.x + b.width / 2, b.y + b.height / 2).matrixTransform(ctm)
+    const w = Math.max(90, b.width * pxScale(scene) + 24)
+    const fs = (label ? parseFloat(getComputedStyle(label).fontSize) || 10 : 10) * pxScale(scene)
+    input.style.left = `${c.x - w / 2}px`
+    input.style.top = `${c.y - fs}px`
+    input.style.width = `${w}px`
+    input.style.height = `${fs * 2}px`
+    input.style.fontSize = `${fs}px`
+  }
+  place()
+  if (label) label.style.visibility = 'hidden'
+  document.body.appendChild(input)
+  input.focus()
+  input.select()
+
+  const ac = new AbortController()
+  window.addEventListener('scroll', place, { capture: true, signal: ac.signal })
+  window.addEventListener('resize', place, { signal: ac.signal })
+
+  let done = false
+  const close = (): void => {
+    if (done) return
+    done = true
+    ac.abort()
+    input.remove()
+    if (label) {
+      label.style.visibility = ''
+      if (!label.getAttribute('style')) label.removeAttribute('style')
+    }
+    closeLabelEdit = null
+  }
+  closeLabelEdit = close
+
+  const commit = (): void => {
+    if (done) return
+    const value = input.value.trim()
+    close()
+    if (value !== prev.trim()) state.apply(setEdgeLabelOp(scene, edge, value))
   }
 
   input.addEventListener('keydown', (ke) => {

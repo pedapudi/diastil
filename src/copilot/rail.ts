@@ -199,6 +199,9 @@ export function mountCopilot(host: HTMLElement): void {
 
     let assistant: { el: HTMLElement; raw: string } | null = null
     let thinking: { body: HTMLElement; box: HTMLDetailsElement; raw: string } | null = null
+    // proposals are HELD until the stream ends: the apply/reject decision
+    // belongs after the model's full explanation, not in the middle of it
+    const proposals: ProposedOp[][] = []
     let produced = false
     let failed = false
     try {
@@ -219,8 +222,7 @@ export function mountCopilot(host: HTMLElement): void {
           scrollDown()
         } else if (ev.type === 'ops') {
           produced = true
-          appendOpsCard(ev.ops)
-          assistant = null
+          proposals.push(ev.ops)
         } else if (ev.type === 'error') {
           failed = true
           appendError(ev.message)
@@ -232,6 +234,7 @@ export function mountCopilot(host: HTMLElement): void {
     } finally {
       pending.remove()
       if (thinking) thinking.box.open = false
+      for (const ops of proposals) appendOpsCard(ops)
       busy = false
       setComposerEnabled(true)
       // a chat that failed before producing anything gives the draft back
@@ -333,16 +336,16 @@ export function mountCopilot(host: HTMLElement): void {
       card.appendChild(done)
     }
     apply.addEventListener('click', () => {
-      const compiled = compileOps(ops)
+      const { ops: compiled, skipped } = compileOps(ops)
       if (compiled.length === 0) {
-        settle('nothing to apply — targets not found')
+        settle(`nothing to apply — no target resolved (${skipped.map((s) => s.label).join(' · ')})`)
         return
       }
       const label = ops.length === 1 ? ops[0].label : `Copilot: ${ops.length} changes`
       state.apply(batch(label, compiled, 'copilot'))
-      settle(compiled.length === ops.length
+      settle(skipped.length === 0
         ? 'applied · in undo history'
-        : `applied ${compiled.length}/${ops.length} · in undo history`)
+        : `applied ${compiled.length}/${ops.length} · skipped: ${skipped.map((s) => s.label).join(' · ')}`)
     })
     reject.addEventListener('click', () => settle('rejected'))
   }

@@ -117,7 +117,11 @@ export type ChatEvent =
 
 /** serializable op proposal from the copilot; the editor compiles it to an Op */
 export interface ProposedOp {
-  action: 'set-text' | 'set-token' | 'set-style' | 'insert-html' | 'remove' | 'move-node' | 'insert-edge' | 'retarget-edge'
+  action:
+    | 'set-text' | 'set-inline-html' | 'set-token' | 'set-style' | 'set-attr'
+    | 'insert-html' | 'remove' | 'move-el' | 'add-slide'
+    | 'insert-node' | 'remove-node' | 'set-node-label' | 'set-shape'
+    | 'move-node' | 'insert-edge' | 'remove-edge' | 'retarget-edge' | 'set-edge-label'
   target: string
   value?: string
   extra?: Record<string, string | number>

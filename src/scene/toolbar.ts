@@ -12,7 +12,7 @@ import { moveEl, setStyleProp } from '../model/ops'
 import { getShape } from './route'
 import { miscIcon, routeIcon, shapeIcon, swatch, widthIcon, type MiscIcon } from './icons'
 import {
-  contentEndIndex, deleteSceneSelection, ensureSceneStyleRules,
+  contentEndIndex, deleteSceneSelection, ensureSceneStyleRules, openEdgeLabelEdit,
   setAnchorsOp, setRouteOp, setShapeOp, spawnConnectedNode,
 } from './interact'
 
@@ -185,6 +185,9 @@ function buildEdgeBar(el: HTMLDivElement, scene: SVGSVGElement, edge: SVGGElemen
   top.appendChild(seg(ROUTES.map((r) => [r, routeIcon(r)] as [EdgeRoute, Node]), current, (r) => {
     const now = (edge.getAttribute('data-route') as EdgeRoute) || 'ortho'
     if (r !== now) state.apply(setRouteOp(scene, edge, r))
+  }))
+  top.appendChild(iconBtn('label', 'edit the annotation (or double-click the connector)', () => {
+    openEdgeLabelEdit(scene, edge)
   }))
   top.appendChild(iconBtn('anchors', 'anchors: auto', () => {
     if ((edge.getAttribute('data-anchors') ?? 'auto,auto') !== 'auto,auto') {

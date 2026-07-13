@@ -70,7 +70,7 @@ export function widthIcon(name: string): SVGSVGElement {
   return s
 }
 
-export type MiscIcon = 'plus-node' | 'del' | 'front' | 'back' | 'anchors'
+export type MiscIcon = 'plus-node' | 'del' | 'front' | 'back' | 'anchors' | 'label'
 
 export function miscIcon(name: MiscIcon): SVGSVGElement {
   const s = svg()
@@ -91,6 +91,11 @@ export function miscIcon(name: MiscIcon): SVGSVGElement {
     case 'back':
       s.appendChild(pathEl('M4,2.5 h8 v6 h-8 Z', 0.9))
       s.appendChild(pathEl('M8,5.5 h8 v6 h-8 Z', 1.7))
+      break
+    case 'label':
+      // a connector with its annotation tag above the midpoint
+      s.appendChild(pathEl('M1.5,11 H18.5'))
+      s.appendChild(pathEl('M6,3 h8 v4.5 h-8 Z', 1.1))
       break
     case 'anchors': {
       s.appendChild(pathEl('M5.5,4 h9 v6 h-9 Z', 1))
