@@ -9,6 +9,7 @@ import { state } from '../state'
 import { service } from '../service/client'
 import { batch } from '../model/ops'
 import { compileOps } from './compile'
+import { renderMarkdown } from './markdown'
 
 const HEALTH_MIN_INTERVAL = 30_000
 
@@ -79,16 +80,20 @@ export function mountCopilot(host: HTMLElement): void {
   /* ---------- health / offline ---------- */
 
   let lastHealthAt = 0
-  async function checkHealth(): Promise<void> {
+  /** force=true skips the throttle — used when the user ACTS (sends),
+   * so a service started after the editor is picked up immediately
+   * instead of leaving a dead composer for up to 30 s */
+  async function checkHealth(force = false): Promise<boolean> {
     const now = Date.now()
-    if (now - lastHealthAt < HEALTH_MIN_INTERVAL) return
+    if (!force && now - lastHealthAt < HEALTH_MIN_INTERVAL) return online
     lastHealthAt = now
     const h = await service.health()
     online = h.ok
-    model.textContent = h.ok ? (h.model ?? '') : ''
+    model.textContent = h.ok ? (h.model ?? '') : 'offline'
+    model.classList.toggle('is-off', !h.ok)
     // let the shell react (e.g. enable the copilot maximize tab)
     window.dispatchEvent(new CustomEvent('dia-service-status', { detail: { online } }))
-    setComposerEnabled(h.ok && !busy)
+    setComposerEnabled(!busy)
     if (!h.ok) {
       if (!offlineLine) {
         offlineLine = div('dia-cop-offline')
@@ -101,10 +106,13 @@ export function mountCopilot(host: HTMLElement): void {
       offlineLine.remove()
       offlineLine = null
     }
+    return online
   }
 
+  /** the input stays typeable even offline (drafting is free); only the
+   * send affordance follows the busy state */
   function setComposerEnabled(on: boolean): void {
-    input.disabled = !on
+    input.disabled = false
     send.disabled = !on
   }
 
@@ -173,36 +181,63 @@ export function mountCopilot(host: HTMLElement): void {
 
   async function sendMessage(): Promise<void> {
     const text = input.value.trim()
-    if (!text || busy || !online) return
+    if (!text || busy) return
+    // sending is an explicit act: re-check health NOW rather than trusting
+    // a stale throttled probe — a service started after the editor should
+    // work on the first try, and a refusal should say why
+    if (!online && !(await checkHealth(true))) {
+      appendError('service offline — start it with `dia serve`, then send again (your message is kept)')
+      return
+    }
     input.value = ''
     autogrow()
 
     appendBubble('user', text)
     busy = true
     setComposerEnabled(false)
+    const pending = appendPending()
 
-    let assistant: HTMLElement | null = null
+    let assistant: { el: HTMLElement; raw: string } | null = null
+    let thinking: { body: HTMLElement; box: HTMLDetailsElement; raw: string } | null = null
+    let produced = false
+    let failed = false
     try {
       for await (const ev of service.chat(sessionId, text, buildContext())) {
-        if (ev.type === 'text') {
-          if (!assistant) assistant = appendBubble('assistant', '')
-          assistant.textContent += ev.delta
+        pending.remove()
+        if (ev.type === 'thinking') {
+          produced = true
+          if (!thinking) thinking = appendThinking()
+          thinking.raw += ev.delta
+          thinking.body.replaceChildren(renderMarkdown(thinking.raw))
+          scrollDown()
+        } else if (ev.type === 'text') {
+          produced = true
+          if (thinking) { thinking.box.open = false; thinking = null } // fold the reasoning away once the answer starts
+          if (!assistant) assistant = { el: appendBubble('assistant', ''), raw: '' }
+          assistant.raw += ev.delta
+          assistant.el.replaceChildren(renderMarkdown(assistant.raw))
           scrollDown()
         } else if (ev.type === 'ops') {
+          produced = true
           appendOpsCard(ev.ops)
           assistant = null
         } else if (ev.type === 'error') {
-          appendQuiet(ev.message)
+          failed = true
+          appendError(ev.message)
           assistant = null
         } else if (ev.type === 'done') {
           assistant = null
         }
       }
     } finally {
+      pending.remove()
+      if (thinking) thinking.box.open = false
       busy = false
-      setComposerEnabled(online)
-      lastHealthAt = -Infinity
-      void checkHealth()
+      setComposerEnabled(true)
+      // a chat that failed before producing anything gives the draft back
+      if (failed && !produced && !input.value) { input.value = text; autogrow() }
+      input.focus()
+      void checkHealth(true)
     }
   }
 
@@ -233,15 +268,40 @@ export function mountCopilot(host: HTMLElement): void {
     const b = div(`dia-cop-msg dia-cop-${who}`)
     b.textContent = text
     log.appendChild(b)
-    scrollDown()
+    scrollDown(true)
     return b
   }
 
-  function appendQuiet(text: string): void {
-    const q = div('dia-cop-quiet')
-    q.textContent = text
+  /** errors are quiet lines with a bad-colored edge — never a pill */
+  function appendError(text: string): void {
+    const q = div('dia-cop-quiet dia-cop-error')
+    q.replaceChildren(renderMarkdown(text))
     log.appendChild(q)
-    scrollDown()
+    scrollDown(true)
+  }
+
+  /** three pulsing dots while the model hasn't produced its first token */
+  function appendPending(): HTMLElement {
+    const p = div('dia-cop-msg dia-cop-assistant dia-cop-pending')
+    for (let i = 0; i < 3; i++) p.appendChild(div('dia-cop-dot'))
+    log.appendChild(p)
+    scrollDown(true)
+    return p
+  }
+
+  /** streamed reasoning: a collapsible quiet block, open while it streams,
+   * folded automatically the moment the answer starts */
+  function appendThinking(): { body: HTMLElement; box: HTMLDetailsElement; raw: string } {
+    const box = document.createElement('details')
+    box.className = 'dia-cop-think'
+    box.open = true
+    const sum = document.createElement('summary')
+    sum.textContent = 'thinking'
+    const body = div('dia-cop-think-body')
+    box.append(sum, body)
+    log.appendChild(box)
+    scrollDown(true)
+    return { body, box, raw: '' }
   }
 
   function appendOpsCard(ops: ProposedOp[]): void {
@@ -287,8 +347,11 @@ export function mountCopilot(host: HTMLElement): void {
     reject.addEventListener('click', () => settle('rejected'))
   }
 
-  function scrollDown(): void {
-    log.scrollTop = log.scrollHeight
+  /** follow the stream only when the reader is already at the bottom —
+   * scrolling up to reread must not be yanked away by the next delta */
+  function scrollDown(force = false): void {
+    const nearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60
+    if (force || nearBottom) log.scrollTop = log.scrollHeight
   }
 }
 

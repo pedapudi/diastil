@@ -216,12 +216,19 @@ async def _chat_events(req: ChatRequest) -> AsyncIterator[dict[str, str]]:
                 text = getattr(part, "text", None)
                 if not text:
                     continue
+                # reasoning parts (genai marks them part.thought) stream as
+                # their own event type — the editor renders them as a quiet,
+                # collapsible block instead of mixing them into the answer
+                kind = "thinking" if getattr(part, "thought", False) else "text"
                 if getattr(event, "partial", False):
-                    streamed_text = True
-                    yield _frame({"type": "text", "delta": text})
+                    # only ANSWER partials mark the stream as delivered — a
+                    # thinking-only stream must not swallow the final text
+                    if kind == "text":
+                        streamed_text = True
+                    yield _frame({"type": kind, "delta": text})
                 elif not streamed_text:
                     # non-streaming model path: the final event carries it all
-                    yield _frame({"type": "text", "delta": text})
+                    yield _frame({"type": kind, "delta": text})
     except Exception as exc:  # noqa: BLE001 — surface, never crash the stream
         yield _frame({"type": "error", "message": f"chat failed: {exc}"})
     yield _frame({"type": "done"})

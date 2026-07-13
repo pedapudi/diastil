@@ -110,6 +110,7 @@ export interface ChatContext {
 
 export type ChatEvent =
   | { type: 'text'; delta: string }
+  | { type: 'thinking'; delta: string }
   | { type: 'ops'; ops: ProposedOp[] }
   | { type: 'done' }
   | { type: 'error'; message: string }
