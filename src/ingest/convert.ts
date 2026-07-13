@@ -308,7 +308,6 @@ function isHeading(el: Element): boolean {
 
 function convertContainerChildren(el: Element, ctx: Ctx): Node[] {
   const kids = [...el.children].filter((c) => !DROP.has(c.tagName.toUpperCase()))
-  const out: Node[] = []
   const cols = detectColumns(kids, ctx)
   if (cols) {
     const wrap = div('dia-columns')
@@ -318,13 +317,58 @@ function convertContainerChildren(el: Element, ctx: Ctx): Node[] {
       stack.append(...convertNode(col, ctx))
       wrap.appendChild(stack)
     }
-    out.push(wrap)
-  } else {
-    for (const k of kids) out.push(...convertNode(k, ctx))
+    return [wrap]
   }
-  const s = ctx.sample(el)
-  if (s && s.ownText) out.unshift(bodyText(s.ownText))
+
+  // ORDER-PRESERVING walk of childNodes. Mixed content is common in real
+  // decks — a block child, then direct text interleaved with <em>/<b> runs.
+  // Recursing per ELEMENT child rips the runs out of their sentences and
+  // orphans the direct text; instead, consecutive inline content (text
+  // nodes + inline elements) stays together as ONE flow block, in place.
+  const out: Node[] = []
+  let seg: ChildNode[] = []
+  const flush = (): void => {
+    if (seg.length === 0) return
+    const nodes = seg
+    seg = []
+    if (!nodes.some((n) => norm(n.textContent ?? ''))) return // whitespace only
+    out.push(inlineSegment(el, nodes, ctx))
+  }
+  for (const n of el.childNodes) {
+    if (n.nodeType === Node.TEXT_NODE) { seg.push(n as ChildNode); continue }
+    if (!(n instanceof Element)) continue
+    const tag = n.tagName.toUpperCase()
+    if (DROP.has(tag)) continue
+    if (INLINE.has(tag)) { seg.push(n); continue }
+    flush()
+    out.push(...convertNode(n, ctx))
+  }
+  flush()
   return out
+}
+
+/** one run of consecutive inline content — a sentence with its emphasis
+ * runs — kept whole as a single flow block; runs keep their computed
+ * accent colors and weights, exactly like inlineLeaf */
+function inlineSegment(container: Element, nodes: ChildNode[], ctx: Ctx): HTMLElement {
+  const node = div('dia-body')
+  const srcRuns: Element[] = []
+  for (const n of nodes) {
+    node.appendChild(n.cloneNode(true))
+    if (n instanceof Element) srcRuns.push(n, ...n.querySelectorAll('*'))
+  }
+  const outRuns = [...node.querySelectorAll('*')]
+  const parentColor = ctx.sample(container)?.color
+  for (let i = 0; i < srcRuns.length && i < outRuns.length; i++) {
+    const s = ctx.sample(srcRuns[i])
+    if (!s) continue
+    const o = outRuns[i] as HTMLElement
+    if (s.color && s.color !== parentColor) o.style.color = ctx.tokenColor(s.color) ?? s.color
+    if (s.fontWeight >= 600 && !/^(STRONG|B)$/.test(o.tagName)) o.style.fontWeight = '600'
+  }
+  for (const junk of node.querySelectorAll('script, style, noscript')) junk.remove()
+  stripStamps(node)
+  return node
 }
 
 function convertNode(el: Element, ctx: Ctx): Node[] {
@@ -601,12 +645,6 @@ function inlineLeaf(el: Element, ctx: Ctx): HTMLElement {
   return node
 }
 
-function bodyText(text: string): HTMLElement {
-  const node = div('dia-body')
-  node.textContent = text
-  return node
-}
-
 function cleanInnerHtml(el: Element): string {
   const clone = el.cloneNode(true) as Element
   for (const s of clone.querySelectorAll('script, style, noscript')) s.remove()
@@ -650,6 +688,19 @@ function finalize(
     total += t.length
     if (convText.includes(t)) mapped += t.length
     else warnings.push(`slide ${index + 1}: source text missing after conversion — "${t.slice(0, 60)}${t.length > 60 ? '…' : ''}"`)
+  }
+  // ORDER matters as much as presence: a dismembered sentence keeps every
+  // word and still reads as nonsense. Source texts must appear in source
+  // order (advisory — deliberate visual reordering can trip it too).
+  let cursor = 0
+  let disordered = 0
+  for (const t of slide.texts) {
+    const at = convText.indexOf(t, cursor)
+    if (at >= 0) cursor = at + t.length
+    else if (convText.includes(t)) disordered++
+  }
+  if (disordered > 0) {
+    warnings.push(`slide ${index + 1}: ${disordered} text fragment${disordered > 1 ? 's' : ''} out of source order — sentence structure may be broken`)
   }
   const confidence = Math.round((total > 0 ? mapped / total : 1) * (islands > 0 ? 0.9 : 1) * 1000) / 1000
 
