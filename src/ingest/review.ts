@@ -76,16 +76,11 @@ class ReviewController {
   private copBusy = false
   /** per-slide model conversation: what was asked, what came back */
   private modelLog: Array<Array<{ who: 'user' | 'assistant' | 'quiet'; text: string }>> = []
-  private feedbackEl!: HTMLTextAreaElement
-  /** per-slide reviewer notes — ride along with retry / repair / lift */
-  private feedback: string[] = []
   /** a lift that re-measured lower, awaiting the reviewer's keep/revert call */
   private pendingLift: { index: number; before: SlideConversion; prev: number | null; after: number | null } | null = null
   private acceptSlideBtn!: HTMLButtonElement
   private retryBtn!: HTMLButtonElement
-  private repairBtn!: HTMLButtonElement
   private liftBtn!: HTMLButtonElement
-  private retryWrap!: HTMLElement
   private hover!: HTMLElement
   private segButtons: HTMLButtonElement[] = []
   private origRoots: HTMLElement[] = []
@@ -236,60 +231,43 @@ class ReviewController {
       this.conversions[this.current] = islandEntireSlide(this.input.extraction.slides[this.current], this.current)
       this.rebuild()
     })
-    this.retryWrap = h('span', 'dia-retry-wrap')
-    this.retryBtn = btn('retry with service', 'dn-btn')
-    this.retryBtn.disabled = true
-    this.retryBtn.addEventListener('click', () => void this.retry())
-    this.repairBtn = btn('repair with service', 'dn-btn')
-    this.repairBtn.disabled = true
-    this.repairBtn.addEventListener('click', () => void this.repairSlide(this.current))
-    this.liftBtn = btn('lift diagrams', 'dn-btn')
-    this.liftBtn.disabled = true
-    this.liftBtn.addEventListener('click', () => void this.liftDiagrams())
-    this.retryWrap.append(this.retryBtn, this.repairBtn, this.liftBtn)
-    this.retryWrap.addEventListener('mouseenter', () => {
-      if (!this.serviceOk) this.showHover(this.retryWrap, 'requires the dia service')
-    })
-    this.retryWrap.addEventListener('mouseleave', () => this.hideHover())
     this.verdictMsg = h('span', 'dia-verdict-msg')
     this.liftDecision = h('span', 'dia-lift-decision')
-    verdict.append(this.acceptSlideBtn, islandBtn, this.retryWrap, this.liftDecision, this.verdictMsg)
-
-    // per-slide reviewer notes to the model
-    const fb = h('div', 'dia-feedback')
-    fb.appendChild(h('label', 'dia-feedback-label', 'notes to the model'))
-    this.feedbackEl = document.createElement('textarea')
-    this.feedbackEl.className = 'dia-feedback-input'
-    this.feedbackEl.rows = 2
-    this.feedbackEl.placeholder =
-      'what should the model fix or preserve on this slide? sent with retry · repair · lift'
-    this.feedbackEl.addEventListener('input', () => {
-      this.feedback[this.current] = this.feedbackEl.value
-    })
-    fb.appendChild(this.feedbackEl)
+    verdict.append(this.acceptSlideBtn, islandBtn, this.liftDecision, this.verdictMsg)
 
     // region notes
     this.notesEl = h('div', 'dia-notes')
 
-    main.append(tools, this.cmp, verdict, fb, this.notesEl)
+    main.append(tools, this.cmp, verdict, this.notesEl)
     body.append(this.strip, main)
 
-    // per-slide model conversation: every retry/repair/lift exchange for
-    // the current slide, plus a composer that drives a repair round with
-    // your message as the reviewer feedback
+    // THE model panel: everything model-facing lives here — the per-slide
+    // conversation, retranslate/lift actions, and the composer. Sending a
+    // message runs a repair round with it; every message you've sent for
+    // the slide also rides along with retranslate and lift as feedback.
     const cop = h('aside', 'dia-cop dia-review-cop')
     const copHead = h('div', 'dia-cop-header')
     const copTitle = h('div', 'dia-cop-title', 'copilot')
     this.copModel = h('div', 'dia-cop-model', '…')
     copHead.append(copTitle, this.copModel)
     const copHint = h('div', 'dia-cop-context',
-      'the model conversation for this slide — retry · repair · lift log here')
+      'per-slide conversation — send a note to repair; retranslate/lift reuse your notes')
     this.copLog = h('div', 'dia-cop-log')
+    const actions = h('div', 'dia-cop-actions')
+    this.retryBtn = btn('retranslate slide', 'dn-btn')
+    this.retryBtn.disabled = true
+    this.retryBtn.title = 'full model re-translation of this slide (your notes ride along)'
+    this.retryBtn.addEventListener('click', () => void this.retry())
+    this.liftBtn = btn('lift diagrams', 'dn-btn')
+    this.liftBtn.disabled = true
+    this.liftBtn.title = 'lift static svgs into editable scenes (pixel-gated)'
+    this.liftBtn.addEventListener('click', () => void this.liftDiagrams())
+    actions.append(this.retryBtn, this.liftBtn)
     const copComposer = h('div', 'dia-cop-composer')
     this.copInput = document.createElement('textarea')
     this.copInput.className = 'dia-cop-input'
-    this.copInput.rows = 1
-    this.copInput.placeholder = 'tell the model what to fix on this slide…'
+    this.copInput.rows = 3
+    this.copInput.placeholder = 'what should the model fix or preserve on this slide? enter sends (repair round)'
     this.copSend = btn('send', 'dn-btn dn-btn-accent')
     this.copSend.addEventListener('click', () => void this.chatRepair())
     this.copInput.addEventListener('keydown', (e) => {
@@ -297,7 +275,7 @@ class ReviewController {
       e.stopPropagation() // arrows in the composer must not change slides
     })
     copComposer.append(this.copInput, this.copSend)
-    cop.append(copHead, copHint, this.copLog, copComposer)
+    cop.append(copHead, copHint, this.copLog, actions, copComposer)
     body.append(cop)
 
     // hovercard (chrome idiom from base.css, locally owned instance)
@@ -397,9 +375,9 @@ class ReviewController {
     const c = this.conversions[this.current]
     const pendingHere = this.pendingLift?.index === this.current
     this.acceptSlideBtn.textContent = c.accepted ? 'slide accepted ✓' : 'accept slide'
-    this.retryBtn.disabled = !this.serviceOk || pendingHere
-    this.repairBtn.disabled = !this.serviceOk || c.fidelity === undefined || pendingHere
-    this.liftBtn.disabled = !this.serviceOk || !this.hasLiftableSvg(this.current) || pendingHere
+    this.retryBtn.disabled = !this.serviceOk || this.copBusy || pendingHere
+    this.liftBtn.disabled = !this.serviceOk || this.copBusy || !this.hasLiftableSvg(this.current) || pendingHere
+    this.copSend.disabled = !this.serviceOk || this.copBusy || pendingHere
     if (this.serviceOk) this.hideHover()
 
     // a lift that re-measured lower waits for the reviewer, not a veto:
@@ -449,7 +427,6 @@ class ReviewController {
   private go(i: number): void {
     const n = this.conversions.length
     this.current = Math.max(0, Math.min(i, n - 1))
-    this.feedbackEl.value = this.feedback[this.current] ?? ''
     this.renderStrip()
     this.renderNotes()
     this.renderVerdict()
@@ -545,7 +522,7 @@ class ReviewController {
       this.logModel(index, 'user', 'retry: full re-translation of this slide')
       const html = await service.translateSlide(
         slide.sourceHtml, tokensToCss(this.input.extraction.tokens),
-        png ? [png] : [], this.feedback[index] ?? '')
+        png ? [png] : [], this.feedbackFor(index))
       this.conversions[index] = revalidateSlide(slide, index, html)
       this.logModel(index, 'assistant', 'retranslated — re-measuring fidelity')
       this.rebuild()
@@ -645,9 +622,8 @@ class ReviewController {
   private async repairSlide(i: number, auto = false, note = ''): Promise<boolean> {
     const before = this.conversions[i]
     const slide = this.input.extraction.slides[i]
-    this.repairBtn.disabled = true
     let improved = false
-    const feedback = [this.feedback[i] ?? '', note].filter(Boolean).join('\n')
+    const feedback = [this.feedbackFor(i), note].filter(Boolean).join('\n')
     try {
       const html = await service.repairFidelity(
         slide.sourceHtml, before.html, tokensToCss(this.input.extraction.tokens),
@@ -698,7 +674,7 @@ class ReviewController {
     for (const [k, svg] of svgs.entries()) {
       try {
         const png = liveSvgs[k] ? await rasterizeToDataUrl(liveSvgs[k]) : null
-        const out = await service.liftDiagram(svg.outerHTML, png ? [png] : [], this.feedback[i] ?? '')
+        const out = await service.liftDiagram(svg.outerHTML, png ? [png] : [], this.feedbackFor(i))
         const scene = new DOMParser().parseFromString(out, 'text/html').querySelector('svg.dia-scene')
         if (!scene || !this.sceneIsValid(scene.outerHTML)) continue
         svg.replaceWith(doc.importNode(scene, true))
@@ -739,6 +715,16 @@ class ReviewController {
     if (i === this.current) this.renderModelLog()
   }
 
+  /** everything the reviewer has SAID about slide i — the standing feedback
+   * that rides along with retranslate, repair, and lift */
+  private feedbackFor(i: number): string {
+    return (this.modelLog[i] ?? [])
+      .filter((e) => e.who === 'user')
+      .map((e) => e.text)
+      .filter((t) => !t.startsWith('retry:'))
+      .join('\n')
+  }
+
   private renderModelLog(): void {
     this.copLog.replaceChildren()
     const entries = this.modelLog[this.current] ?? []
@@ -772,7 +758,7 @@ class ReviewController {
     const i = this.current
     this.copInput.value = ''
     this.copBusy = true
-    this.copSend.disabled = true
+    this.renderVerdict()
     this.logModel(i, 'user', msg)
     const before = this.conversions[i].fidelity
     try {
@@ -786,7 +772,7 @@ class ReviewController {
       this.logModel(i, 'quiet', 'repair failed — slide unchanged')
     } finally {
       this.copBusy = false
-      this.copSend.disabled = false
+      this.renderVerdict()
       this.copInput.focus()
     }
   }

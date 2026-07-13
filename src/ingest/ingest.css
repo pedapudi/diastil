@@ -193,8 +193,6 @@ iframe.dia-ingest-exec {
   gap: 8px;
 }
 
-.dia-retry-wrap { display: inline-flex; }
-
 .dia-verdict-msg {
   font-family: var(--sans);
   font-size: calc(10.5px * var(--dt-font-scale, 1));
@@ -205,10 +203,18 @@ iframe.dia-ingest-exec {
 
 .dia-review-cop {
   flex: none;
-  width: 320px;
+  width: 340px;
   min-width: 0;
   border-left: 1px solid var(--rule);
 }
+.dia-review-cop .dia-cop-input { min-height: 60px; resize: vertical; }
+.dia-cop-actions {
+  display: flex;
+  gap: 6px;
+  padding: 7px 10px;
+  border-top: 1px solid var(--rule);
+}
+.dia-cop-actions .dn-btn { flex: 1; }
 
 .dia-review-pickers {
   display: inline-flex;
@@ -229,37 +235,6 @@ iframe.dia-ingest-exec {
   font-size: calc(10.5px * var(--dt-font-scale, 1));
   color: var(--caution);
 }
-
-/* ---------- reviewer notes to the model ---------- */
-
-.dia-feedback {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-}
-.dia-feedback-label {
-  flex: none;
-  padding-top: 6px;
-  font-family: var(--sans);
-  font-size: calc(10px * var(--dt-font-scale, 1));
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-}
-.dia-feedback-input {
-  flex: 1;
-  resize: vertical;
-  min-height: 30px;
-  font-family: var(--sans);
-  font-size: calc(11px * var(--dt-font-scale, 1));
-  line-height: 1.45;
-  background: var(--panel);
-  color: var(--ink);
-  border: 1px solid var(--rule);
-  border-radius: 5px;
-  padding: 5px 8px;
-}
-.dia-feedback-input::placeholder { color: var(--ink-faint); }
 
 /* ---------- region notes ---------- */
 
