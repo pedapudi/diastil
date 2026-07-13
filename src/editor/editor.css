@@ -97,7 +97,9 @@
 .de-table { flex: 1; min-height: 0; overflow-y: auto; }
 .de-table[hidden] { display: none; }
 .de-table-inner { position: relative; padding: 30px 40px 90px; }
-.de-deckwrap { max-width: var(--de-deck-w, 980px); margin: 0 auto; }
+/* the zoom width never exceeds the actually-available space — an oversized
+ * preset must shrink to fit, not overflow the table sideways */
+.de-deckwrap { max-width: min(var(--de-deck-w, 980px), 100%); margin: 0 auto; }
 .de-gutter { position: absolute; inset: 0; pointer-events: none; }
 .de-gut {
   position: absolute; width: 108px; text-align: right;

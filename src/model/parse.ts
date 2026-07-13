@@ -111,6 +111,12 @@ export function defaultThemeCss(): string {
 }
 section.dia-slide {
   aspect-ratio: 16 / 9;
+  /* the padding lives INSIDE the ratio — content-box sizing would add it
+   * on top and make every padded slide taller than 16:9 */
+  box-sizing: border-box;
+  /* a slide is one screen: content that runs long clips, exactly as the
+   * imported originals clipped it, instead of spilling over the next slide */
+  overflow: hidden;
   container-type: inline-size; /* cqw-sized type scales with the slide */
   position: relative; /* slides anchor absolutely-positioned decorations */
   background: var(--dia-paper);
