@@ -81,11 +81,12 @@ export interface Extraction {
 /* Detection lives in the extractor plugin registry (extractors/); re-exported
  * here so extraction consumers keep one import surface. */
 import { findSlideRoots } from './extractors/index'
+import { DeckNavigator } from './navigate'
 export { findSlideRoots }
 
 /* ---------------- extraction ---------------- */
 
-export function extractSlides(exec: ExecuteResult): Extraction {
+export async function extractSlides(exec: ExecuteResult): Promise<Extraction> {
   const doc = exec.doc
   const win = doc.defaultView
   if (!win) throw new Error('ingest: executed document has no window — cannot harvest computed styles')
@@ -96,8 +97,27 @@ export function extractSlides(exec: ExecuteResult): Extraction {
     warnings.push('no slide structure detected — the whole body was imported as one slide')
   }
 
+  // one-at-a-time decks: sample every slide in its ACTIVATED state — a
+  // slide presented by its own runtime (split layouts applied, reveals
+  // played, figures drawn) is the ground truth; a style-forced slide is a
+  // pre-activation approximation that corrupts geometry, samples, and the
+  // embedded reference originals downstream
+  const nav = new DeckNavigator(doc, roots)
   const counter = { n: 0 }
-  const slides = roots.map((root, i) => harvestSlide(root, i, doc, win, counter))
+  const slides: ExtractedSlide[] = []
+  let forcedSlides = 0
+  for (let i = 0; i < roots.length; i++) {
+    if (nav.oneAtATime()) {
+      const presented = await nav.show(i)
+      if (!presented) forcedSlides++
+    }
+    slides.push(harvestSlide(roots[i], i, doc, win, counter))
+  }
+  if (forcedSlides > 0) {
+    warnings.push(
+      `${forcedSlides} slide${forcedSlides > 1 ? 's' : ''} sampled without runtime activation ` +
+      '(deck navigation not detected) — layout and reveal state may be approximate')
+  }
   const tokens = harvestTokens(slides)
   const scalePx = Array.from({ length: 7 }, (_, i) =>
     parseFloat(tokens[`--dia-scale-${i + 1}`] ?? '') || 0)
@@ -284,9 +304,29 @@ function effectiveBg(el: Element, win: Window): string {
   return 'rgb(255, 255, 255)'
 }
 
+/** layout props pinned onto the clone ROOT so a runtime-less page (the
+ * embedded reference original, the service's source excerpt) lays out the
+ * slide exactly as its ACTIVATED state did — decks routinely gate
+ * display:grid/flex on a runtime-toggled current-slide class */
+const ROOT_LAYOUT_PROPS = [
+  'display', 'height',
+  'grid-template-columns', 'grid-template-rows', 'grid-template-areas', 'grid-auto-flow',
+  'column-gap', 'row-gap', 'align-items', 'justify-content', 'flex-direction', 'flex-wrap',
+]
+
 /** stamp-free, script-free clone of the subtree (body roots become a div) */
 function cleanSubtree(root: HTMLElement): string {
   const clone = snapshotClone(root)
+  const win = root.ownerDocument.defaultView
+  if (win && root.getBoundingClientRect().width > 1) {
+    const cs = win.getComputedStyle(root)
+    if (/grid|flex/.test(cs.display)) {
+      for (const p of ROOT_LAYOUT_PROPS) {
+        const v = cs.getPropertyValue(p)
+        if (v && v !== 'none' && v !== 'normal' && v !== 'auto') clone.style.setProperty(p, v)
+      }
+    }
+  }
   for (const s of clone.querySelectorAll('script, noscript')) s.remove()
   for (const el of [clone, ...clone.querySelectorAll(`[${STAMP}]`)]) el.removeAttribute(STAMP)
   if (clone.tagName === 'BODY') {
@@ -303,9 +343,13 @@ function cleanSubtree(root: HTMLElement): string {
  * onto each svg element so verbatim svgs are self-contained. */
 const SVG_DEFAULTS: Array<[string, string]> = [
   ['fill', 'rgb(0, 0, 0)'], ['stroke', 'none'], ['stroke-width', '1px'],
-  ['opacity', '1'], ['fill-opacity', '1'], ['stroke-opacity', '1'],
   ['stroke-dasharray', 'none'], ['stroke-linecap', 'butt'], ['stroke-linejoin', 'miter'],
 ]
+/* opacity is inlined UNCONDITIONALLY: decks gate reveal animations on a
+ * runtime-toggled class whose BASE rule is `opacity: 0` — a snapshot that
+ * only records non-default values leaves the shown state implicit, and the
+ * runtime-less reference page then renders those elements invisible. */
+const SVG_ALWAYS: string[] = ['opacity', 'fill-opacity', 'stroke-opacity']
 
 function inlineSvgPaint(liveRoot: HTMLElement, clone: HTMLElement): void {
   const win = liveRoot.ownerDocument.defaultView
@@ -319,6 +363,10 @@ function inlineSvgPaint(liveRoot: HTMLElement, clone: HTMLElement): void {
       const v = cs.getPropertyValue(prop)
       if (v && v !== def) el.style.setProperty(prop, v)
     }
+    for (const prop of SVG_ALWAYS) {
+      const v = cs.getPropertyValue(prop)
+      if (v) el.style.setProperty(prop, v)
+    }
     if (live[i].tagName === 'text' || live[i].tagName === 'tspan') {
       el.style.setProperty('font-family', cs.fontFamily)
       el.style.setProperty('font-size', cs.fontSize)
@@ -328,6 +376,46 @@ function inlineSvgPaint(liveRoot: HTMLElement, clone: HTMLElement): void {
   }
 }
 
+/* svgs routinely reference defs that live ELSEWHERE in the source document —
+ * a shared hidden svg carrying arrow markers, gradients, symbols. A slide
+ * subtree extracted on its own loses them: lines keep drawing but their
+ * arrowheads (markers), gradient fills, and <use> targets vanish. Resolve
+ * every url(#id) / href="#id" the subtree uses and inline clones of the
+ * missing definitions into the subtree's first svg. */
+const DEF_REF_ATTRS = ['marker-start', 'marker-mid', 'marker-end', 'fill', 'stroke', 'filter', 'clip-path', 'mask']
+
+function inlineExternalDefs(liveRoot: HTMLElement, clone: HTMLElement): void {
+  const doc = liveRoot.ownerDocument
+  const ids = new Set<string>()
+  const takeUrlRefs = (value: string | null): void => {
+    for (const m of (value ?? '').matchAll(/url\(["']?#([^"')]+)["']?\)/g)) ids.add(m[1])
+  }
+  for (const el of [clone, ...clone.querySelectorAll('*')]) {
+    for (const a of DEF_REF_ATTRS) takeUrlRefs(el.getAttribute(a))
+    takeUrlRefs(el.getAttribute('style'))
+    if (el.tagName.toLowerCase() === 'use') {
+      const href = el.getAttribute('href') ?? el.getAttribute('xlink:href') ?? ''
+      if (href.startsWith('#')) ids.add(href.slice(1))
+    }
+  }
+  const missing = [...ids].filter((id) => {
+    try { return !clone.querySelector(`#${CSS.escape(id)}`) } catch { return false }
+  })
+  if (missing.length === 0) return
+  const defs = missing
+    .map((id) => doc.getElementById(id))
+    .filter((el): el is HTMLElement => el !== null)
+  if (defs.length === 0) return
+  const host = clone.querySelector('svg')
+  if (!host) return
+  let defsEl = host.querySelector(':scope > defs')
+  if (!defsEl) {
+    defsEl = doc.createElementNS('http://www.w3.org/2000/svg', 'defs')
+    host.prepend(defsEl)
+  }
+  for (const d of defs) defsEl.appendChild(d.cloneNode(true))
+}
+
 /** Deep-clone with canvas BITMAPS preserved: a cloned <canvas> is blank
  * (the drawing surface never copies), so JS-rendered figures — including
  * animations, frozen at their settle-time frame — would vanish. Each canvas
@@ -335,6 +423,7 @@ function inlineSvgPaint(liveRoot: HTMLElement, clone: HTMLElement): void {
 function snapshotClone(root: HTMLElement): HTMLElement {
   const clone = root.cloneNode(true) as HTMLElement
   inlineSvgPaint(root, clone)
+  inlineExternalDefs(root, clone)
   const liveCanvases = root.querySelectorAll('canvas')
   const cloneCanvases = clone.querySelectorAll('canvas')
   for (let i = 0; i < liveCanvases.length && i < cloneCanvases.length; i++) {

@@ -18,7 +18,7 @@ export async function startImport(html: string, name: string): Promise<void> {
   const execution = await executeSource(html)
   let outcome: ReviewOutcome | undefined
   try {
-    const extraction = extractSlides(execution)
+    const extraction = await extractSlides(execution)
     const conversions = convertSlides(extraction)
     outcome = await openReview({ name, execution, extraction, conversions })
   } finally {
@@ -49,7 +49,7 @@ function appendProfileFindings(report: ImportReport, deckHtml: string): void {
  * verification and by callers that want an ImportResult without review. */
 export async function runPipeline(html: string, name: string): Promise<ImportResult & { cleanup: () => void }> {
   const execution = await executeSource(html)
-  const extraction = extractSlides(execution)
+  const extraction = await extractSlides(execution)
   const conversions = convertSlides(extraction)
   const title = name.replace(/\.html?$/, '')
   const deckHtml = assembleDeck(conversions.map((c) => c.html), extraction.tokens, title)

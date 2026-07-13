@@ -13,6 +13,7 @@ import type { ExecuteResult } from './execute'
 import { EXEC_W, EXEC_H } from './execute'
 import type { Extraction } from './extract'
 import { findSlideRoots, forceVisible } from './extract'
+import { DeckNavigator } from './navigate'
 import {
   scoreSlideFidelity, rasterizeRegion, rasterizeToDataUrl, diffHeatmapDataUrl, REPAIR_THRESHOLD,
 } from './fidelity'
@@ -97,58 +98,30 @@ class ReviewController {
     return this.origRoots.length > 1 && this.origRoots.some((r) => r.offsetWidth === 0)
   }
 
-  /** navigation method learned by probing (locked in on first success);
-   * null = every method failed, undefined = not probed yet */
-  private navMethod: NavMethod | null | undefined
+  /** shared probe-ladder navigator, rebuilt when the frame's roots change */
+  private nav: DeckNavigator | null = null
+  private navRoots: HTMLElement[] | null = null
   /** the original pane is style-forced — activation state unknown */
   private navForced = false
 
   /** Present slide i in the original pane THROUGH the deck's own runtime —
    * activation often does more than display (split layouts, reveals,
    * lazily-drawn figures), so forcing styles under-renders the original.
-   * Arrow keys are a convention, not a contract: the deck's navigation is
-   * PROBED (framework APIs → key conventions → its own controls → hash) and
-   * each attempt is verified by whether the target slide actually became
-   * visible. The first method that works is remembered for the deck; when
-   * nothing works, styles are forced and the review says so. */
+   * The probing/learning lives in DeckNavigator (shared with extraction);
+   * when nothing works, styles are forced and the review says so. */
   private async showOriginal(i: number): Promise<void> {
     const doc = this.origFrame.contentDocument
-    const win = doc?.defaultView
-    const root = this.origRoots[i]
-    if (!doc || !win || !root || !this.oneAtATime()) return
-    // undo any earlier forcing so the runtime is in charge again
-    for (const r of this.origRoots) {
-      r.style.removeProperty('display')
-      r.style.removeProperty('visibility')
+    if (!doc || !this.origRoots[i] || !this.oneAtATime()) return
+    if (!this.nav || this.navRoots !== this.origRoots) {
+      this.nav = new DeckNavigator(doc, this.origRoots)
+      this.navRoots = this.origRoots
     }
-    if (root.offsetWidth > 0) return // already showing
-
-    const attempt = async (m: NavMethod): Promise<boolean> => {
-      const cur = this.origRoots.findIndex((r) => r.offsetWidth > 0)
-      if (!m.applicable(win, doc, cur, i)) return false
-      try { m.goto(win, doc, cur, i) } catch { return false }
-      await pause(380)
-      return root.offsetWidth > 0
+    await this.nav.show(i)
+    if (this.nav.forced !== this.navForced) {
+      // a score computed against a forced render must not read as ground truth
+      this.navForced = this.nav.forced
+      this.renderNotes()
     }
-
-    if (this.navMethod && (await attempt(this.navMethod))) return
-    if (this.navMethod !== null) {
-      // probe the ladder once (or re-probe when the learned method breaks)
-      for (const m of NAV_METHODS) {
-        if (m === this.navMethod) continue
-        if (await attempt(m)) {
-          this.navMethod = m
-          if (this.navForced) { this.navForced = false; this.renderNotes() }
-          return
-        }
-      }
-      this.navMethod = null
-    }
-    // last resort — geometry without activation styling, flagged honestly:
-    // a score computed against a forced render must not read as ground truth
-    this.origRoots.forEach((r, j) => { r.style.display = j === i ? 'block' : 'none' })
-    root.style.visibility = 'visible'
-    if (!this.navForced) { this.navForced = true; this.renderNotes() }
   }
 
   private onKey = (e: KeyboardEvent): void => {
@@ -892,91 +865,8 @@ class ReviewController {
   }
 }
 
-/* ---------- deck navigation probe ladder ---------- */
-
-/** One way a deck might navigate. goto() ATTEMPTS the move; the caller
- * verifies by visibility — no method is trusted, only observed. */
-interface NavMethod {
-  name: string
-  applicable(win: Window, doc: Document, cur: number, target: number): boolean
-  goto(win: Window, doc: Document, cur: number, target: number): void
-}
-
-/** keydown with keyCode/which shimmed — synthetic KeyboardEvents report 0
- * and legacy deck handlers check the numeric codes */
-function sendKey(win: Window, doc: Document, key: string, code: number): void {
-  for (const target of [doc, win] as const) {
-    const ev = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
-    Object.defineProperty(ev, 'keyCode', { get: () => code })
-    Object.defineProperty(ev, 'which', { get: () => code })
-    target.dispatchEvent(ev)
-  }
-}
-
-function keyMethod(name: string, fwd: [string, number], back: [string, number]): NavMethod {
-  return {
-    name,
-    applicable: (_w, _d, cur, target) => cur >= 0 && cur !== target,
-    goto(win, doc, cur, target) {
-      const [key, code] = target > cur ? fwd : back
-      for (let k = 0; k < Math.abs(target - cur); k++) sendKey(win, doc, key, code)
-    },
-  }
-}
-
-const NEXT_CONTROLS = '.navigate-right, .next, .nav-next, .btn-next, [data-next], [aria-label*="next" i]'
-const PREV_CONTROLS = '.navigate-left, .prev, .nav-prev, .btn-prev, [data-prev], [aria-label*="prev" i]'
-
-/** Probe order: exact framework APIs, then input conventions, then the
- * deck's own controls, then hash routing. Hash is last because it dirties
- * the srcdoc frame's URL (about:srcdoc#n breaks capture/devtools access) —
- * goto() strips the fragment again via replaceState when the frame allows. */
-const NAV_METHODS: NavMethod[] = [
-  {
-    name: 'reveal-api',
-    applicable: (win) => typeof (win as { Reveal?: { slide?: unknown } }).Reveal?.slide === 'function',
-    goto: (win, _d, _c, target) => (win as unknown as { Reveal: { slide(i: number): void } }).Reveal.slide(target),
-  },
-  {
-    name: 'impress-api',
-    applicable: (win) => typeof (win as { impress?: unknown }).impress === 'function',
-    goto: (win, _d, _c, target) =>
-      (win as unknown as { impress(): { goto(i: number): void } }).impress().goto(target),
-  },
-  keyMethod('arrow-keys', ['ArrowRight', 39], ['ArrowLeft', 37]),
-  keyMethod('page-keys', ['PageDown', 34], ['PageUp', 33]),
-  {
-    name: 'controls',
-    applicable: (_w, doc, cur, target) =>
-      cur >= 0 && cur !== target &&
-      doc.querySelector(target > cur ? NEXT_CONTROLS : PREV_CONTROLS) !== null,
-    goto(win, doc, cur, target) {
-      const el = doc.querySelector<HTMLElement>(target > cur ? NEXT_CONTROLS : PREV_CONTROLS)
-      for (let k = 0; k < Math.abs(target - cur); k++) {
-        el?.dispatchEvent(new (win as unknown as { MouseEvent: typeof MouseEvent }).MouseEvent('click', { bubbles: true, cancelable: true }))
-      }
-    },
-  },
-  {
-    name: 'hash',
-    applicable: () => true,
-    goto(win, _d, _c, target) {
-      win.location.hash = `#${target + 1}`
-      // restore a fragment-free URL once the router has seen the change
-      win.setTimeout(() => {
-        try {
-          win.history.replaceState(null, '', win.location.pathname + win.location.search)
-        } catch { /* srcdoc frames may refuse; the deck still navigated */ }
-      }, 250)
-    },
-  },
-]
-
 /* ---------- dom helpers ---------- */
 
-function pause(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms))
-}
 
 function h(tag: string, cls?: string, text?: string): HTMLElement {
   const el = document.createElement(tag)
