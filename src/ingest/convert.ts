@@ -38,6 +38,10 @@ interface Ctx {
   islands: number
   /** the slide's rendered rect — CSS-shape geometry is expressed relative to it */
   slideRect: { x: number; y: number; w: number; h: number }
+  /** the slide's design (layout) width — cqw fractions are computed against it */
+  layoutW: number
+  /** the slide's content width (layout minus padding) — cqw resolves here */
+  contentW: number
   sample(el: Element): ElementSample | undefined
   /** literal color -> var(--dia-*) when it matches a harvested token, so
    * imported content retints coherently with the deck token picker */
@@ -125,6 +129,8 @@ export function convertSlide(
     notes: [],
     islands: 0,
     slideRect: slide.rect,
+    layoutW: slide.layoutW || slide.rect.w,
+    contentW: Math.max((slide.layoutW || slide.rect.w) - 2 * slide.padPx, (slide.layoutW || slide.rect.w) * 0.5),
     sample(el: Element): ElementSample | undefined {
       const idx = el.getAttribute(STAMP)
       return idx === null ? undefined : slide.samples[Number(idx)]
@@ -141,6 +147,7 @@ export function convertSlide(
   section.className = 'dia-slide'
   section.append(...convertContainerChildren(srcRoot, ctx))
   rebindSizes(section, ctx.sample, scalePx, designW)
+  applyVerticalRhythm(section, srcRoot, ctx, slide)
 
   return finalize(section, slide, index, ctx.notes, ctx.islands)
 }
@@ -257,6 +264,41 @@ export function readEmbeddedOriginals(doc: Document): string[] | null {
       : null
   } catch {
     return null
+  }
+}
+
+/** Vertical placement is design, not accident: most decks CENTER a slide's
+ * content block while a top-stacked conversion pins it under the padding —
+ * the single largest geometric error the honest fidelity metric exposed.
+ * Measure the source content's top/bottom gaps; when they say "centered",
+ * the converted slide centers the same way. */
+function applyVerticalRhythm(
+  section: HTMLElement, srcRoot: HTMLElement, ctx: Ctx,
+  slide: ExtractedSlide,
+): void {
+  const rect = slide.rect
+  if (rect.h < 10) return
+  let minY = Infinity
+  let maxY = -Infinity
+  for (const el of srcRoot.querySelectorAll(`[${STAMP}]`)) {
+    const s = ctx.sample(el)
+    if (!s || s.w < 2 || s.h < 2) continue
+    if (s.position === 'fixed') continue
+    const isMedia = /^(IMG|SVG|CANVAS|VIDEO|FIGURE)$/.test(el.tagName.toUpperCase())
+    if (s.ownChars === 0 && !isMedia) continue // containers don't define the content box
+    minY = Math.min(minY, s.y)
+    maxY = Math.max(maxY, s.y + s.h)
+  }
+  if (!Number.isFinite(minY) || maxY <= minY) return
+  const topGap = minY - rect.y
+  const bottomGap = rect.y + rect.h - maxY
+  const centered =
+    topGap > rect.h * 0.06 && bottomGap > rect.h * 0.06 &&
+    Math.abs(topGap - bottomGap) < Math.max(topGap, bottomGap) * 0.6
+  if (centered) {
+    section.style.display = 'flex'
+    section.style.flexDirection = 'column'
+    section.style.justifyContent = 'center'
   }
 }
 
@@ -453,8 +495,22 @@ function figure(img: Element, ctx: Ctx): HTMLElement {
   const s = ctx.sample(img)
   if (s && s.objectFit && s.objectFit !== 'fill') im.style.objectFit = s.objectFit
   fitMedia(im)
+  sizeToSource(im, ctx.sample(img), ctx)
   fig.appendChild(im)
   return fig
+}
+
+/** Figures keep their SOURCE size fraction: an image that filled 42% of the
+ * original slide renders at 42cqw — cqw resolves against the slide
+ * container even inside nested columns, and max-width:100% still guards
+ * narrower cells. Without this, media collapses to intrinsic size or
+ * balloons to its container: the second geometric error the honest metric
+ * exposed. */
+function sizeToSource(el: HTMLElement | SVGElement, s: ElementSample | undefined, ctx: Ctx): void {
+  if (!s || s.w < 2 || ctx.contentW <= 0) return
+  const frac = (s.w / ctx.contentW) * 100
+  if (frac < 4 || frac > 120) return
+  el.style.width = `${Math.round(Math.min(frac, 100) * 100) / 100}cqw`
 }
 
 /** Kept media carries fixed design-space pixel sizes (attrs sized for the
@@ -476,6 +532,7 @@ function svgNode(el: Element, ctx: Ctx): Element {
     if (w > 0 && h > 0) clone.setAttribute('viewBox', `0 0 ${w} ${h}`)
   }
   fitMedia(clone)
+  sizeToSource(clone, ctx.sample(el), ctx)
   if (lifted) {
     ctx.notes.push({ node: clone, kind: 'lifted-svg', note: 'scene svg with dia nodes — kept as an editable scene' })
     return clone
