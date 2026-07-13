@@ -10,21 +10,19 @@ import type { EdgeRoute, NodeShape } from '../types'
 import { state } from '../state'
 import { moveEl, setStyleProp } from '../model/ops'
 import { getShape } from './route'
+import { miscIcon, routeIcon, shapeIcon, swatch, widthIcon, type MiscIcon } from './icons'
 import {
   contentEndIndex, deleteSceneSelection, ensureSceneStyleRules,
   setAnchorsOp, setRouteOp, setShapeOp, spawnConnectedNode,
 } from './interact'
 
-const SHAPES: [NodeShape, string][] = [
-  ['rect', 'rect'], ['rounded', 'rnd'], ['pill', 'pill'], ['ellipse', 'ell'], ['diamond', 'diam'],
-  ['cylinder', 'cyl'], ['hex', 'hex'], ['parallelogram', 'par'], ['triangle', 'tri'],
-  ['cloud', 'cloud'], ['note', 'note'],
+const SHAPES: NodeShape[] = [
+  'rect', 'rounded', 'pill', 'ellipse', 'diamond',
+  'cylinder', 'hex', 'parallelogram', 'triangle', 'cloud', 'note',
   // 'path' is import-only (freeform outline via data-path); the toolbar
   // offers no blank freeform node, so it is absent here on purpose
 ]
-const ROUTES: [EdgeRoute, string][] = [
-  ['straight', 'line'], ['ortho', 'orth'], ['curve', 'curve'],
-]
+const ROUTES: EdgeRoute[] = ['straight', 'ortho', 'curve']
 
 /* style options: token references only ('auto' clears back to the theme) */
 const FILLS: [string, string][] = [
@@ -145,13 +143,13 @@ function buildFreeBar(el: HTMLDivElement, scene: SVGSVGElement, target: SVGGraph
   tag.className = 'dia-tb-k'
   tag.textContent = `<${target.tagName.toLowerCase()}>`
   top.appendChild(tag)
-  top.appendChild(btn('front', () => {
+  top.appendChild(iconBtn('front', 'bring to front', () => {
     state.apply(moveEl(target, scene, contentEndIndex(scene) - 1, 'ToFront'))
   }))
-  top.appendChild(btn('back', () => {
+  top.appendChild(iconBtn('back', 'send to back', () => {
     state.apply(moveEl(target, scene, firstContentIndex(scene), 'ToBack'))
   }))
-  top.appendChild(btn('del', () => deleteSceneSelection()))
+  top.appendChild(iconBtn('del', 'delete', () => deleteSceneSelection()))
 
   styleRow(el, 'fill', target, 'fill', FREE_FILLS)
   const lineRow = styleRow(el, 'line', target, 'stroke', FREE_STROKES)
@@ -169,11 +167,11 @@ function firstContentIndex(scene: SVGSVGElement): number {
 function buildNodeBar(el: HTMLDivElement, scene: SVGSVGElement, node: SVGGElement): void {
   const top = row(el)
   const current = getShape(node)
-  top.appendChild(seg(SHAPES, current, (s) => {
+  top.appendChild(seg(SHAPES.map((s) => [s, shapeIcon(s)] as [NodeShape, Node]), current, (s) => {
     if (s !== getShape(node)) state.apply(setShapeOp(scene, node, s))
   }))
-  top.appendChild(btn('+ node', () => spawnConnectedNode(scene, node)))
-  top.appendChild(btn('del', () => deleteSceneSelection()))
+  top.appendChild(iconBtn('plus-node', 'add connected node', () => spawnConnectedNode(scene, node)))
+  top.appendChild(iconBtn('del', 'delete', () => deleteSceneSelection()))
 
   styleRow(el, 'fill', node, '--dia-node-fill', FILLS)
   const lineRow = styleRow(el, 'line', node, '--dia-node-stroke', INKS)
@@ -184,16 +182,16 @@ function buildNodeBar(el: HTMLDivElement, scene: SVGSVGElement, node: SVGGElemen
 function buildEdgeBar(el: HTMLDivElement, scene: SVGSVGElement, edge: SVGGElement): void {
   const top = row(el)
   const current = (edge.getAttribute('data-route') as EdgeRoute) || 'ortho'
-  top.appendChild(seg(ROUTES, current, (r) => {
+  top.appendChild(seg(ROUTES.map((r) => [r, routeIcon(r)] as [EdgeRoute, Node]), current, (r) => {
     const now = (edge.getAttribute('data-route') as EdgeRoute) || 'ortho'
     if (r !== now) state.apply(setRouteOp(scene, edge, r))
   }))
-  top.appendChild(btn('anchors auto', () => {
+  top.appendChild(iconBtn('anchors', 'anchors: auto', () => {
     if ((edge.getAttribute('data-anchors') ?? 'auto,auto') !== 'auto,auto') {
       state.apply(setAnchorsOp(scene, edge, 'auto,auto'))
     }
   }))
-  top.appendChild(btn('del', () => deleteSceneSelection()))
+  top.appendChild(iconBtn('del', 'delete', () => deleteSceneSelection()))
 
   const inkRow = styleRow(el, 'ink', edge, '--dia-edge-stroke', INKS)
   inkRow.appendChild(document.createTextNode(' '))
@@ -222,11 +220,16 @@ function widthSeg(r: HTMLDivElement, target: SVGGraphicsElement, prop: string): 
   r.appendChild(optionSeg(target, prop, WIDTHS))
 }
 
-/** a segment over [name, cssValue] options — sets a style property as an op */
+/** a segment over [name, cssValue] options — sets a style property as an op.
+ * Color-valued props render as resolved swatches, width props as weight
+ * strokes; names live on as tooltips. */
 function optionSeg(target: SVGGraphicsElement, prop: string, options: [string, string][]): HTMLSpanElement {
   const current = target.style.getPropertyValue(prop).trim()
   const currentName = (options.find(([, v]) => v === current) ?? options[0])[0]
-  return seg(options.map(([n]) => [n, n] as [string, string]), currentName, (name) => {
+  const isWidth = /w$|width/.test(prop)
+  const items = options.map(([n, v]) =>
+    [n, isWidth ? widthIcon(n) : swatch(v, target)] as [string, Node])
+  return seg(items, currentName, (name) => {
     const value = options.find(([n]) => n === name)?.[1] ?? ''
     if (target.style.getPropertyValue(prop).trim() === value) return
     ensureSceneStyleRules()
@@ -241,13 +244,22 @@ function row(el: HTMLDivElement): HTMLDivElement {
   return r
 }
 
-function seg<T extends string>(items: [T, string][], current: T, pick: (v: T) => void): HTMLSpanElement {
+/** segmented control; item content may be text or an icon/swatch node —
+ * non-text items get the value as tooltip + accessible name */
+function seg<T extends string>(items: [T, string | Node][], current: T, pick: (v: T) => void): HTMLSpanElement {
   const s = document.createElement('span')
   s.className = 'dn-seg'
-  for (const [value, text] of items) {
+  for (const [value, content] of items) {
     const b = document.createElement('button')
     b.type = 'button'
-    b.textContent = text
+    if (typeof content === 'string') {
+      b.textContent = content
+    } else {
+      b.appendChild(content)
+      b.title = value
+      b.setAttribute('aria-label', value)
+      b.classList.add('dn-seg-icon')
+    }
     if (value === current) b.classList.add('dn-on')
     b.addEventListener('click', () => pick(value))
     s.appendChild(b)
@@ -255,11 +267,13 @@ function seg<T extends string>(items: [T, string][], current: T, pick: (v: T) =>
   return s
 }
 
-function btn(text: string, onClick: () => void): HTMLButtonElement {
+function iconBtn(name: MiscIcon, label: string, onClick: () => void): HTMLButtonElement {
   const b = document.createElement('button')
   b.type = 'button'
-  b.className = 'dn-btn'
-  b.textContent = text
+  b.className = 'dn-btn dn-btn-icon'
+  b.appendChild(miscIcon(name))
+  b.title = label
+  b.setAttribute('aria-label', label)
   b.addEventListener('click', onClick)
   return b
 }
