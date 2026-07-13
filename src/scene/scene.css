@@ -38,6 +38,29 @@
   font-size: calc(10.5px * var(--dt-font-scale, 1));
 }
 
+/* iconography: stroke-only inline svg, currentColor — follows button ink,
+ * inverts cleanly in the accent-filled .dn-on state */
+.dia-tb-icon { display: block; width: 20px; height: 14px; }
+.dn-seg button.dn-seg-icon { padding: 3px 5px; }
+.dn-btn.dn-btn-icon { padding: 3px 7px; }
+.dn-btn.dn-btn-icon .dia-tb-icon { width: 18px; height: 13px; }
+
+/* color chips for fill/ink options; auto = dashed (theme decides),
+ * none = slashed */
+.dia-tb-swatch {
+  display: block;
+  width: 15px; height: 12px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+}
+.dia-tb-swatch.is-auto { border-style: dashed; background: transparent; }
+.dia-tb-swatch.is-none {
+  background:
+    linear-gradient(to top right,
+      transparent 44%, var(--ink-faint) 46%, var(--ink-faint) 54%, transparent 56%);
+}
+.dn-seg button.dn-on .dia-tb-swatch { border-color: var(--paper); }
+
 /* write-target toast, bottom-center while dragging */
 .dia-toast {
   position: fixed;
