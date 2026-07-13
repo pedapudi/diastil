@@ -236,6 +236,29 @@
 .de-legend-row span { color: var(--ink-soft); }
 .de-legend-foot { margin-top: 14px; color: var(--ink-faint); text-align: right; }
 
+/* ---------- slide structure tree (inspect pane) ---------- */
+.de-tree { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.de-tree-list {
+  display: flex; flex-direction: column;
+  border-top: 1px solid var(--rule-soft); padding-top: 4px;
+  max-height: 300px; overflow-y: auto;
+}
+.de-tree-row {
+  display: flex; align-items: baseline; gap: 7px;
+  border: 0; background: transparent; cursor: pointer;
+  text-align: left; padding: 2.5px 6px; border-radius: 4px;
+  font-size: calc(10.5px * var(--dt-font-scale, 1));
+  color: var(--ink-soft); min-width: 0;
+}
+.de-tree-row:hover { background: var(--rule-soft); color: var(--ink); }
+.de-tree-row.de-on { background: var(--rule-soft); }
+.de-tree-row.de-on .de-tree-name { color: var(--accent); }
+.de-tree-name { font-family: var(--mono); flex: none; }
+.de-tree-hint {
+  font-family: var(--sans); color: var(--ink-faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+
 .de-style-row { display: flex; align-items: center; gap: 8px; }
 .de-style-row .de-style-k {
   width: 34px; flex: none;

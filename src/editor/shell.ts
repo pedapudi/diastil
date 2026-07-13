@@ -23,6 +23,7 @@ import { installHistory } from './history'
 import { installElementDragging } from './elemdrag'
 import { legendOpen, toggleLegend, closeLegend } from './legend'
 import { installTextEditing } from './textedit'
+import { buildSlideTree } from './tree'
 import { bootFromCli, openDeck, saveDeck, presentDeck } from './slides'
 
 /* styles that must live inside the deck shadow root; serialization strips
@@ -278,6 +279,7 @@ export function mountEditor(host: HTMLElement): void {
       }
       case 'current-slide': {
         updateCrumbs()
+        renderInspect() // the structure tree follows the current slide
         break
       }
       case 'slides-changed': {
@@ -400,12 +402,25 @@ export function mountEditor(host: HTMLElement): void {
 
   /* ----- inspect pane ----- */
 
+  /** the slide the inspect pane is about: the selection's, else the current */
+  function inspectedSlide(): HTMLElement | null {
+    const sel = state.selection
+    if (sel.kind !== 'none') return sel.slide
+    return state.slides()[state.currentSlide] ?? null
+  }
+
+  function appendTree(): void {
+    const slide = inspectedSlide()
+    if (slide) inspectBody.append(buildSlideTree(slide))
+  }
+
   function renderInspect(): void {
     const d = state.deck
     const sel = state.selection
     inspectBody.replaceChildren()
     if (!d || sel.kind === 'none') {
       inspectBody.append(h('div', 'de-hint', 'click an element in a slide to inspect it'))
+      appendTree()
       return
     }
     if (sel.kind === 'scene-node' || sel.kind === 'scene-edge' || sel.kind === 'scene-free') {
@@ -415,6 +430,7 @@ export function mountEditor(host: HTMLElement): void {
           : `svg <${sel.el.tagName.toLowerCase()}>`),
         h('div', 'de-hint', 'scene selections are edited on the canvas'),
       )
+      appendTree()
       return
     }
     const el = sel.kind === 'element' ? sel.el : sel.slide
@@ -469,6 +485,7 @@ export function mountEditor(host: HTMLElement): void {
     // the stable rail — floating bars are reserved for concrete selections
     if (sel.kind === 'element' && (el as unknown as Element) instanceof SVGSVGElement) {
       inspectBody.append(...sceneToolRows(el as unknown as SVGSVGElement))
+      appendTree()
       return
     }
 
@@ -521,6 +538,7 @@ export function mountEditor(host: HTMLElement): void {
       }
       inspectBody.append(wt)
     }
+    appendTree()
   }
 
   /** creation + drawing tools for a scene, rendered in the inspector (stable
