@@ -51,20 +51,8 @@ export class ServiceClient {
       yield { type: 'error', message: `service error ${res.status}` }
       return
     }
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      let idx: number
-      while ((idx = buf.indexOf('\n\n')) >= 0) {
-        const frame = buf.slice(0, idx); buf = buf.slice(idx + 2)
-        const data = frame.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim()).join('')
-        if (!data) continue
-        try { yield JSON.parse(data) as ChatEvent } catch { /* skip malformed frame */ }
-      }
+    for await (const payload of sseData(res.body)) {
+      try { yield JSON.parse(payload) as ChatEvent } catch { /* skip malformed frame */ }
     }
     yield { type: 'done' }
   }
@@ -110,6 +98,57 @@ export class ServiceClient {
     const j = await r.json()
     return j[field] as string
   }
+}
+
+/* ---------- SSE parsing ----------
+ * The platform has no POST-capable EventSource, so the stream is parsed by
+ * hand — SPEC-FAITHFULLY, which an earlier ad-hoc reader was not (it framed
+ * on bare \n\n only, so a server emitting CRLF frames streamed a correct
+ * 200 reply that rendered as total silence). */
+
+/** event-stream line terminators: CRLF, LF, or bare CR — all three are legal */
+const SSE_LINE = /\r\n|\r|\n/
+
+/** Parse an SSE byte stream into data payloads, one string per event:
+ * `data:` lines accumulate (joined with \n, one leading space stripped),
+ * a blank line dispatches, all other fields are ignored. */
+export async function* sseData(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  let data: string[] = []
+
+  function* lines(final: boolean): Generator<string> {
+    while (true) {
+      const m = SSE_LINE.exec(buf)
+      if (!m) break
+      // a lone trailing \r may be the first half of a CRLF split across
+      // chunks — wait for the next chunk before treating it as a terminator
+      if (!final && m[0] === '\r' && m.index === buf.length - 1) break
+      yield buf.slice(0, m.index)
+      buf = buf.slice(m.index + m[0].length)
+    }
+  }
+
+  const dispatch = function* (line: string): Generator<string> {
+    if (line === '') {
+      if (data.length > 0) yield data.join('\n')
+      data = []
+    } else if (line.startsWith('data:')) {
+      data.push(line.slice(5).replace(/^ /, ''))
+    } // comments (:) and other fields (event:, id:, retry:) are ignored
+  }
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    for (const line of lines(false)) yield* dispatch(line)
+  }
+  buf += decoder.decode() // flush any trailing multi-byte sequence
+  for (const line of lines(true)) yield* dispatch(line)
+  if (buf) yield* dispatch(buf) // an unterminated final line still counts
+  yield* dispatch('') // …and an unterminated final event still dispatches
 }
 
 export const service = new ServiceClient()
