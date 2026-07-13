@@ -467,6 +467,18 @@ class ReviewController {
     requestAnimationFrame(() => this.layout())
   }
 
+  /** track slide i in every surface WITHOUT navigating the original deck —
+   * for loops whose next step performs the navigation itself */
+  private follow(i: number): void {
+    if (this.current === i) return
+    this.current = i
+    this.renderStrip()
+    this.renderNotes()
+    this.renderVerdict()
+    this.renderModelLog()
+    this.layout()
+  }
+
   private go(i: number): void {
     const n = this.conversions.length
     this.current = Math.max(0, Math.min(i, n - 1))
@@ -586,18 +598,28 @@ class ReviewController {
   private async maybeRunFidelity(): Promise<void> {
     if (this.fidelityRan || !this.origReady || !this.convReady || this.closed) return
     this.fidelityRan = true
-    for (let i = 0; i < this.conversions.length && !this.closed; i++) {
+    const n = this.conversions.length
+    for (let i = 0; i < n && !this.closed; i++) {
+      // BOTH panes follow the slide being worked on — the original deck
+      // navigates itself for sampling, and the converted pane's crop must
+      // track it, or the right side appears frozen on slide 1. follow()
+      // syncs the UI without triggering a second navigation (measureSlide
+      // navigates; a racing go() would double-send arrow keys).
+      this.follow(i)
+      this.verdictMsg.textContent = `measuring slide ${i + 1} of ${n}…`
       await this.measureSlide(i)
     }
     if (!(await this.healthCheck) || this.closed) {
+      this.verdictMsg.textContent = ''
       await this.showOriginal(this.current) // back to the slide under review
       this.layout()
       return
     }
-    for (let i = 0; i < this.conversions.length && !this.closed; i++) {
+    for (let i = 0; i < n && !this.closed; i++) {
       for (let round = 1; round <= MAX_AUTO_REPAIR_ROUNDS && !this.closed; round++) {
         const c = this.conversions[i]
         if (c.fidelity == null || c.fidelity >= REPAIR_THRESHOLD) break
+        this.follow(i)
         this.verdictMsg.textContent = `repairing slide ${i + 1} — round ${round}…`
         const beforeScore = c.fidelity
         const improved = await this.repairSlide(i, true)
