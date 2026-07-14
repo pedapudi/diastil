@@ -85,6 +85,17 @@ const ROLE_STEP: Array<[string, number]> = [
   ['dia-title', 5], ['dia-kicker', 1], ['dia-caption', 1], ['dia-body', 2],
 ]
 
+/** Set an inline style, surviving CSSOM parsers that reject modern units
+ * (happy-dom drops cqw values silently) — the attribute is the artifact
+ * that ships, so write it directly when the API eats the value. */
+function setStyleSafe(el: HTMLElement, prop: string, value: string): void {
+  el.style.setProperty(prop, value)
+  if (el.style.getPropertyValue(prop) !== '') return
+  const prev = el.getAttribute('style') ?? ''
+  const sep = prev && !prev.trim().endsWith(';') ? '; ' : ''
+  el.setAttribute('style', `${prev}${sep}${prop}: ${value};`)
+}
+
 /** The role rules quantize every title/body to ONE step, but sources vary
  * per element (a hero wordmark vs a section title). Rebind elements whose
  * SOURCE size sits nearer a different harvested step — inline token
@@ -106,7 +117,7 @@ function rebindSizes(section: HTMLElement, sample: Ctx['sample'], scalePx: numbe
     }
     if (Math.abs(scalePx[nearest] - s.fontSizePx) / s.fontSizePx > 0.15 && designW > 0) {
       // no step comes close (e.g. a hero wordmark) — exact proportional size
-      el.style.fontSize = `${Math.round((s.fontSizePx / designW) * 10000) / 100}cqw`
+      setStyleSafe(el, 'font-size', `${Math.round((s.fontSizePx / designW) * 10000) / 100}cqw`)
     } else if (nearest + 1 !== defaultStep) {
       el.style.fontSize = `var(--dia-scale-${nearest + 1})`
     }
@@ -148,6 +159,7 @@ export function convertSlide(
   section.append(...convertContainerChildren(srcRoot, ctx))
   rebindSizes(section, ctx.sample, scalePx, designW)
   applyTypography(section, ctx)
+  applyInk(section, ctx, tokens)
   applyBuildSteps(section, ctx, slide)
   applyVerticalRhythm(section, srcRoot, ctx, slide)
   if (slide.hasLoopingAnimation) {
@@ -331,6 +343,81 @@ function applyBuildSteps(section: HTMLElement, ctx: Ctx, slide: ExtractedSlide):
  * the single largest geometric error the honest fidelity metric exposed.
  * Measure the source content's top/bottom gaps; when they say "centered",
  * the converted slide centers the same way. */
+/** role → what its theme rule paints: ink token, face token, weight
+ * (parse.ts role rules — .dia-title is 700, everything else 400) */
+const ROLE_TYPE: Array<[cls: string, ink: string, face: string, weight: number]> = [
+  ['dia-kicker', '--dia-accent', '--dia-face-label', 400],
+  ['dia-caption', '--dia-ink-soft', '--dia-face-label', 400],
+  ['dia-title', '--dia-ink', '--dia-face-display', 700],
+  ['dia-body', '--dia-ink-soft', '--dia-face-body', 400],
+]
+
+/** channel triple for exact/near comparison; null for anything non-opaque */
+function rgbOf(c: string): [number, number, number] | null {
+  const n = normColor(c)
+  if (!n) return null
+  const [r, g, b] = n.split(',').map(Number)
+  return [r, g, b]
+}
+
+function nearColor(a: string, b: string): boolean {
+  const ca = rgbOf(a)
+  const cb = rgbOf(b)
+  if (!ca || !cb) return false
+  return Math.max(Math.abs(ca[0] - cb[0]), Math.abs(ca[1] - cb[1]), Math.abs(ca[2] - cb[2])) <= 8
+}
+
+/** the family that actually renders: first entry, unquoted, lowercased */
+function primaryFamily(stack: string): string {
+  return (stack.split(',')[0] ?? '').trim().replace(/^["']|["']$/g, '').toLowerCase()
+}
+
+/** Carry each block's MEASURED typesetting — color, family, weight, slant —
+ * wherever the role's theme rule would mispaint it. The old behavior kept
+ * only run-level accent colors: the block itself silently took the role
+ * default, so body text matching the deck's primary ink rendered soft,
+ * non-token colors vanished, and a light-weight or italic or off-face block
+ * flattened to the role's look. Values matching a harvested token bind as
+ * var(--dia-*) so the theme picker retints/refaces them; the rest carry
+ * literally. (Size is rebindSizes; tracking/case/leading is applyTypography.) */
+function applyInk(section: HTMLElement, ctx: Ctx, tokens: Record<string, string>): void {
+  // without harvested tokens there is no honest baseline to deviate from
+  if (!tokens['--dia-ink']) return
+  const faceTokens = ['--dia-face-display', '--dia-face-body', '--dia-face-label']
+    .map((name) => [name, primaryFamily(tokens[name] ?? '')] as const)
+    .filter(([, fam]) => fam !== '')
+  for (const el of section.querySelectorAll<HTMLElement>(`[${STAMP}]`)) {
+    const s = ctx.sample(el)
+    if (!s || s.ownChars === 0) continue
+    const role = ROLE_TYPE.find(([cls]) => el.closest(`.${cls}`))
+    if (!role) continue
+    const [, inkToken, faceToken, roleWeight] = role
+
+    if (s.color && !el.style.color && !nearColor(s.color, tokens[inkToken] ?? '')) {
+      el.style.color = ctx.tokenColor(s.color) ?? s.color
+    }
+
+    if (s.fontFamily && !el.style.fontFamily) {
+      const fam = primaryFamily(s.fontFamily)
+      const roleFam = primaryFamily(tokens[faceToken] ?? '')
+      if (fam && fam !== roleFam) {
+        const match = faceTokens.find(([, f]) => f === fam)
+        el.style.fontFamily = match ? `var(${match[0]})` : s.fontFamily
+      }
+    }
+
+    // weight deviations ≥150 are design (a thin display title, an all-bold
+    // stanza); smaller deltas are face-rendering noise
+    if (s.fontWeight && Math.abs(s.fontWeight - roleWeight) >= 150 && !el.style.fontWeight) {
+      el.style.fontWeight = String(s.fontWeight)
+    }
+
+    if (s.fontStyle && /^(italic|oblique)/.test(s.fontStyle) && !el.style.fontStyle) {
+      el.style.fontStyle = 'italic'
+    }
+  }
+}
+
 function applyVerticalRhythm(
   section: HTMLElement, srcRoot: HTMLElement, ctx: Ctx,
   slide: ExtractedSlide,
@@ -351,6 +438,61 @@ function applyVerticalRhythm(
   if (!Number.isFinite(minY) || maxY <= minY) return
   const topGap = minY - rect.y
   const bottomGap = rect.y + rect.h - maxY
+
+  const boxes = [...section.children]
+    .map((el) => ({ el: el as HTMLElement, s: ctx.sample(el) }))
+    .filter((b): b is { el: HTMLElement; s: ElementSample } =>
+      !!b.s && b.s.w >= 2 && b.s.h >= 2 && b.s.position !== 'fixed')
+  // vertical margins in cqw resolve against the slide's width — the same
+  // proportional unit rebindSizes uses, stable across deck sizes
+  const layoutW = slide.layoutW || rect.w
+  const cqw = (px: number): string => `${Math.round((px / layoutW) * 10000) / 100}cqw`
+
+  // bottom-anchored trailing group (footer): a contiguous run of trailing
+  // top-level blocks that the source drew low on the slide, separated from
+  // the body content by a real gap. This is anchoring INTENT, not just a
+  // measurement — margin-top:auto keeps the footer on the bottom edge even
+  // when converted content wraps to a different height.
+  let footerAt = -1
+  let f = boxes.length
+  while (f > 0 && boxes[f - 1].s.y > rect.y + rect.h * 0.66) f--
+  if (f > 0 && f < boxes.length) {
+    const footer = boxes.slice(f)
+    const body = boxes.slice(0, f)
+    const footerTop = Math.min(...footer.map((b) => b.s.y))
+    const footerBottom = Math.max(...footer.map((b) => b.s.y + b.s.h))
+    const bodyBottom = Math.max(...body.map((b) => b.s.y + b.s.h))
+    const endsLow = rect.y + rect.h - footerBottom < rect.h * 0.18
+    if (footerTop - bodyBottom > rect.h * 0.08 && endsLow) footerAt = f
+  }
+
+  // explicit inter-block spacing: every source gap between consecutive
+  // top-level blocks that flow spacing would not reproduce (≥4% of the
+  // slide height) carries over as a proportional margin. This is the
+  // GENERAL form of the footer fix — deliberate whitespace anywhere on the
+  // slide (grouped lists, spaced sections, isolated statements) survives.
+  const GAP_MIN = rect.h * 0.04
+  for (let i = 1; i < boxes.length; i++) {
+    if (i === footerAt) continue // that boundary is the anchoring auto margin
+    const prev = boxes[i - 1].s
+    const cur = boxes[i].s
+    const gap = cur.y - (prev.y + prev.h)
+    // out-of-order or overlapping samples (overlays, columns) say nothing
+    // about flow spacing — skip rather than invent a margin
+    if (gap >= GAP_MIN && gap <= rect.h * 0.9) setStyleSafe(boxes[i].el, 'margin-top', cqw(gap))
+  }
+
+  if (footerAt > 0) {
+    section.style.display = 'flex'
+    section.style.flexDirection = 'column'
+    boxes[footerAt].el.style.marginTop = 'auto'
+    // body drawn clear of the top too (beyond the slide's own padding) →
+    // two auto margins split the slack, centering the body between the
+    // top edge and the pinned footer
+    if (topGap > Math.max(rect.h * 0.06, slide.padPx * 1.4)) boxes[0].el.style.marginTop = 'auto'
+    return
+  }
+
   const centered =
     topGap > rect.h * 0.06 && bottomGap > rect.h * 0.06 &&
     Math.abs(topGap - bottomGap) < Math.max(topGap, bottomGap) * 0.6
@@ -358,6 +500,13 @@ function applyVerticalRhythm(
     section.style.display = 'flex'
     section.style.flexDirection = 'column'
     section.style.justifyContent = 'center'
+    return
+  }
+  // content that genuinely starts below the slide's own padding keeps its
+  // top offset (a lone statement low on the slide, a quote at two-thirds)
+  const padTop = topGap - slide.padPx
+  if (boxes.length > 0 && padTop > Math.max(rect.h * 0.06, slide.padPx * 0.4)) {
+    setStyleSafe(boxes[0].el, 'margin-top', cqw(padTop))
   }
 }
 

@@ -2,7 +2,7 @@
  * needs a real canvas and is exercised in-browser. */
 
 import { describe, expect, it } from 'vitest'
-import { diffBitmaps, diffRegions } from './fidelity'
+import { diffBitmaps, diffRegions, estimateVerticalDrift } from './fidelity'
 
 function bitmap(w: number, h: number, rgba: [number, number, number, number]): ImageData {
   const data = new Uint8ClampedArray(w * h * 4)
@@ -107,5 +107,51 @@ describe('diffRegions', () => {
     // the largest cluster wins the first slot
     expect(regions[0].x).toBe(0)
     expect(regions[0].y).toBe(0)
+  })
+})
+
+describe('estimateVerticalDrift', () => {
+  const paint = (img: ImageData, x0: number, y0: number, w: number, h: number): void => {
+    for (let y = y0; y < y0 + h; y++) {
+      for (let x = x0; x < x0 + w; x++) {
+        const i = (y * img.width + x) * 4
+        img.data[i] = 10; img.data[i + 1] = 10; img.data[i + 2] = 10
+      }
+    }
+  }
+
+  it('a uniformly shifted block reports its displacement as a height fraction', () => {
+    const a = bitmap(100, 100, [250, 250, 250, 255])
+    const b = bitmap(100, 100, [250, 250, 250, 255])
+    paint(a, 20, 30, 60, 20) // original: content at rows 30..50
+    paint(b, 20, 50, 60, 20) // candidate: same block 20 rows LOWER
+    const drift = estimateVerticalDrift(a, b)
+    expect(drift).not.toBeNull()
+    expect(drift! * 100).toBeCloseTo(20, 0)
+  })
+
+  it('content shifted UP reports negative drift', () => {
+    const a = bitmap(100, 100, [250, 250, 250, 255])
+    const b = bitmap(100, 100, [250, 250, 250, 255])
+    paint(a, 20, 60, 60, 20)
+    paint(b, 20, 40, 60, 20)
+    expect(estimateVerticalDrift(a, b)!).toBeLessThan(0)
+  })
+
+  it('aligned content reports no drift', () => {
+    const a = bitmap(100, 100, [250, 250, 250, 255])
+    const b = bitmap(100, 100, [250, 250, 250, 255])
+    paint(a, 20, 30, 60, 20)
+    paint(b, 20, 30, 60, 20)
+    expect(estimateVerticalDrift(a, b)).toBeNull()
+  })
+
+  it('structural mismatch (different content, no clean shift) reports null', () => {
+    const a = bitmap(100, 100, [250, 250, 250, 255])
+    const b = bitmap(100, 100, [250, 250, 250, 255])
+    paint(a, 20, 10, 60, 10)
+    paint(a, 20, 80, 60, 10)
+    paint(b, 20, 45, 60, 10)
+    expect(estimateVerticalDrift(a, b)).toBeNull()
   })
 })

@@ -391,6 +391,10 @@ export interface SlideDiff {
   regions: DiffRegion[]
   /** PNG data URL — red marks differing content, dim grayscale matches */
   heatmapUrl: string | null
+  /** vertical displacement as a fraction of height (positive = the
+   * candidate's content sits LOWER than the original); null when no single
+   * shift explains the mismatch */
+  verticalDrift: number | null
 }
 
 /** Detailed measurement for the review: score + regions + heatmap computed
@@ -405,7 +409,66 @@ export async function scoreSlideFidelityDetailed(
     score: diffBitmaps(orig, conv),
     regions: diffRegions(orig, conv),
     heatmapUrl: diffHeatmapDataUrl(orig, conv),
+    verticalDrift: estimateVerticalDrift(orig, conv),
   }
+}
+
+/** row-wise content mass against the raster's own background estimate */
+function rowProfile(img: ImageData): Float32Array {
+  const [bgR, bgG, bgB] = estimateBackground(img)
+  const prof = new Float32Array(img.height)
+  for (let y = 0; y < img.height; y++) {
+    let n = 0
+    for (let x = 0; x < img.width; x++) {
+      const i = (y * img.width + x) * 4
+      if (
+        Math.abs(img.data[i] - bgR) > CHANNEL_TOLERANCE ||
+        Math.abs(img.data[i + 1] - bgG) > CHANNEL_TOLERANCE ||
+        Math.abs(img.data[i + 2] - bgB) > CHANNEL_TOLERANCE
+      ) n++
+    }
+    prof[y] = n
+  }
+  return prof
+}
+
+/** The single vertical shift that best aligns the two rasters' row-content
+ * profiles, as a fraction of height (positive = candidate content LOWER).
+ * A pixel diff counts a displaced block twice — missing here, extra there —
+ * but never says "this is a SPACING miss"; this turns that double penalty
+ * into an actionable direction for repair. Returns null when either raster
+ * is nearly blank, or when no shift beats the unshifted alignment by enough
+ * to be the story (structural mismatches, not spacing). */
+export function estimateVerticalDrift(a: ImageData, b: ImageData): number | null {
+  const h = Math.min(a.height, b.height)
+  if (h < 8) return null
+  const pa = rowProfile(a)
+  const pb = rowProfile(b)
+  let massA = 0
+  let massB = 0
+  for (let y = 0; y < h; y++) { massA += pa[y]; massB += pb[y] }
+  if (massA < h || massB < h) return null
+  const cost = (k: number): number => {
+    let c = 0
+    for (let y = 0; y < h; y++) {
+      const yb = y + k
+      c += Math.abs(pa[y] - (yb >= 0 && yb < h ? pb[yb] : 0))
+    }
+    return c
+  }
+  const base = cost(0)
+  if (base === 0) return null
+  const maxShift = Math.floor(h / 4)
+  let bestK = 0
+  let bestC = base
+  for (let k = -maxShift; k <= maxShift; k++) {
+    if (k === 0) continue
+    const c = cost(k)
+    if (c < bestC) { bestC = c; bestK = k }
+  }
+  // the shift must explain a real chunk of the profile mismatch
+  if (bestK === 0 || bestC > base * 0.7) return null
+  return bestK / h
 }
 
 /** Deep-clone with every element's computed style inlined, so the clone

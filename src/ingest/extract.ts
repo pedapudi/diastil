@@ -21,6 +21,7 @@ export interface ElementSample {
   fontFamily: string
   color: string
   fontWeight: number
+  fontStyle: string
   letterSpacing: string
   textTransform: string
   position: string
@@ -273,6 +274,7 @@ function harvestVisibleSlide(
       fontFamily: cs.fontFamily,
       color: cs.color,
       fontWeight: parseFloat(cs.fontWeight) || 400,
+      fontStyle: cs.fontStyle,
       letterSpacing: cs.letterSpacing,
       textTransform: cs.textTransform,
       position: cs.position,

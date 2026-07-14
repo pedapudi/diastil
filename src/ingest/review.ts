@@ -1043,6 +1043,15 @@ class ReviewController {
     lines.push(c.fidelity != null
       ? `pixel diff: ${Math.round((1 - c.fidelity) * 100)}% of sampled pixels differ between the source render and the converted render.`
       : 'pixel diff unavailable (slide would not rasterize) — rely on the structural notes below.')
+    // a single vertical shift that explains the mismatch is a SPACING miss —
+    // name it, or the model rewrites content when it should move it
+    const drift = this.slideDiffs[i]?.verticalDrift
+    if (drift != null && Math.abs(drift) >= 0.03) {
+      lines.push(
+        `vertical drift: the converted content sits ~${Math.round(Math.abs(drift) * 100)}% of the slide height ` +
+        `${drift > 0 ? 'LOWER' : 'HIGHER'} than the original — fix vertical spacing/anchoring ` +
+        '(margins, footer pinning, centering), do not rewrite the content')
+    }
     // WHERE the miss is — measured regions from the same rasters as the
     // score, so a targeted repair can aim at the offending area only
     const regions = this.slideDiffs[i]?.regions ?? []
