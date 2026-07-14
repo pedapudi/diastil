@@ -751,6 +751,15 @@ function svgNode(el: Element, ctx: Ctx): Element {
     ctx.notes.push({ node: clone, kind: 'lifted-svg', note: 'scene svg with dia nodes — kept as an editable scene' })
     return clone
   }
+  // ANIMATED svgs stay verbatim: SMIL children are the animation itself,
+  // and extraction injected the css @keyframes inside the svg — lifting
+  // would rebuild shapes and silently kill the motion
+  if (clone.querySelector('animate, animateTransform, animateMotion, set, style.dia-anim-keyframes, [style*="animation-name"]')) {
+    const fig = div('dia-figure')
+    fig.appendChild(clone)
+    ctx.notes.push({ node: fig, kind: 'low-structure', note: 'animated svg — kept verbatim, animation preserved' })
+    return fig
+  }
   // deterministic promotion: provably-exact shapes become editable scene
   // nodes in place; text/edges stay verbatim (the LLM lift adds semantics)
   const n = liftSimpleSvg(clone, (c) => ctx.tokenColor(c))

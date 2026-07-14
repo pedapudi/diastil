@@ -415,3 +415,38 @@ describe('explicit inter-block spacing', () => {
     expect(next.style.marginTop).toBe('')
   })
 })
+
+describe('animated svgs survive conversion', () => {
+  const withSvg = (svg: string) => minimalSlide({
+    html: `<div data-dia-x="0"><h1 data-dia-x="1">Title</h1><svg data-dia-x="2" viewBox="0 0 100 100">${svg}</svg></div>`,
+    texts: [],
+    samples: {
+      0: sample({ x: 0, y: 0, w: 1280, h: 720, ownChars: 0, ownText: '' }),
+      1: sample({ y: 60, h: 60, ownText: 'Title' }),
+      2: sample({ y: 200, h: 300, w: 300, ownChars: 0, ownText: '' }),
+    },
+  })
+
+  it('SMIL animation is kept verbatim, never lifted', () => {
+    const doc = convertToDoc(withSvg(
+      '<rect x="10" y="10" width="50" height="20"><animate attributeName="x" from="10" to="40" dur="2s" repeatCount="indefinite"/></rect>'))
+    expect(doc.querySelector('animate')).not.toBeNull()
+    expect(doc.querySelector('[data-dia-node]')).toBeNull() // no lift
+    expect(doc.querySelector('svg')?.closest('.dia-figure, figure')).not.toBeNull()
+  })
+
+  it('css-animated svgs (inline animation-name) stay verbatim, unlifted', () => {
+    // happy-dom's parser drops <style> inside svg, so this exercises the
+    // inline animation-name detection (extraction always writes it); the
+    // keyframes <style> path is browser-verified
+    const doc = convertToDoc(withSvg(
+      '<rect x="10" y="10" width="50" height="20" style="animation-name: spin; animation-duration: 2s;"/>'))
+    expect(doc.querySelector('svg rect')?.getAttribute('style')).toContain('animation-name')
+    expect(doc.querySelector('[data-dia-node]')).toBeNull()
+  })
+
+  it('a static svg still lifts deterministically', () => {
+    const doc = convertToDoc(withSvg('<rect x="10" y="10" width="50" height="20"/>'))
+    expect(doc.querySelector('[data-dia-node]')).not.toBeNull()
+  })
+})

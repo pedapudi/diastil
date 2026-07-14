@@ -590,7 +590,8 @@ class ReviewController {
   private hasLiftableSvg(i: number): boolean {
     const doc = new DOMParser().parseFromString(this.conversions[i].html, 'text/html')
     return [...doc.querySelectorAll('svg')]
-      .some((s) => !s.classList.contains('dia-scene') && !s.closest('[data-dia-island]'))
+      .some((s) => !s.classList.contains('dia-scene') && !s.closest('[data-dia-island]') &&
+        !s.querySelector('animate, animateTransform, animateMotion, set, style.dia-anim-keyframes, [style*="animation-name"]'))
   }
 
   private setMode(mode: Mode): void {
@@ -913,14 +914,16 @@ class ReviewController {
     const slide = this.input.extraction.slides[i]
     const doc = new DOMParser().parseFromString(before.html, 'text/html')
     const svgs = [...doc.querySelectorAll('svg')]
-      .filter((s) => !s.classList.contains('dia-scene') && !s.closest('[data-dia-island]'))
+      .filter((s) => !s.classList.contains('dia-scene') && !s.closest('[data-dia-island]') &&
+        !s.querySelector('animate, animateTransform, animateMotion, set, style.dia-anim-keyframes, [style*="animation-name"]'))
     if (svgs.length === 0) return
     this.liftBtn.disabled = true
     this.verdictMsg.textContent = `lifting ${svgs.length} diagram${svgs.length > 1 ? 's' : ''}…`
     // live counterparts in the converted iframe (same filter, same document
     // order) — rasterized so a vision model sees the diagram it is lifting
     const liveSvgs = [...(this.convRoots()[i]?.querySelectorAll('svg') ?? [])]
-      .filter((s) => !s.classList.contains('dia-scene') && !s.closest('[data-dia-island]'))
+      .filter((s) => !s.classList.contains('dia-scene') && !s.closest('[data-dia-island]') &&
+        !s.querySelector('animate, animateTransform, animateMotion, set, style.dia-anim-keyframes, [style*="animation-name"]'))
     let lifted = 0
     for (const [k, svg] of svgs.entries()) {
       try {

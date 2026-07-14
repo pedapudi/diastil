@@ -423,6 +423,9 @@ function inlineSvgPaint(liveRoot: HTMLElement, clone: HTMLElement): void {
   if (!win) return
   const live = liveRoot.querySelectorAll('svg, svg *')
   const out = clone.querySelectorAll('svg, svg *')
+  // css animations found on svg content: animation-name → the svg clone
+  // that must carry its @keyframes (SMIL needs nothing — it is markup)
+  const animsBySvg = new Map<SVGSVGElement, Set<string>>()
   for (let i = 0; i < live.length && i < out.length; i++) {
     const cs = win.getComputedStyle(live[i])
     const el = out[i] as SVGElement
@@ -440,7 +443,57 @@ function inlineSvgPaint(liveRoot: HTMLElement, clone: HTMLElement): void {
       if (cs.fontWeight !== '400') el.style.setProperty('font-weight', cs.fontWeight)
       if (cs.textAnchor !== 'start') el.style.setProperty('text-anchor', cs.textAnchor)
     }
+    // a css animation is PART of the artwork — carry the longhands inline
+    // and remember the names, so the @keyframes can ride inside the svg
+    if (cs.animationName !== 'none' && parseFloat(cs.animationDuration) > 0) {
+      el.style.setProperty('animation-name', cs.animationName)
+      el.style.setProperty('animation-duration', cs.animationDuration)
+      el.style.setProperty('animation-timing-function', cs.animationTimingFunction)
+      if (cs.animationDelay !== '0s') el.style.setProperty('animation-delay', cs.animationDelay)
+      el.style.setProperty('animation-iteration-count', cs.animationIterationCount)
+      if (cs.animationDirection !== 'normal') el.style.setProperty('animation-direction', cs.animationDirection)
+      if (cs.animationFillMode !== 'none') el.style.setProperty('animation-fill-mode', cs.animationFillMode)
+      const host = el.closest('svg') as SVGSVGElement | null
+      if (host) {
+        const names = animsBySvg.get(host) ?? new Set<string>()
+        for (const name of cs.animationName.split(',')) names.add(name.trim())
+        animsBySvg.set(host, names)
+      }
+    }
   }
+  // inject the matching @keyframes INSIDE each animated svg — the svg is
+  // then self-contained and the animation survives conversion and save
+  for (const [svg, names] of animsBySvg) {
+    const css = keyframesCss(liveRoot.ownerDocument, names)
+    if (!css) continue
+    const style = liveRoot.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'style')
+    style.setAttribute('class', 'dia-anim-keyframes')
+    style.textContent = css
+    svg.insertBefore(style, svg.firstChild)
+  }
+}
+
+/** serialize the @keyframes rules for the given animation names from the
+ * source document's (same-origin srcdoc) stylesheets */
+function keyframesCss(doc: Document, names: Set<string>): string {
+  const found: string[] = []
+  // duck-typed, NOT instanceof: the rules come from the execution IFRAME's
+  // realm, whose CSSKeyframesRule is a different constructor than ours
+  const visit = (rules: CSSRuleList | undefined): void => {
+    for (const rule of rules ?? []) {
+      const kf = rule as CSSKeyframesRule
+      if (typeof kf.name === 'string' && rule.cssText.trimStart().startsWith('@keyframes')) {
+        if (names.has(kf.name)) found.push(rule.cssText)
+        continue
+      }
+      const grouped = rule as CSSGroupingRule
+      if (grouped.cssRules) visit(grouped.cssRules)
+    }
+  }
+  for (const sheet of doc.styleSheets) {
+    try { visit((sheet as CSSStyleSheet).cssRules) } catch { /* cross-origin sheet */ }
+  }
+  return found.join('\n')
 }
 
 /* svgs routinely reference defs that live ELSEWHERE in the source document —
