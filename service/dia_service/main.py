@@ -182,6 +182,8 @@ def _compose_message(req: ChatRequest) -> str:
         lines.append("slides-in-view (document order around the current slide):")
         for n in neighbors:
             lines.append(str(n))
+    if ctx.get("slideImage"):
+        lines.append("a render of the current slide is attached as an image")
     lines.append("</editor-context>")
     lines.append("")
     lines.append(req.message)
@@ -199,9 +201,18 @@ async def _chat_events(req: ChatRequest) -> AsyncIterator[dict[str, str]]:
     try:
         runner = _get_copilot_runner()
         await _ensure_session(req.sessionId)
-        content = genai_types.Content(
-            role="user", parts=[genai_types.Part(text=_compose_message(req))]
-        )
+        parts = [genai_types.Part(text=_compose_message(req))]
+        # the copilot's eyes: the current slide as rendered, when the editor
+        # attached one — a vision endpoint sees what the user sees
+        slide_image = (req.context or {}).get("slideImage")
+        if isinstance(slide_image, str):
+            decoded = agents.decode_data_uri(slide_image)
+            if decoded is not None:
+                mime, data = decoded
+                parts.append(
+                    genai_types.Part(inline_data=genai_types.Blob(mime_type=mime, data=data))
+                )
+        content = genai_types.Content(role="user", parts=parts)
         streamed_text = False
         async for event in runner.run_async(
             user_id=USER_ID, session_id=req.sessionId, new_message=content

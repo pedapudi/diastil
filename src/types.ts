@@ -106,6 +106,8 @@ export interface ChatContext {
   selectionHtml: string | null
   tokensCss: string
   flowNeighborsHtml?: string[]
+  /** PNG data URL of the current slide as rendered — the copilot's eyes */
+  slideImage?: string | null
 }
 
 export type ChatEvent =

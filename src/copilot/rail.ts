@@ -8,6 +8,7 @@ import type { ChatContext, ProposedOp, Selection } from '../types'
 import { state } from '../state'
 import { service } from '../service/client'
 import { batch } from '../model/ops'
+import { rasterizeToDataUrl } from '../ingest/fidelity'
 import { compileOps } from './compile'
 import { renderMarkdown } from './markdown'
 
@@ -143,7 +144,7 @@ export function mountCopilot(host: HTMLElement): void {
     const what = describeSelection(state.selection)
     const tail = document.createElement('span')
     const pinGesture = /Mac|iP(hone|ad|od)/.test(navigator.platform) ? '⌥-click' : 'alt/shift-click'
-    tail.textContent = `${what ? ` › ${what}` : ''} + tokens · ${pinGesture} a minimap slide to pin`
+    tail.textContent = `${what ? ` › ${what}` : ''} + tokens + slide render · ${pinGesture} a minimap slide to pin`
     context.appendChild(tail)
   }
   renderContext()
@@ -205,7 +206,7 @@ export function mountCopilot(host: HTMLElement): void {
     let produced = false
     let failed = false
     try {
-      for await (const ev of service.chat(sessionId, text, buildContext())) {
+      for await (const ev of service.chat(sessionId, text, await buildContext())) {
         pending.remove()
         if (ev.type === 'thinking') {
           produced = true
@@ -244,7 +245,7 @@ export function mountCopilot(host: HTMLElement): void {
     }
   }
 
-  function buildContext(): ChatContext {
+  async function buildContext(): Promise<ChatContext> {
     const deck = state.deck
     // the exact slide set the context chips display: neighbors + pins,
     // size-capped, in document order — what you see is what it sees
@@ -254,6 +255,14 @@ export function mountCopilot(host: HTMLElement): void {
       const html = el.outerHTML
       return html.length > 6000 ? `${html.slice(0, 6000)}\n<!-- …truncated -->` : html
     }
+    // the copilot's EYES: the current slide as actually rendered — html
+    // shows structure, the image shows what the user is looking at.
+    // null (rasterization failed) degrades to text-only, same as before.
+    let slideImage: string | null = null
+    const current = slides[state.currentSlide]
+    if (current) {
+      try { slideImage = await rasterizeToDataUrl(current) } catch { /* text-only */ }
+    }
     return {
       altitude: state.altitude,
       slideIndex: state.currentSlide,
@@ -262,6 +271,7 @@ export function mountCopilot(host: HTMLElement): void {
       flowNeighborsHtml: contextSlideIndices()
         .map((i) => cap(slides[i]))
         .filter((s): s is string => s !== null),
+      slideImage,
     }
   }
 
