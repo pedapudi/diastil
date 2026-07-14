@@ -324,6 +324,10 @@
   border: 1px solid var(--rule); border-radius: 4px;
   padding: 3px 5px;
 }
+/* inspector face menu: bounded, so long stacks don't stretch the rail */
+.de-inspect-face { flex: 1; max-width: 220px; }
+/* the free color well when a custom (non-token) ink is active */
+.de-tok-swatch.is-custom-active { border-color: var(--accent); }
 .de-tok-del {
   flex: none; width: 18px; border: 0; background: transparent;
   color: var(--ink-faint); cursor: pointer; font-size: 13px; padding: 0;

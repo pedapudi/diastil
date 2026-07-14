@@ -14,6 +14,7 @@ import { routeAll } from '../scene/route'
 import {
   ensureSceneStyleRules, getDrawTool, insertShapeNode, setDrawTool,
 } from '../scene/interact'
+import { swatch } from '../scene/icons'
 import { assignFreshIds } from './slides'
 import { mountThemePicker, mountTypePicker } from '../chrome/pickers'
 import { mountCopilot } from '../copilot/rail'
@@ -480,19 +481,16 @@ export function mountEditor(host: HTMLElement): void {
 
       // per-element typesetting: inline var(--dia-…) references — element
       // scope, token grammar. 'auto' clears the inline value (role default).
+      // face and ink get the same visual-and-general treatment as the scene
+      // toolbar and the tokens tab: self-previewing faces, color chips, and
+      // a free color well.
       inspectBody.append(
         styleSeg('size', el, 'font-size', [
           ['auto', ''],
           ...[1, 2, 3, 4, 5, 6, 7].map((n) => [`${n}`, `var(--dia-scale-${n})`] as [string, string]),
         ]),
-        styleSeg('face', el, 'font-family', [
-          ['auto', ''], ['display', 'var(--dia-face-display)'],
-          ['body', 'var(--dia-face-body)'], ['label', 'var(--dia-face-label)'],
-        ]),
-        styleSeg('ink', el, 'color', [
-          ['auto', ''], ['ink', 'var(--dia-ink)'],
-          ['soft', 'var(--dia-ink-soft)'], ['accent', 'var(--dia-accent)'],
-        ]),
+        faceRow(el),
+        inkRow(el),
       )
 
       // write-target line: computed honestly from the bound token and the
@@ -605,6 +603,96 @@ export function mountEditor(host: HTMLElement): void {
   function kv(k: string, v: string): HTMLElement {
     const row = h('div', 'dn-kv')
     row.append(h('span', 'k', k), h('span', 'v', v))
+    return row
+  }
+
+  /** face: a self-previewing menu — role default, the deck's token faces,
+   * then the curated system stacks (the tokens tab's generalization, at
+   * element scope) */
+  function faceRow(el: HTMLElement): HTMLElement {
+    const row = h('div', 'de-style-row')
+    row.append(h('span', 'de-style-k', 'face'))
+    const sel = document.createElement('select')
+    sel.className = 'de-tok-face de-inspect-face'
+    const current = el.style.getPropertyValue('font-family').trim()
+    const cs = getComputedStyle(el)
+    const addOpt = (parent: HTMLSelectElement | HTMLOptGroupElement, labelText: string, value: string, preview: string): void => {
+      const o = document.createElement('option')
+      o.textContent = labelText
+      o.value = value
+      if (preview) o.style.fontFamily = preview // the menu previews itself
+      if (value === current) o.selected = true
+      parent.append(o)
+    }
+    addOpt(sel, 'auto (role default)', '', '')
+    const tokenGroup = document.createElement('optgroup')
+    tokenGroup.label = 'deck faces'
+    for (const t of ['display', 'body', 'label'] as const) {
+      const v = `var(--dia-face-${t})`
+      addOpt(tokenGroup, t, v, cs.getPropertyValue(`--dia-face-${t}`).trim())
+    }
+    sel.append(tokenGroup)
+    const sysGroup = document.createElement('optgroup')
+    sysGroup.label = 'system faces'
+    for (const [labelText, stack] of FACE_STACKS) addOpt(sysGroup, labelText, stack, stack)
+    sel.append(sysGroup)
+    if (current && ![...sel.options].some((o) => o.selected)) {
+      addOpt(sel, 'current (custom)', current, current)
+      sel.value = current
+    }
+    sel.addEventListener('change', () => {
+      if (el.style.getPropertyValue('font-family').trim() !== sel.value) {
+        state.apply(setStyleProp(el, 'font-family', sel.value))
+      }
+    })
+    row.append(sel)
+    return row
+  }
+
+  /** ink: token colors as resolved chips (auto = dashed, theme decides) plus
+   * a free color well — the scene toolbar's icon-and-generalization for text */
+  function inkRow(el: HTMLElement): HTMLElement {
+    const row = h('div', 'de-style-row')
+    row.append(h('span', 'de-style-k', 'ink'))
+    const seg = h('span', 'dn-seg')
+    const current = el.style.getPropertyValue('color').trim()
+    const options: Array<[string, string]> = [
+      ['auto', ''], ['ink', 'var(--dia-ink)'], ['soft', 'var(--dia-ink-soft)'],
+      ['accent', 'var(--dia-accent)'], ['paper', 'var(--dia-paper)'],
+    ]
+    for (const [name, value] of options) {
+      const b = h('button', `dn-seg-icon${value === current ? ' dn-on' : ''}`)
+      ;(b as HTMLButtonElement).type = 'button'
+      b.title = name === 'auto' ? 'auto — role default' : `${name} · ${value}`
+      b.setAttribute('aria-label', name)
+      b.appendChild(swatch(value, el))
+      b.addEventListener('click', () => {
+        if (el.style.getPropertyValue('color').trim() === value) return
+        state.apply(setStyleProp(el, 'color', value))
+      })
+      seg.append(b)
+    }
+    row.append(seg)
+    // free color well: preview while dragging, ONE op on release — the same
+    // contract as the per-slide background and the token swatches
+    const well = document.createElement('input')
+    well.type = 'color'
+    well.className = 'de-tok-swatch'
+    well.title = 'custom color (this element only)'
+    well.value = toHexColor(getComputedStyle(el).color)
+    if (current && !options.some(([, v]) => v === current)) well.classList.add('is-custom-active')
+    let before: string | null = null
+    well.addEventListener('input', () => {
+      if (before === null) before = el.style.getPropertyValue('color')
+      el.style.setProperty('color', well.value) // preview only, no op
+    })
+    well.addEventListener('change', () => {
+      if (before === null) return
+      el.style.setProperty('color', before) // restore so the op captures true prev
+      before = null
+      state.apply(setStyleProp(el, 'color', well.value))
+    })
+    row.append(well)
     return row
   }
 
