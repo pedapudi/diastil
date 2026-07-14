@@ -82,9 +82,35 @@ describe('corpus fixtures', () => {
         const regionTotal = Object.values(fixture.regionKinds).reduce((a, b) => a + b, 0)
         expect(regionTotal).toBeGreaterThanOrEqual(fixture.islands)
       })
+
+      it('fidelity floors hold (ratchet: floors only move UP)', () => {
+        // the floors are DELIBERATE constants: a conversion or metric change
+        // that re-captures below them fails here until a human raises or
+        // (explicitly, reviewably) lowers the floor. Tuning happens against
+        // these pinned numbers, not against live hand-measurement.
+        const floor = FIDELITY_FLOORS[fixture.name]
+        expect(floor, `no fidelity floor declared for fixture "${fixture.name}" — add one`).toBeDefined()
+        expect(fixture.fidelity.length).toBe(fixture.slideCount)
+        const scores = fixture.fidelity.filter((v): v is number => v !== null)
+        expect(scores.length, 'every slide must rasterize at capture').toBe(fixture.slideCount)
+        for (const [i, v] of scores.entries()) {
+          expect(v, `slide ${i + 1} fidelity`).toBeGreaterThanOrEqual(floor.min)
+          expect(v).toBeLessThanOrEqual(1)
+        }
+        const mean = scores.reduce((a, b) => a + b, 0) / scores.length
+        expect(mean, 'deck mean fidelity').toBeGreaterThanOrEqual(floor.mean)
+      })
     })
   }
 })
+
+/** per-deck fidelity floors — the ratchet's teeth. Raise them as conversion
+ * improves; lowering one is a reviewed decision with a reason in the diff. */
+const FIDELITY_FLOORS: Record<string, { min: number; mean: number }> = {
+  ambit: { min: 0.44, mean: 0.6 },  // captured 0.45–0.79, mean 0.637
+  demo: { min: 0.5, mean: 0.7 },    // captured 0.54–0.99, mean 0.749
+  steps: { min: 0.85, mean: 0.9 },  // captured 0.88/0.97
+}
 
 describe('corpus documentation', () => {
   it('README documents the capture procedure', () => {

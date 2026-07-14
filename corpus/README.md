@@ -44,6 +44,12 @@ so fixtures are captured in the running editor, not in CI:
   improves and commit the diff as the new baseline. A re-capture that
   LOWERS any slide's confidence, adds warnings, or grows islands is a
   regression — it needs a reviewed decision, not a drive-by re-baseline.
+- **Fidelity is pinned.** Capture measures every converted slide against
+  the LIVE original with the visual-consistency metric and stores the
+  per-slide scores in the fixture. `FIDELITY_FLOORS` in corpus.test.ts
+  holds them up: tuning conversion or the metric happens against these
+  pinned numbers — a change that re-captures below a floor fails the
+  suite until a human raises (or reviewably lowers) the floor.
 - **Profile validity is non-negotiable.** A fixture whose `deckHtml` stops
   validating fails the suite no matter what else improved.
 - **Fixtures are evidence, not decoration.** When an import bug is fixed,

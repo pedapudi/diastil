@@ -78,8 +78,14 @@ function appendProfileFindings(report: ImportReport, deckHtml: string): void {
 }
 
 /** Run only the headless part of the pipeline (no UI) — used for programmatic
- * verification and by callers that want an ImportResult without review. */
-export async function runPipeline(html: string, name: string): Promise<ImportResult & { cleanup: () => void }> {
+ * verification and by callers that want an ImportResult without review.
+ * execution/extraction are returned LIVE (the iframe still mounted) so the
+ * caller can measure against the rendered original; cleanup() releases it. */
+export async function runPipeline(html: string, name: string): Promise<ImportResult & {
+  cleanup: () => void
+  execution: Awaited<ReturnType<typeof executeSource>>
+  extraction: Awaited<ReturnType<typeof extractSlides>>
+}> {
   const execution = await executeSource(html)
   const extraction = await extractSlides(execution)
   const conversions = convertSlides(extraction)
@@ -94,6 +100,8 @@ export async function runPipeline(html: string, name: string): Promise<ImportRes
     deckHtml,
     report,
     originalSlides: originals,
+    execution,
+    extraction,
     cleanup: () => execution.iframe.remove(),
   }
 }
