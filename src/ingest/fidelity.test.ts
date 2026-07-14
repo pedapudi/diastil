@@ -2,7 +2,7 @@
  * needs a real canvas and is exercised in-browser. */
 
 import { describe, expect, it } from 'vitest'
-import { diffBitmaps } from './fidelity'
+import { diffBitmaps, diffRegions } from './fidelity'
 
 function bitmap(w: number, h: number, rgba: [number, number, number, number]): ImageData {
   const data = new Uint8ClampedArray(w * h * 4)
@@ -52,5 +52,60 @@ describe('diffBitmaps', () => {
     const b = bitmap(16, 16, [20, 20, 20, 255])
     for (let p = 0; p < 12; p++) { const i = p * 4; a.data[i] = 255; b.data[i] = 255 }
     expect(diffBitmaps(a, b).score).toBe(1)
+  })
+})
+
+describe('diffRegions', () => {
+  /** paint a solid white block into a bitmap */
+  function block(img: ImageData, x0: number, y0: number, w: number, h: number): void {
+    for (let y = y0; y < y0 + h; y++) {
+      for (let x = x0; x < x0 + w; x++) {
+        const i = (y * img.width + x) * 4
+        img.data[i] = img.data[i + 1] = img.data[i + 2] = 255
+      }
+    }
+  }
+
+  it('aligned rasters produce zero regions', () => {
+    const a = bitmap(48, 48, [20, 20, 20, 255])
+    const b = bitmap(48, 48, [20, 20, 20, 255])
+    block(a, 4, 4, 8, 8)
+    block(b, 4, 4, 8, 8)
+    expect(diffRegions(a, b)).toEqual([])
+  })
+
+  it('two separated diff clusters become two regions in the right quadrants', () => {
+    const a = bitmap(48, 48, [20, 20, 20, 255])
+    const b = bitmap(48, 48, [20, 20, 20, 255])
+    block(a, 0, 0, 8, 8) // only in the original — top-left
+    block(b, 40, 40, 8, 8) // only in the candidate — bottom-right
+    const regions = diffRegions(a, b)
+    expect(regions.length).toBe(2)
+    const topLeft = regions.find((r) => r.x < 0.5 && r.y < 0.5)
+    const bottomRight = regions.find((r) => r.x >= 0.5 && r.y >= 0.5)
+    expect(topLeft).toBeDefined()
+    expect(bottomRight).toBeDefined()
+    for (const r of regions) {
+      // fractions stay in 0..1 and every content pixel in these boxes differs
+      expect(r.x).toBeGreaterThanOrEqual(0)
+      expect(r.y).toBeGreaterThanOrEqual(0)
+      expect(r.x + r.w).toBeLessThanOrEqual(1)
+      expect(r.y + r.h).toBeLessThanOrEqual(1)
+      expect(r.frac).toBe(1)
+    }
+  })
+
+  it('caps the region count at maxRegions, heaviest first', () => {
+    const a = bitmap(48, 48, [20, 20, 20, 255])
+    const b = bitmap(48, 48, [20, 20, 20, 255])
+    block(a, 0, 0, 12, 12) // the heaviest cluster
+    block(a, 40, 0, 6, 6)
+    block(a, 0, 40, 6, 6)
+    block(a, 40, 40, 6, 6)
+    const regions = diffRegions(a, b, 2)
+    expect(regions.length).toBe(2)
+    // the largest cluster wins the first slot
+    expect(regions[0].x).toBe(0)
+    expect(regions[0].y).toBe(0)
   })
 })

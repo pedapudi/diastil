@@ -173,6 +173,40 @@ iframe.dia-ingest-exec {
   pointer-events: none;
 }
 
+/* heatmap mode: the measurement's own diff image — red marks differing
+ * content, dim grayscale marks matches; hidden outside heatmap mode */
+.dia-cmp-heat {
+  display: none;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.dia-cmp[data-mode="heatmap"] { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+.dia-cmp[data-mode="heatmap"] .dia-cmp-pane { display: none; }
+.dia-cmp[data-mode="heatmap"] .dia-cmp-heat { display: flex; }
+.dia-cmp-heat-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  background: var(--panel);
+  padding: 10px;
+}
+.dia-cmp-heat-body img {
+  /* the raster is 384×216 — scale it UP to the pane, not natural size */
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--rule);
+  image-rendering: auto;
+}
+.dia-cmp-heat-caption {
+  border-top: 1px solid var(--rule-soft);
+  padding: 6px 10px;
+}
+
 /* overlay mode: converted stacks over original with difference blending —
  * matching pixels read near-black */
 .dia-cmp[data-mode="overlay"] { grid-template-columns: 1fr; grid-template-rows: 1fr; }

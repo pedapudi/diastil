@@ -175,10 +175,33 @@ export function diffHeatmapDataUrl(a: ImageData, b: ImageData): string | null {
  * in EITHER raster; blank-ish slides fall back to the total so near-empty
  * originals don't divide by noise. */
 export function diffBitmaps(a: ImageData, b: ImageData): FidelityScore {
+  const c = classifyPixels(a, b)
+  const denom = c.content >= c.total * 0.005 ? c.content : c.total
+  const score = Math.round(Math.max(0, 1 - c.diff / denom) * 1000) / 1000
+  return { score, diffPixels: c.diff, totalPixels: c.total, contentPixels: c.content }
+}
+
+/** per-pixel verdicts shared by the score and the region clustering — one
+ * implementation so the two can never drift apart */
+interface PixelClassification {
+  w: number
+  h: number
+  total: number
+  content: number
+  diff: number
+  /** 1 where the pixel is content (differs from background) in either raster */
+  contentMask: Uint8Array
+  /** 1 where a content pixel differs beyond the spatial tolerance */
+  diffMask: Uint8Array
+}
+
+function classifyPixels(a: ImageData, b: ImageData): PixelClassification {
   const w = Math.min(a.width, b.width)
   const h = Math.min(a.height, b.height)
   const total = w * h
   const [bgR, bgG, bgB] = estimateBackground(a)
+  const contentMask = new Uint8Array(total)
+  const diffMask = new Uint8Array(total)
 
   // spatial tolerance: thin strokes and glyph edges shift by a pixel
   // between two independent rasterizations; a pixel is MATCHED when any
@@ -216,14 +239,113 @@ export function diffBitmaps(a: ImageData, b: ImageData): FidelityScore {
         Math.abs(b.data[ib] - bgR) > CHANNEL_TOLERANCE ||
         Math.abs(b.data[ib + 1] - bgG) > CHANNEL_TOLERANCE ||
         Math.abs(b.data[ib + 2] - bgB) > CHANNEL_TOLERANCE
-      if (aContent || bContent) content++
-      else continue // matching background — never a diff
-      if (!neighborMatch(a, b, x, y) || !neighborMatch(b, a, x, y)) diff++
+      if (!aContent && !bContent) continue // matching background — never a diff
+      content++
+      contentMask[y * w + x] = 1
+      if (!neighborMatch(a, b, x, y) || !neighborMatch(b, a, x, y)) {
+        diff++
+        diffMask[y * w + x] = 1
+      }
     }
   }
-  const denom = content >= total * 0.005 ? content : total
-  const score = Math.round(Math.max(0, 1 - diff / denom) * 1000) / 1000
-  return { score, diffPixels: diff, totalPixels: total, contentPixels: content }
+  return { w, h, total, content, diff, contentMask, diffMask }
+}
+
+/** a clustered mismatch area, in FRACTIONS of the raster (0..1) so callers
+ * can map it onto any coordinate space (slide %, VLM crop, overlay) */
+export interface DiffRegion {
+  x: number
+  y: number
+  w: number
+  h: number
+  /** differing share of the region's content pixels, 0..1 */
+  frac: number
+}
+
+/** grid granularity for region clustering (12×12 cells over the raster) */
+const REGION_GRID = 12
+/** a cell is "hot" when its differing pixels beat noise: an absolute floor
+ * and a share of the cell's area */
+const REGION_MIN_PIXELS = 4
+const REGION_MIN_CELL_FRAC = 0.015
+
+/** Cluster differing CONTENT pixels into up to maxRegions bounding boxes —
+ * the WHERE of a fidelity miss, for region-targeted repair prompts and the
+ * human-facing read-out. Same pixel verdicts as diffBitmaps. */
+export function diffRegions(a: ImageData, b: ImageData, maxRegions = 4): DiffRegion[] {
+  const c = classifyPixels(a, b)
+  if (c.diff === 0) return []
+  const cellW = Math.ceil(c.w / REGION_GRID)
+  const cellH = Math.ceil(c.h / REGION_GRID)
+
+  // per-cell differing-pixel counts
+  const cells = new Float64Array(REGION_GRID * REGION_GRID)
+  for (let y = 0; y < c.h; y++) {
+    for (let x = 0; x < c.w; x++) {
+      if (!c.diffMask[y * c.w + x]) continue
+      const gx = Math.min(REGION_GRID - 1, Math.floor(x / cellW))
+      const gy = Math.min(REGION_GRID - 1, Math.floor(y / cellH))
+      cells[gy * REGION_GRID + gx]++
+    }
+  }
+  const cellArea = cellW * cellH
+  const hot = new Uint8Array(cells.length)
+  for (let i = 0; i < cells.length; i++) {
+    if (cells[i] >= REGION_MIN_PIXELS && cells[i] / cellArea > REGION_MIN_CELL_FRAC) hot[i] = 1
+  }
+
+  // 4-connected components of hot cells → bounding boxes, heaviest first
+  const visited = new Uint8Array(hot.length)
+  const comps: Array<{ minX: number; minY: number; maxX: number; maxY: number; weight: number }> = []
+  for (let start = 0; start < hot.length; start++) {
+    if (!hot[start] || visited[start]) continue
+    const comp = { minX: REGION_GRID, minY: REGION_GRID, maxX: -1, maxY: -1, weight: 0 }
+    const stack = [start]
+    visited[start] = 1
+    while (stack.length > 0) {
+      const cur = stack.pop()!
+      const cx = cur % REGION_GRID
+      const cy = Math.floor(cur / REGION_GRID)
+      comp.minX = Math.min(comp.minX, cx)
+      comp.minY = Math.min(comp.minY, cy)
+      comp.maxX = Math.max(comp.maxX, cx)
+      comp.maxY = Math.max(comp.maxY, cy)
+      comp.weight += cells[cur]
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const nx = cx + dx
+        const ny = cy + dy
+        if (nx < 0 || ny < 0 || nx >= REGION_GRID || ny >= REGION_GRID) continue
+        const ni = ny * REGION_GRID + nx
+        if (hot[ni] && !visited[ni]) { visited[ni] = 1; stack.push(ni) }
+      }
+    }
+    comps.push(comp)
+  }
+  comps.sort((p, q) => q.weight - p.weight)
+
+  const round3 = (v: number): number => Math.round(v * 1000) / 1000
+  return comps.slice(0, maxRegions).map((m) => {
+    const px = m.minX * cellW
+    const py = m.minY * cellH
+    const pw = Math.min((m.maxX + 1) * cellW, c.w) - px
+    const ph = Math.min((m.maxY + 1) * cellH, c.h) - py
+    let content = 0
+    let diff = 0
+    for (let y = py; y < py + ph; y++) {
+      for (let x = px; x < px + pw; x++) {
+        const i = y * c.w + x
+        if (c.contentMask[i]) content++
+        if (c.diffMask[i]) diff++
+      }
+    }
+    return {
+      x: round3(px / c.w),
+      y: round3(py / c.h),
+      w: round3(pw / c.w),
+      h: round3(ph / c.h),
+      frac: round3(content > 0 ? Math.min(1, diff / content) : 1),
+    }
+  })
 }
 
 /** 3×3 neighborhood, center first (the common case exits immediately) */
@@ -260,6 +382,30 @@ export async function scoreSlideFidelity(
   const [orig, conv] = await Promise.all([rasterizeRegion(originalEl), rasterizeRegion(convertedEl)])
   if (!orig || !conv) return null
   return diffBitmaps(orig, conv)
+}
+
+/** everything one measurement produces, from the SAME pair of rasters —
+ * the score, the clustered mismatch regions, and the human/VLM heatmap */
+export interface SlideDiff {
+  score: FidelityScore
+  regions: DiffRegion[]
+  /** PNG data URL — red marks differing content, dim grayscale matches */
+  heatmapUrl: string | null
+}
+
+/** Detailed measurement for the review: score + regions + heatmap computed
+ * from one rasterization pass, so all three describe the same pixels. */
+export async function scoreSlideFidelityDetailed(
+  originalEl: HTMLElement,
+  convertedEl: HTMLElement,
+): Promise<SlideDiff | null> {
+  const [orig, conv] = await Promise.all([rasterizeRegion(originalEl), rasterizeRegion(convertedEl)])
+  if (!orig || !conv) return null
+  return {
+    score: diffBitmaps(orig, conv),
+    regions: diffRegions(orig, conv),
+    heatmapUrl: diffHeatmapDataUrl(orig, conv),
+  }
 }
 
 /** Deep-clone with every element's computed style inlined, so the clone

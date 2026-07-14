@@ -15,7 +15,8 @@ import type { Extraction } from './extract'
 import { findSlideRoots, forceVisible } from './extract'
 import { DeckNavigator } from './navigate'
 import {
-  scoreSlideFidelity, rasterizeRegion, rasterizeToDataUrl, diffHeatmapDataUrl, REPAIR_THRESHOLD,
+  scoreSlideFidelityDetailed, rasterizeRegion, rasterizeToDataUrl, diffHeatmapDataUrl,
+  REPAIR_THRESHOLD, type SlideDiff,
 } from './fidelity'
 
 /** cap on automatic service repair rounds per slide (more is manual) */
@@ -54,7 +55,7 @@ type ModelLogEntry =
 /** transcripts keep full requests/responses but cap pathological payloads */
 const LOG_TEXT_CAP = 6000
 
-type Mode = 'side' | 'overlay'
+type Mode = 'side' | 'overlay' | 'heatmap'
 
 class ReviewController {
   private current = 0
@@ -93,6 +94,11 @@ class ReviewController {
   private liftBtn!: HTMLButtonElement
   private hover!: HTMLElement
   private segButtons: HTMLButtonElement[] = []
+  /** per-slide measurement detail (regions + heatmap) from the SAME rasters
+   * as the fidelity score — refreshed on every measure */
+  private slideDiffs: Array<SlideDiff | null> = []
+  private heatImg!: HTMLImageElement
+  private heatEmpty!: HTMLElement
   private origRoots: HTMLElement[] = []
   /** restore fn for the original slide the compare pane force-revealed */
   private unforceOrig: (() => void) | null = null
@@ -189,7 +195,7 @@ class ReviewController {
     // toggle row
     const tools = h('div', 'dia-review-tools')
     const seg = h('div', 'dn-seg')
-    for (const [label, mode] of [['side-by-side', 'side'], ['overlay', 'overlay']] as const) {
+    for (const [label, mode] of [['side-by-side', 'side'], ['overlay', 'overlay'], ['heatmap', 'heatmap']] as const) {
       const b = document.createElement('button')
       b.textContent = label
       b.addEventListener('click', () => this.setMode(mode))
@@ -206,7 +212,18 @@ class ReviewController {
     const conv = this.buildPane('converted', 'is-converted')
     this.origViewport = orig.viewport
     this.convViewport = conv.viewport
-    this.cmp.append(orig.pane, conv.pane)
+    // heatmap pane: the measurement's own diff image, for human eyes —
+    // the same picture the VLM receives in repair rounds
+    const heat = h('div', 'dia-cmp-heat dn-panel')
+    heat.appendChild(h('div', 'dia-cmp-label', 'difference heatmap'))
+    const heatBody = h('div', 'dia-cmp-heat-body')
+    this.heatImg = document.createElement('img')
+    this.heatImg.alt = 'difference heatmap — red marks content that differs from the original'
+    this.heatEmpty = h('div', 'dia-cop-quiet', 'not measured yet — the heatmap appears once this slide has been scored')
+    heatBody.append(this.heatImg, this.heatEmpty)
+    heat.appendChild(heatBody)
+    heat.appendChild(h('div', 'dia-cmp-hint dia-cmp-heat-caption', 'red = content that differs from the original'))
+    this.cmp.append(orig.pane, conv.pane, heat)
 
     // original = the live executed iframe (reparenting reloads srcdoc, so
     // slide roots are re-located once the moved document settles)
@@ -481,8 +498,21 @@ class ReviewController {
     this.cmp.dataset.mode = mode
     this.segButtons[0].classList.toggle('dn-on', mode === 'side')
     this.segButtons[1].classList.toggle('dn-on', mode === 'overlay')
-    this.hint.textContent = mode === 'overlay' ? 'difference — matched regions read dark' : ''
+    this.segButtons[2].classList.toggle('dn-on', mode === 'heatmap')
+    this.hint.textContent =
+      mode === 'overlay' ? 'difference — matched regions read dark' :
+      mode === 'heatmap' ? 'the measured diff — exactly what the fidelity score scored' : ''
+    this.renderHeatmap()
     requestAnimationFrame(() => this.layout())
+  }
+
+  /** the heatmap pane shows the CURRENT slide's stored measurement */
+  private renderHeatmap(): void {
+    if (this.mode !== 'heatmap') return
+    const url = this.slideDiffs[this.current]?.heatmapUrl ?? null
+    this.heatImg.hidden = !url
+    this.heatEmpty.hidden = !!url
+    if (url && this.heatImg.src !== url) this.heatImg.src = url
   }
 
   /** track slide i in every surface WITHOUT navigating the original deck —
@@ -494,6 +524,7 @@ class ReviewController {
     this.renderNotes()
     this.renderVerdict()
     this.renderModelLog()
+    this.renderHeatmap()
     this.layout()
   }
 
@@ -504,6 +535,7 @@ class ReviewController {
     this.renderNotes()
     this.renderVerdict()
     this.renderModelLog()
+    this.renderHeatmap()
     this.verdictMsg.textContent = ''
     this.layout()
     // one-at-a-time decks: drive the original's own runtime, then re-crop
@@ -670,15 +702,16 @@ class ReviewController {
     // state — reveals, split layouts) before rasterizing it
     await this.showOriginal(i)
     const unforce = orig && !this.oneAtATime() ? forceVisible(orig) : null
-    let score = null
+    let detail: SlideDiff | null = null
     try {
-      score = orig && conv ? await scoreSlideFidelity(orig, conv) : null
+      detail = orig && conv ? await scoreSlideFidelityDetailed(orig, conv) : null
     } finally {
       unforce?.()
     }
-    this.conversions[i].fidelity = score ? score.score : null
+    this.conversions[i].fidelity = detail ? detail.score.score : null
+    this.slideDiffs[i] = detail
     this.renderStrip()
-    if (i === this.current) { this.renderNotes(); this.renderVerdict() }
+    if (i === this.current) { this.renderNotes(); this.renderVerdict(); this.renderHeatmap() }
   }
 
   /** PNG bundle for a vision-capable repair round: [original render,
@@ -935,6 +968,17 @@ class ReviewController {
     lines.push(c.fidelity != null
       ? `pixel diff: ${Math.round((1 - c.fidelity) * 100)}% of sampled pixels differ between the source render and the converted render.`
       : 'pixel diff unavailable (slide would not rasterize) — rely on the structural notes below.')
+    // WHERE the miss is — measured regions from the same rasters as the
+    // score, so a targeted repair can aim at the offending area only
+    const regions = this.slideDiffs[i]?.regions ?? []
+    if (regions.length > 0) {
+      lines.push('mismatch regions (fractions of the slide, origin top-left; fix THESE areas, leave the rest untouched):')
+      for (const r of regions) {
+        lines.push(
+          `- x=${r.x.toFixed(2)} y=${r.y.toFixed(2)} w=${r.w.toFixed(2)} h=${r.h.toFixed(2)}` +
+          ` — ${Math.round(r.frac * 100)}% of its content differs`)
+      }
+    }
     for (const w of c.warnings) lines.push(w)
     for (const n of c.notes) lines.push(`${n.kind} at ${n.locator}: ${n.note}`)
     return lines.join('\n')
