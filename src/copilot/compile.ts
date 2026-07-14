@@ -17,20 +17,26 @@ const BY = 'copilot' as const
 
 export interface CompileResult {
   ops: Op[]
-  /** proposals that could not be compiled — surfaced on the card, honestly */
-  skipped: ProposedOp[]
+  /** proposals that could not be compiled, each with WHY — surfaced on the
+   * card and fed back to the model so it can correct itself */
+  skipped: Array<{ op: ProposedOp; reason: string }>
 }
 
 export function compileOps(proposed: ProposedOp[]): CompileResult {
   const ops: Op[] = []
-  const skipped: ProposedOp[] = []
+  const skipped: Array<{ op: ProposedOp; reason: string }> = []
   for (const p of proposed) {
     try {
       const op = compileOne(p)
       if (op) ops.push(op)
-      else { skipped.push(p); console.warn('[copilot] skipped proposal (target not found):', p) }
+      else {
+        const reason = `target "${p.target}" did not resolve (or a required value/extra field is missing)`
+        skipped.push({ op: p, reason })
+        console.warn('[copilot] skipped proposal:', reason, p)
+      }
     } catch (err) {
-      skipped.push(p)
+      const reason = err instanceof Error ? err.message : String(err)
+      skipped.push({ op: p, reason })
       console.warn('[copilot] skipped proposal (compile error):', p, err)
     }
   }

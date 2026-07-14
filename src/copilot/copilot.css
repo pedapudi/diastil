@@ -215,6 +215,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* dry-compile said this op will not bind — hover for the reason */
+.dia-cop-card-op.is-unresolved {
+  color: var(--bad);
+  opacity: 0.85;
+}
 .dia-cop-card-actions {
   display: flex;
   gap: 6px;

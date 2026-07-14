@@ -117,7 +117,9 @@ export interface ChatContext {
 export type ChatEvent =
   | { type: 'text'; delta: string }
   | { type: 'thinking'; delta: string }
-  | { type: 'ops'; ops: ProposedOp[] }
+  /** dropped: proposals the service could not recover from a mangled
+   * propose_ops payload — reported so the editor can ask for a correction */
+  | { type: 'ops'; ops: ProposedOp[]; dropped?: number }
   | { type: 'done' }
   | { type: 'error'; message: string }
 

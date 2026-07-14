@@ -238,8 +238,12 @@ async def _chat_events(req: ChatRequest) -> AsyncIterator[dict[str, str]]:
             for part in parts or []:
                 call = getattr(part, "function_call", None)
                 if call is not None and call.name == "propose_ops":
-                    ops = (call.args or {}).get("ops", [])
-                    yield _frame({"type": "ops", "ops": ops})
+                    # models mangle the payload in creative ways (JSON-string
+                    # lists, singleton dicts, numeric values) — recover what
+                    # is recoverable and report the rest as `dropped` so the
+                    # editor can ask for a correction instead of going quiet
+                    ops, dropped = agents.coerce_ops((call.args or {}).get("ops", []))
+                    yield _frame({"type": "ops", "ops": ops, "dropped": dropped})
                     continue
                 text = getattr(part, "text", None)
                 if not text:
@@ -279,6 +283,38 @@ async def _run_skill(skill: str, prompt: str, images: list[str] | None = None) -
         return await agents.run_skill_once(skill, prompt, CONFIG, images=images)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"{skill} failed: {exc}")
+
+
+async def _run_html_skill(
+    skill: str, prompt: str, images: list[str] | None, root: str
+) -> tuple[str, str]:
+    """Run an html-producing skill and hold it to its contract: ONE raw
+    <root> element. A malformed reply (prose, fences the extractor can't
+    unwrap, missing element) gets ONE correction round — the model sees its
+    own bad reply and is asked again. Still malformed → 422 with the reason,
+    never mystery markup passed downstream."""
+    out, thinking = await _run_skill(skill, prompt, images)
+    html = agents.extract_root_html(out, root)
+    if html is not None:
+        return html, thinking
+    correction = (
+        prompt
+        + "\n\n<previous-reply>\n" + out[:2000] + "\n</previous-reply>\n"
+        + f"Your previous reply (quoted above) did not contain the required raw "
+        + f"<{root}> element. Reply again with ONLY the corrected <{root}>…</{root}> "
+        + "markup — no prose, no markdown fences, nothing before or after it."
+    )
+    out2, thinking2 = await _run_skill(skill, correction, images)
+    html = agents.extract_root_html(out2, root)
+    thinking = "\n\n".join(filter(None, [
+        thinking, f"[reply had no <{root}> element — ran a correction round]", thinking2,
+    ]))
+    if html is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{skill}: the model returned no <{root}> element, even after a correction round",
+        )
+    return html, thinking
 
 
 def _feedback_block(feedback: str) -> str:
@@ -322,7 +358,7 @@ async def translate_slide(req: TranslateRequest) -> dict[str, str]:
     if req.images:
         prompt += TRANSLATE_IMAGE_NOTE
     prompt += _feedback_block(req.feedback)
-    out, thinking = await _run_skill("translate-slide", prompt, req.images)
+    out, thinking = await _run_html_skill("translate-slide", prompt, req.images, "section")
     return {"slideHtml": out, "thinking": thinking}
 
 
@@ -337,14 +373,14 @@ async def repair_fidelity(req: RepairRequest) -> dict[str, str]:
     if req.images:
         prompt += REPAIR_IMAGE_NOTE
     prompt += _feedback_block(req.feedback)
-    out, thinking = await _run_skill("repair-fidelity", prompt, req.images)
+    out, thinking = await _run_html_skill("repair-fidelity", prompt, req.images, "section")
     return {"slideHtml": out, "thinking": thinking}
 
 
 @app.post("/skills/lift-diagram")
 async def lift_diagram(req: LiftRequest) -> dict[str, str]:
     prompt = req.svgHtml + (LIFT_IMAGE_NOTE if req.images else "") + _feedback_block(req.feedback)
-    out, thinking = await _run_skill("lift-diagram", prompt, req.images)
+    out, thinking = await _run_html_skill("lift-diagram", prompt, req.images, "svg")
     return {"sceneHtml": out, "thinking": thinking}
 
 

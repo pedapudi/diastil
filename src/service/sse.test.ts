@@ -58,3 +58,80 @@ describe('sseData', () => {
     expect(await collect(['\n\n\n\n: ping\n\n'])).toEqual([])
   })
 })
+
+/* ---------- chat event normalization ----------
+ * Model output is untrusted at every layer: a frame that parses as JSON can
+ * still be the wrong shape. These pin what survives and what is dropped. */
+
+import { normalizeChatEvent } from './client'
+
+describe('normalizeChatEvent', () => {
+  it('passes well-formed events through', () => {
+    expect(normalizeChatEvent({ type: 'text', delta: 'hi' })).toEqual({ type: 'text', delta: 'hi' })
+    expect(normalizeChatEvent({ type: 'thinking', delta: 'hm' })).toEqual({ type: 'thinking', delta: 'hm' })
+    expect(normalizeChatEvent({ type: 'done' })).toEqual({ type: 'done' })
+    expect(normalizeChatEvent({ type: 'error', message: 'boom' })).toEqual({ type: 'error', message: 'boom' })
+  })
+
+  it('rejects junk frames outright', () => {
+    expect(normalizeChatEvent(null)).toBeNull()
+    expect(normalizeChatEvent('text')).toBeNull()
+    expect(normalizeChatEvent({ type: 'surprise' })).toBeNull()
+    expect(normalizeChatEvent({ type: 'text' })).toBeNull() // no delta
+    expect(normalizeChatEvent({ type: 'text', delta: { nested: true } })).toBeNull()
+  })
+
+  it('coerces numeric deltas and defaults error messages', () => {
+    expect(normalizeChatEvent({ type: 'text', delta: 42 })).toEqual({ type: 'text', delta: '42' })
+    expect(normalizeChatEvent({ type: 'error' })).toEqual({ type: 'error', message: 'service error' })
+  })
+
+  it('ops: accepts a clean list and synthesizes missing labels', () => {
+    const ev = normalizeChatEvent({ type: 'ops', ops: [{ action: 'set-text', target: 'slide 1 title', value: 'New' }] })
+    expect(ev).toEqual({
+      type: 'ops',
+      dropped: 0,
+      ops: [{ action: 'set-text', target: 'slide 1 title', label: 'set-text slide 1 title', value: 'New' }],
+    })
+  })
+
+  it('ops: unwraps a JSON-string list (models double-encode)', () => {
+    const ev = normalizeChatEvent({
+      type: 'ops',
+      ops: '[{"action":"remove","target":"#x","label":"rm"}]',
+    })
+    expect(ev).toEqual({ type: 'ops', dropped: 0, ops: [{ action: 'remove', target: '#x', label: 'rm' }] })
+  })
+
+  it('ops: drops unreadable items and counts them, keeping the rest', () => {
+    const ev = normalizeChatEvent({
+      type: 'ops',
+      ops: [{ action: 'remove', target: '#x', label: 'rm' }, 'junk', 7, { target: 'no action' }],
+    })
+    expect(ev).toEqual({ type: 'ops', dropped: 3, ops: [{ action: 'remove', target: '#x', label: 'rm' }] })
+  })
+
+  it('ops: coerces numeric targets/values and filters extra to primitives', () => {
+    const ev = normalizeChatEvent({
+      type: 'ops',
+      ops: [{ action: 'set-style', target: 3, value: 12, extra: { prop: 'gap', junk: { deep: 1 } } }],
+    })
+    expect(ev).toEqual({
+      type: 'ops',
+      dropped: 0,
+      ops: [{ action: 'set-style', target: '3', label: 'set-style 3', value: '12', extra: { prop: 'gap' } }],
+    })
+  })
+
+  it('ops: a hopeless payload becomes an empty proposal with dropped > 0', () => {
+    expect(normalizeChatEvent({ type: 'ops', ops: 'not json' }))
+      .toEqual({ type: 'ops', dropped: 1, ops: [] })
+    expect(normalizeChatEvent({ type: 'ops', ops: { action: 'x' } }))
+      .toEqual({ type: 'ops', dropped: 1, ops: [] })
+  })
+
+  it('ops: honors the service-side dropped count additively', () => {
+    const ev = normalizeChatEvent({ type: 'ops', dropped: 2, ops: ['junk'] })
+    expect(ev).toEqual({ type: 'ops', dropped: 3, ops: [] })
+  })
+})

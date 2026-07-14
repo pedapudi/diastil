@@ -1,7 +1,7 @@
 /* Client for the local dia service (ADK-based). Offline-graceful:
  * health() false ⇒ UI shows the offline state, editor works fully without it. */
 
-import type { ChatContext, ChatEvent, ImportResult } from '../types'
+import type { ChatContext, ChatEvent, ImportResult, ProposedOp } from '../types'
 
 /** a single-shot skill run: the output plus any model reasoning — the
  * import review shows the FULL transcript, not a one-line summary */
@@ -59,7 +59,10 @@ export class ServiceClient {
       return
     }
     for await (const payload of sseData(res.body)) {
-      try { yield JSON.parse(payload) as ChatEvent } catch { /* skip malformed frame */ }
+      let raw: unknown
+      try { raw = JSON.parse(payload) } catch { continue } // malformed frame — skip
+      const ev = normalizeChatEvent(raw)
+      if (ev) yield ev
     }
     yield { type: 'done' }
   }
@@ -101,10 +104,81 @@ export class ServiceClient {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     })
-    if (!r.ok) throw new Error(`${name} failed: ${r.status}`)
+    if (!r.ok) {
+      // the service's detail says WHY (e.g. "model returned no <section>
+      // element, even after a correction round") — surface it, not just 422
+      let detail = ''
+      try { detail = String((await r.json())?.detail ?? '') } catch { /* body not json */ }
+      throw new Error(`${name} failed: ${r.status}${detail ? ` — ${detail}` : ''}`)
+    }
     const j = await r.json()
     return { output: (j[field] as string) ?? '', thinking: (j.thinking as string) ?? '' }
   }
+}
+
+/* ---------- chat event normalization ----------
+ * Everything on the wire is model-shaped until proven otherwise. A frame
+ * that parses as JSON can still be junk: wrong type tag, ops as a JSON
+ * string, numeric deltas. Normalize what is recoverable, drop the rest —
+ * a bad frame must never reach the rail as a lie about its own shape. */
+
+export function normalizeChatEvent(raw: unknown): ChatEvent | null {
+  if (typeof raw !== 'object' || raw === null) return null
+  const ev = raw as Record<string, unknown>
+  switch (ev.type) {
+    case 'text':
+    case 'thinking': {
+      const delta = typeof ev.delta === 'string' ? ev.delta
+        : typeof ev.delta === 'number' ? String(ev.delta) : null
+      return delta === null ? null : { type: ev.type, delta }
+    }
+    case 'error': {
+      const message = typeof ev.message === 'string' ? ev.message : 'service error'
+      return { type: 'error', message }
+    }
+    case 'done':
+      return { type: 'done' }
+    case 'ops': {
+      let list = ev.ops
+      if (typeof list === 'string') {
+        try { list = JSON.parse(list) } catch { list = null }
+      }
+      const items = Array.isArray(list) ? list : []
+      const ops: ProposedOp[] = []
+      let dropped = typeof ev.dropped === 'number' && ev.dropped > 0 ? ev.dropped : 0
+      for (const item of items) {
+        const op = normalizeProposedOp(item)
+        if (op) ops.push(op)
+        else dropped++
+      }
+      if (!Array.isArray(list) && items.length === 0 && ev.ops != null) dropped++
+      return { type: 'ops', ops, dropped }
+    }
+    default:
+      return null
+  }
+}
+
+function normalizeProposedOp(item: unknown): ProposedOp | null {
+  if (typeof item !== 'object' || item === null) return null
+  const o = item as Record<string, unknown>
+  if (typeof o.action !== 'string' || o.action === '') return null
+  const target = typeof o.target === 'string' ? o.target
+    : typeof o.target === 'number' ? String(o.target) : null
+  if (target === null) return null
+  const label = typeof o.label === 'string' && o.label !== '' ? o.label : `${o.action} ${target}`.trim()
+  const op: ProposedOp = { action: o.action as ProposedOp['action'], target, label }
+  if (o.value !== undefined && o.value !== null) {
+    op.value = typeof o.value === 'string' ? o.value : String(o.value)
+  }
+  if (typeof o.extra === 'object' && o.extra !== null) {
+    const extra: Record<string, string | number> = {}
+    for (const [k, v] of Object.entries(o.extra as Record<string, unknown>)) {
+      if (typeof v === 'string' || typeof v === 'number') extra[k] = v
+    }
+    op.extra = extra
+  }
+  return op
 }
 
 /* ---------- SSE parsing ----------

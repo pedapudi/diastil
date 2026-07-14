@@ -209,3 +209,85 @@ def strip_fences(text: str) -> str:
         if first_newline != -1 and text.rstrip().endswith("```"):
             return text[first_newline + 1 :].rstrip().removesuffix("```").rstrip()
     return text
+
+
+def extract_root_html(text: str, root: str) -> str | None:
+    """The html-skill contract is ONE raw <root> element. Models wrap it in
+    fences, preface it with prose, or trail commentary — recover the element
+    from the noise, or return None so the caller can ask for a correction.
+    Never invents markup: the slice runs from the first real opening tag to
+    the LAST closing tag, keeping everything the model put inside."""
+    t = strip_fences(text.strip())
+    low = t.lower()
+    open_prefix = f"<{root}"
+    start = low.find(open_prefix)
+    # the opening tag must be a real tag, not a prefix (<svg vs <svg-sprite)
+    while start != -1:
+        nxt = low[start + len(open_prefix) : start + len(open_prefix) + 1]
+        if nxt in ("", " ", ">", "\n", "\t", "/"):
+            break
+        start = low.find(open_prefix, start + 1)
+    if start == -1:
+        return None
+    close = f"</{root}>"
+    end = low.rfind(close)
+    if end == -1 or end < start:
+        return None
+    return t[start : end + len(close)]
+
+
+def coerce_ops(raw: object) -> tuple[list[dict], int]:
+    """Normalize a model's propose_ops payload into a clean list of op dicts.
+    Models emit the list as JSON strings, singleton dicts, {'ops': [...]}
+    wrappers, numeric values, and missing labels — recover everything
+    recoverable and count what was dropped, so the editor can report the
+    loss honestly and ask for a correction."""
+    import json as _json
+
+    dropped = 0
+    if isinstance(raw, str):
+        try:
+            raw = _json.loads(raw)
+        except Exception:
+            return [], 1
+    if isinstance(raw, dict) and isinstance(raw.get("ops"), (list, str)):
+        return coerce_ops(raw["ops"])
+    if isinstance(raw, dict):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return [], 1
+    ops: list[dict] = []
+    for item in raw:
+        if isinstance(item, str):
+            try:
+                item = _json.loads(item)
+            except Exception:
+                dropped += 1
+                continue
+        if not isinstance(item, dict):
+            dropped += 1
+            continue
+        action = item.get("action")
+        target = item.get("target")
+        if not isinstance(action, str) or not action:
+            dropped += 1
+            continue
+        if not isinstance(target, str):
+            target = str(target) if isinstance(target, (int, float)) else None
+        if target is None:
+            dropped += 1
+            continue
+        label = item.get("label")
+        if not isinstance(label, str) or not label:
+            label = f"{action} {target}".strip()
+        op: dict = {"action": action, "target": target, "label": label}
+        value = item.get("value")
+        if value is not None:
+            op["value"] = value if isinstance(value, str) else str(value)
+        extra = item.get("extra")
+        if isinstance(extra, dict):
+            op["extra"] = {
+                str(k): v for k, v in extra.items() if isinstance(v, (str, int, float))
+            }
+        ops.append(op)
+    return ops, dropped

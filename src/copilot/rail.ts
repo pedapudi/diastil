@@ -276,8 +276,15 @@ export function mountCopilot(host: HTMLElement): void {
     }
     input.value = ''
     autogrow()
+    await runChatTurn(text, false)
+  }
 
-    appendBubble('user', text)
+  /** one chat turn. auto=true is the ONE machine-initiated correction round
+   * after a turn whose proposals were entirely unusable — it renders as a
+   * quiet line, and its own failures never trigger another round. */
+  async function runChatTurn(text: string, auto: boolean): Promise<void> {
+    if (auto) appendQuiet('asking for corrected proposals…')
+    else appendBubble('user', text)
     busy = true
     setComposerEnabled(false)
     const pending = appendPending()
@@ -286,7 +293,7 @@ export function mountCopilot(host: HTMLElement): void {
     let thinking: { body: HTMLElement; box: HTMLDetailsElement; raw: string } | null = null
     // proposals are HELD until the stream ends: the apply/reject decision
     // belongs after the model's full explanation, not in the middle of it
-    const proposals: ProposedOp[][] = []
+    const proposals: Array<{ ops: ProposedOp[]; dropped: number }> = []
     let produced = false
     let failed = false
     try {
@@ -307,7 +314,7 @@ export function mountCopilot(host: HTMLElement): void {
           scrollDown()
         } else if (ev.type === 'ops') {
           produced = true
-          proposals.push(ev.ops)
+          proposals.push({ ops: ev.ops, dropped: ev.dropped ?? 0 })
         } else if (ev.type === 'error') {
           failed = true
           appendError(ev.message)
@@ -319,13 +326,36 @@ export function mountCopilot(host: HTMLElement): void {
     } finally {
       pending.remove()
       if (thinking) thinking.box.open = false
-      for (const ops of proposals) appendOpsCard(ops)
       busy = false
       setComposerEnabled(true)
       // a chat that failed before producing anything gives the draft back
       if (failed && !produced && !input.value) { input.value = text; autogrow() }
       input.focus()
       void checkHealth(true)
+    }
+
+    // proposal cards render AFTER the turn settles, each dry-compiled
+    // against the live document so unresolvable ops are marked before the
+    // user decides anything
+    const troubles: string[] = []
+    for (const p of proposals) {
+      const dry = compileOps(p.ops)
+      appendOpsCard(p.ops, dry)
+      if (p.dropped > 0 && p.ops.length === 0) {
+        troubles.push(`the proposal payload was malformed — ${p.dropped} item(s) were unreadable and dropped`)
+      } else if (p.ops.length > 0 && dry.ops.length === 0) {
+        troubles.push(dry.skipped.map((s) => `"${s.op.label}": ${s.reason}`).join('; '))
+      }
+    }
+    // one machine correction round, only for turns whose proposals were
+    // ENTIRELY unusable — partial results stay in the user's hands
+    if (troubles.length > 0 && !auto) {
+      const correction =
+        'correction: none of your proposed ops could be applied. ' +
+        troubles.join(' · ') +
+        ' Re-check the targeting grammar (data-dia-id, "slide N", "slide N <role> [ordinal]", a css selector, or exact text) ' +
+        'against the slides in context, and re-propose corrected ops via propose_ops.'
+      await runChatTurn(correction, true)
     }
   }
 
@@ -385,6 +415,15 @@ export function mountCopilot(host: HTMLElement): void {
     scrollDown(true)
   }
 
+  /** machine-initiated turns (the correction round) read as process notes,
+   * not as something the user said */
+  function appendQuiet(text: string): void {
+    const q = div('dia-cop-quiet')
+    q.textContent = text
+    log.appendChild(q)
+    scrollDown(true)
+  }
+
   /** three pulsing dots while the model hasn't produced its first token */
   function appendPending(): HTMLElement {
     const p = div('dia-cop-msg dia-cop-assistant dia-cop-pending')
@@ -409,19 +448,35 @@ export function mountCopilot(host: HTMLElement): void {
     return { body, box, raw: '' }
   }
 
-  function appendOpsCard(ops: ProposedOp[]): void {
+  function appendOpsCard(ops: ProposedOp[], dry: ReturnType<typeof compileOps>): void {
     const card = div('dia-cop-card')
     const list = div('dia-cop-card-ops')
+    // dry-compile verdicts: the card is honest about what will actually
+    // happen BEFORE the user decides — an unresolvable op is marked, with
+    // the reason, instead of failing silently at apply time
+    const unresolved = new Map(dry.skipped.map((s) => [s.op, s.reason]))
     for (const op of ops) {
       const line = div('dia-cop-card-op')
-      line.textContent = op.label
+      const reason = unresolved.get(op)
+      if (reason !== undefined) {
+        line.classList.add('is-unresolved')
+        line.textContent = `⚠ ${op.label}`
+        line.title = reason
+      } else {
+        line.textContent = op.label
+      }
+      list.appendChild(line)
+    }
+    if (ops.length === 0) {
+      const line = div('dia-cop-card-op is-unresolved')
+      line.textContent = '⚠ the model sent no readable proposals'
       list.appendChild(line)
     }
     const actions = div('dia-cop-card-actions')
     const apply = document.createElement('button')
     apply.type = 'button'
     apply.className = 'dn-btn dia-cop-apply'
-    apply.textContent = 'apply'
+    apply.textContent = dry.ops.length === ops.length ? 'apply' : `apply ${dry.ops.length}/${ops.length}`
     const reject = document.createElement('button')
     reject.type = 'button'
     reject.className = 'dn-btn'
@@ -437,17 +492,23 @@ export function mountCopilot(host: HTMLElement): void {
       done.textContent = note
       card.appendChild(done)
     }
+    if (dry.ops.length === 0) {
+      settle(ops.length === 0 ? 'nothing usable arrived' : 'nothing to apply — no target resolved')
+      return
+    }
     apply.addEventListener('click', () => {
+      // recompile at apply time: the document may have changed since the
+      // card rendered, and the ops must bind to what is on screen NOW
       const { ops: compiled, skipped } = compileOps(ops)
       if (compiled.length === 0) {
-        settle(`nothing to apply — no target resolved (${skipped.map((s) => s.label).join(' · ')})`)
+        settle(`nothing to apply — no target resolved (${skipped.map((s) => s.op.label).join(' · ')})`)
         return
       }
       const label = ops.length === 1 ? ops[0].label : `Copilot: ${ops.length} changes`
       state.apply(batch(label, compiled, 'copilot'))
       settle(skipped.length === 0
         ? 'applied · in undo history'
-        : `applied ${compiled.length}/${ops.length} · skipped: ${skipped.map((s) => s.label).join(' · ')}`)
+        : `applied ${compiled.length}/${ops.length} · skipped: ${skipped.map((s) => s.op.label).join(' · ')}`)
     })
     reject.addEventListener('click', () => settle('rejected'))
   }
