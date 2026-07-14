@@ -61,6 +61,11 @@ venv needed. `dia <file>` / `dia ingest` / `dia serve` need the installed
 service; editing also needs the built editor bundle (`npm run build` in
 the repo, or `DIA_EDITOR_DIST=/path/to/dist`).
 
+Commands that open a browser take `--no-open`, and skip the browser
+automatically when there is no display (no `DISPLAY`/`WAYLAND_DISPLAY`,
+e.g. an ssh session) — the printed URL is the one to port-forward:
+`ssh -L 8317:127.0.0.1:8317 host`, then open it locally.
+
 ## Endpoints (the model kind)
 
 Any OpenAI-compatible URL works — hosted APIs, OpenRouter, or fully
