@@ -75,7 +75,7 @@ export function widthIcon(name: string): SVGSVGElement {
   return s
 }
 
-export type MiscIcon = 'plus-node' | 'del' | 'front' | 'back' | 'anchors' | 'label' | 'ungroup' | 'make-node'
+export type MiscIcon = 'plus-node' | 'del' | 'front' | 'back' | 'anchors' | 'label' | 'ungroup' | 'make-node' | 'points'
 
 export function miscIcon(name: MiscIcon): SVGSVGElement {
   const s = svg()
@@ -113,6 +113,18 @@ export function miscIcon(name: MiscIcon): SVGSVGElement {
       s.appendChild(pathEl('M3,2.5 h14 a1.5,1.5 0 0 1 1.5,1.5 v6 a1.5,1.5 0 0 1 -1.5,1.5 h-14 a1.5,1.5 0 0 1 -1.5,-1.5 v-6 a1.5,1.5 0 0 1 1.5,-1.5 Z', 1.1))
       s.appendChild(pathEl('M5,9 C7,4 9,10 11,5 S15,8 15.5,5.5', 1.3))
       break
+    case 'points': {
+      // a curve with its anchor points exposed
+      s.appendChild(pathEl('M2.5,10.5 C6,3 12,12 17.5,4.5', 1.2))
+      for (const [cx, cy] of [[2.5, 10.5], [10, 7.6], [17.5, 4.5]]) {
+        const c = document.createElementNS(NS, 'circle')
+        c.setAttribute('cx', String(cx)); c.setAttribute('cy', String(cy))
+        c.setAttribute('r', '1.7')
+        c.setAttribute('fill', 'currentColor')
+        s.appendChild(c)
+      }
+      break
+    }
     case 'anchors': {
       s.appendChild(pathEl('M5.5,4 h9 v6 h-9 Z', 1))
       for (const [cx, cy] of [[10, 4], [10, 10], [5.5, 7], [14.5, 7]]) {

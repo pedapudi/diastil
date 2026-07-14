@@ -10,6 +10,7 @@ import type { EdgeRoute, NodeShape } from '../types'
 import { state } from '../state'
 import { moveEl, setStyleProp } from '../model/ops'
 import { getShape } from './route'
+import { canPointEdit, pointEditActive, togglePointEditor } from './points'
 import { miscIcon, routeIcon, shapeIcon, swatch, widthIcon, type MiscIcon } from './icons'
 import {
   canUngroupFree, contentEndIndex, deleteSceneSelection, ensureSceneStyleRules,
@@ -158,6 +159,13 @@ function buildFreeBar(el: HTMLDivElement, scene: SVGSVGElement, target: SVGGraph
   top.appendChild(iconBtn('make-node', 'make node — promote to a scene node (keeps the artwork)', () => {
     promoteFreeToNode(scene, target)
   }))
+  if (canPointEdit(target)) {
+    const b = iconBtn('points', 'edit points — drag the path’s anchors and control points (Esc exits)', () => {
+      togglePointEditor({ kind: 'free', scene, el: target as SVGPathElement })
+    })
+    if (pointEditActive({ kind: 'free', scene, el: target as SVGPathElement })) b.classList.add('dn-on')
+    top.appendChild(b)
+  }
   top.appendChild(iconBtn('del', 'delete', () => deleteSceneSelection()))
 
   styleRow(el, 'fill', target, 'fill', FREE_FILLS)
@@ -180,6 +188,13 @@ function buildNodeBar(el: HTMLDivElement, scene: SVGSVGElement, node: SVGGElemen
     if (s !== getShape(node)) state.apply(setShapeOp(scene, node, s))
   }))
   top.appendChild(iconBtn('plus-node', 'add connected node', () => spawnConnectedNode(scene, node)))
+  if (getShape(node) === 'path') {
+    const b = iconBtn('points', 'edit outline — drag the shape’s anchors and control points (Esc exits)', () => {
+      togglePointEditor({ kind: 'node', scene, node })
+    })
+    if (pointEditActive({ kind: 'node', scene, node })) b.classList.add('dn-on')
+    top.appendChild(b)
+  }
   top.appendChild(iconBtn('del', 'delete', () => deleteSceneSelection()))
 
   styleRow(el, 'fill', node, '--dia-node-fill', FILLS)

@@ -100,6 +100,18 @@ the op log, no inference:
 - **drawing**: with the scene background selected, toggle `line` or `pen`
   in the toolbar — strokes commit as token-styled `path.dia-draw` elements
   (one op each); Esc exits the tool
+- **point editing**: any free `<path>` (pen strokes, imported art) and any
+  `path`-shaped node has an edit-points toolbar button — drag anchor
+  circles and control-point squares; each drag is one undo step (writes
+  `d` on free paths, the 100×100-normalized `data-path` on nodes); Esc
+  exits. This is deliberately the whole "illustrator" surface: reshaping
+  what is already semantic, never boolean ops or masks
+- **canvas size**: with an inline scene selected, `canvas: grow` pads the
+  viewBox on every side (room to move or draw OUTSIDE the current box)
+  and `fit content` shrink-wraps it back around the drawing — both are
+  single `viewBox` ops. Full-slide layers are the slide; they don't resize
+- inserts include `+ star` and `+ arrow` — freeform `path`-shaped nodes
+  born point-editable
 - double-click a node → edit its label in place
 - double-click any verbatim `<text>` (imported art, annotations) → edit it
   in place, same editor

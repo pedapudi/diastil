@@ -12,7 +12,8 @@ import { loadDeck } from '../model/parse'
 import { insertEl, setAttr, setStyleProp, setToken } from '../model/ops'
 import { routeAll } from '../scene/route'
 import {
-  ensureSceneStyleRules, getDrawTool, insertShapeNode, setDrawTool,
+  ensureSceneStyleRules, expandSceneCanvas, fitSceneCanvas, getDrawTool,
+  insertShapeNode, setDrawTool,
 } from '../scene/interact'
 import { swatch } from '../scene/icons'
 import { assignFreshIds } from './slides'
@@ -522,7 +523,10 @@ export function mountEditor(host: HTMLElement): void {
       const r = h('div', 'de-style-row')
       r.append(h('span', 'de-style-k', 'insert'))
       const seg = h('span', 'dn-seg')
-      for (const [labelText, kind] of [['+ node', 'node'], ['+ circle', 'circle'], ['+ square', 'square']] as const) {
+      for (const [labelText, kind] of [
+        ['+ node', 'node'], ['+ circle', 'circle'], ['+ square', 'square'],
+        ['+ star', 'star'], ['+ arrow', 'arrow'],
+      ] as const) {
         const b = h('button', '', labelText)
         b.type = 'button'
         b.addEventListener('click', () => insertShapeNode(scene, kind))
@@ -530,6 +534,25 @@ export function mountEditor(host: HTMLElement): void {
       }
       r.append(seg)
       rows.push(r)
+      // canvas: room to work OUTSIDE the current box. grow pads the viewBox;
+      // fit shrink-wraps it back around the content. Full-slide layers are
+      // the slide — their canvas is not resizable.
+      if (!scene.classList.contains('dia-scene-full')) {
+        const cr = h('div', 'de-style-row')
+        cr.append(h('span', 'de-style-k', 'canvas'))
+        const cseg = h('span', 'dn-seg')
+        const grow = h('button', '', 'grow')
+        grow.type = 'button'
+        grow.title = 'pad the canvas on every side — move or draw outside the current box'
+        grow.addEventListener('click', () => expandSceneCanvas(scene))
+        const fit = h('button', '', 'fit content')
+        fit.type = 'button'
+        fit.title = 'shrink-wrap the canvas around the drawing'
+        fit.addEventListener('click', () => fitSceneCanvas(scene))
+        cseg.append(grow, fit)
+        cr.append(cseg)
+        rows.push(cr)
+      }
     } else {
       const r = h('div', 'de-style-row')
       r.append(h('span', 'de-style-k', 'svg'))

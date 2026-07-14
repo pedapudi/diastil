@@ -210,7 +210,7 @@ function nodeStyle(el: Element, tokenColor: TokenColor): string {
 
 /* ---------------- path data ---------------- */
 
-interface Cmd { c: string; args: number[] }
+export interface Cmd { c: string; args: number[] }
 
 const ARG_COUNT: Record<string, number> = {
   M: 2, L: 2, T: 2, H: 1, V: 1, C: 6, S: 4, Q: 4, A: 7, Z: 0,

@@ -688,27 +688,94 @@ export function ensureSceneStyleRules(): void {
   theme.textContent = `${theme.textContent ?? ''}\n${SCENE_STYLE_RULES}\n`
 }
 
-/** insert a standalone shape (circle/square = a label-less node) or a plain
- * labeled node near the scene center — ONE op, selected afterwards */
-export function insertShapeNode(scene: SVGSVGElement, kind: 'node' | 'circle' | 'square'): void {
+/** freeform primitives as 100×100-normalized outlines — path-shaped nodes,
+ * so the point editor can reshape them afterwards */
+const PATH_PRESETS: Record<'star' | 'arrow', string> = {
+  star: starPath(5, 50, 20),
+  arrow: 'M0,32 L58,32 L58,8 L100,50 L58,92 L58,68 L0,68 Z',
+}
+
+function starPath(points: number, rOuter: number, rInner: number): string {
+  const parts: string[] = []
+  for (let i = 0; i < points * 2; i++) {
+    const r = i % 2 === 0 ? rOuter : rInner
+    const a = -Math.PI / 2 + (i * Math.PI) / points
+    const x = Math.round((50 + r * Math.cos(a)) * 100) / 100
+    const y = Math.round((50 + r * Math.sin(a)) * 100) / 100
+    parts.push(`${i === 0 ? 'M' : 'L'}${x},${y}`)
+  }
+  return `${parts.join(' ')} Z`
+}
+
+export type InsertKind = 'node' | 'circle' | 'square' | 'star' | 'arrow'
+
+/** insert a standalone shape (label-less node) or a plain labeled node near
+ * the scene center — ONE op, selected afterwards */
+export function insertShapeNode(scene: SVGSVGElement, kind: InsertKind): void {
   ensureSceneStyleRules()
   const vb = scene.viewBox.baseVal
   const cx = vb && vb.width > 0 ? vb.x + vb.width / 2 : 170
   const cy = vb && vb.height > 0 ? vb.y + vb.height / 2 : 120
   const n = nodesOf(scene).length
-  const size = kind === 'node' ? { w: 120, h: 40 } : { w: 72, h: 72 }
+  const size = kind === 'node' ? { w: 120, h: 40 }
+    : kind === 'arrow' ? { w: 110, h: 56 }
+    : { w: 72, h: 72 }
   const geom: NodeGeom = {
     x: snapGrid(cx - size.w / 2 + (n % 5) * 12 - 24),
     y: snapGrid(cy - size.h / 2 + (n % 5) * 10 - 20),
     w: size.w, h: size.h,
   }
-  const shape: NodeShape = kind === 'circle' ? 'ellipse' : kind === 'square' ? 'rect' : 'rounded'
+  const shape: NodeShape = kind === 'circle' ? 'ellipse'
+    : kind === 'square' ? 'rect'
+    : kind === 'star' || kind === 'arrow' ? 'path'
+    : 'rounded'
   const nid = freshNodeId(scene)
   const nodeEl = createNode(scene, nid, geom, kind === 'node' ? 'node' : '', shape)
+  if (kind === 'star' || kind === 'arrow') {
+    nodeEl.setAttribute('data-path', PATH_PRESETS[kind])
+    renderNodeShape(nodeEl)
+  }
   nodeEl.remove()
   state.apply(insertEl(scene, scene.children.length, nodeEl, `Insert ${kind} ${nid}`))
   state.selection = { kind: 'scene-node', node: nodeEl, scene, slide: slideOf(scene) }
   if (kind === 'node') openLabelEdit(scene, nodeEl)
+}
+
+/** Grow the scene canvas: pad the viewBox on every side so there is room to
+ * move or draw OUTSIDE the current box. One attr op; inline scenes keep
+ * width:100%, so the rendered aspect follows the viewBox. */
+export function expandSceneCanvas(scene: SVGSVGElement): void {
+  const vb = scene.viewBox.baseVal
+  if (!vb || vb.width <= 0) return
+  const pad = Math.round(Math.max(vb.width, vb.height) * 0.15)
+  const next = `${round2(vb.x - pad)} ${round2(vb.y - pad)} ${round2(vb.width + 2 * pad)} ${round2(vb.height + 2 * pad)}`
+  state.apply(setAttr(scene, 'viewBox', next))
+}
+
+/** Shrink-wrap the canvas to its content (plus breathing room) — the inverse
+ * of expand, and the tidy-up after art has been moved around. */
+export function fitSceneCanvas(scene: SVGSVGElement): void {
+  let box: { x: number; y: number; w: number; h: number } | null = null
+  for (const child of scene.children) {
+    if (child.classList.contains('dia-editor-artifact')) continue
+    if (/^(defs|style|title|desc|metadata)$/.test(child.tagName)) continue
+    const g = child as SVGGraphicsElement
+    if (typeof g.getBBox !== 'function') continue
+    let b: DOMRect
+    try { b = g.getBBox() } catch { continue }
+    if (b.width < 0.01 && b.height < 0.01) continue
+    box = box === null
+      ? { x: b.x, y: b.y, w: b.width, h: b.height }
+      : {
+          x: Math.min(box.x, b.x), y: Math.min(box.y, b.y),
+          w: Math.max(box.x + box.w, b.x + b.width) - Math.min(box.x, b.x),
+          h: Math.max(box.y + box.h, b.y + b.height) - Math.min(box.y, b.y),
+        }
+  }
+  if (!box || box.w < 1 || box.h < 1) return
+  const pad = Math.round(Math.max(box.w, box.h) * 0.06) + 8
+  const next = `${round2(box.x - pad)} ${round2(box.y - pad)} ${round2(box.w + 2 * pad)} ${round2(box.h + 2 * pad)}`
+  state.apply(setAttr(scene, 'viewBox', next))
 }
 
 /** drop on empty canvas → new node + connecting edge as ONE batch op */

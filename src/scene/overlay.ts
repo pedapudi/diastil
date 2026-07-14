@@ -25,6 +25,11 @@ svg.dia-scene g[data-dia-node] { cursor: grab; }
 .dia-overlay .dia-guide-label { font-family: var(--mono); fill: var(--bad); }
 .dia-overlay .dia-temp-edge { stroke: var(--accent); stroke-width: 1.4; stroke-dasharray: 5 4; fill: none; vector-effect: non-scaling-stroke; }
 .dia-overlay .dia-candidate { fill: none; stroke: var(--accent); stroke-width: 1.4; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.dia-points { pointer-events: none; }
+.dia-points .dia-points-trace { fill: none; stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.7; vector-effect: non-scaling-stroke; }
+.dia-points .dia-points-arm { fill: none; stroke: var(--accent); stroke-width: 0.8; opacity: 0.55; vector-effect: non-scaling-stroke; }
+.dia-points .dia-point { fill: var(--paper); stroke: var(--accent); stroke-width: 1.2; vector-effect: non-scaling-stroke; pointer-events: all; cursor: move; }
+.dia-points .dia-point.is-control { fill: var(--accent); stroke: var(--paper); }
 `
 
 export function ensureEditorStyles(root: ShadowRoot): void {
