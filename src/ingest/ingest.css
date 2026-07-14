@@ -233,6 +233,24 @@ iframe.dia-ingest-exec {
   color: var(--bad);
 }
 
+/* highlight-for-context: the reviewer shades regions to focus the model.
+ * The layer is pinned over the pane's slide crop by layoutPane; inert
+ * until highlight mode, but placed boxes stay clickable to remove */
+.dia-hl-layer {
+  position: absolute;
+  z-index: 6;
+  pointer-events: none;
+}
+.dia-hl-layer.is-active { pointer-events: auto; cursor: crosshair; }
+.dia-hl-box {
+  position: absolute;
+  background: rgba(255, 170, 0, 0.18);
+  border: 1.5px solid rgba(255, 150, 0, 0.9);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.dia-hl-box.is-ghost { pointer-events: none; border-style: dashed; background: rgba(255, 170, 0, 0.1); }
+
 /* candidate version selector: every produced candidate stays choosable —
  * the one in the converted pane carries the accent edge */
 .dia-versions {

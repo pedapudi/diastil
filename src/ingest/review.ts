@@ -18,6 +18,10 @@ import {
   scoreSlideFidelityDetailed, rasterizeRegion, rasterizeToDataUrl, diffHeatmapDataUrl,
   REPAIR_THRESHOLD, type SlideDiff,
 } from './fidelity'
+import {
+  describeHighlights, installMarquee, renderHighlightBoxes, stampHighlights,
+  type HighlightRegion,
+} from '../editor/highlights'
 
 /** cap on automatic service repair rounds per slide (more is manual) */
 const MAX_AUTO_REPAIR_ROUNDS = 3
@@ -89,6 +93,13 @@ class ReviewController {
   private modelLog: Array<Array<ModelLogEntry>> = []
   /** a lift that re-measured lower, awaiting the reviewer's keep/revert call */
   private pendingLift: { index: number; before: SlideConversion; prev: number | null; after: number | null } | null = null
+  /** reviewer-shaded regions per slide — rendered as overlays, stamped onto
+   * the PNGs vision skills receive, and described in the prompt text */
+  private highlights: Array<{ original: HighlightRegion[]; converted: HighlightRegion[] }> = []
+  private hlMode = false
+  private hlBtn!: HTMLButtonElement
+  private origHl!: HTMLElement
+  private convHl!: HTMLElement
   /** every candidate the pipeline or the model ever produced for each slide —
    * auto-keep-best picks a default, but the OPERATOR outranks the metric:
    * any recorded version can be selected in the verdict row */
@@ -149,7 +160,8 @@ class ReviewController {
       if (e.key === 'Escape') { e.preventDefault(); t.blur() }
       return
     }
-    if (e.key === 'Escape') { e.preventDefault(); this.cancel() }
+    if (e.key === 'Escape' && this.hlMode) { e.preventDefault(); this.hlBtn.click() }
+    else if (e.key === 'Escape') { e.preventDefault(); this.cancel() }
     else if (e.key === 'ArrowLeft') { e.preventDefault(); this.go(this.current - 1) }
     else if (e.key === 'ArrowRight') { e.preventDefault(); this.go(this.current + 1) }
   }
@@ -209,7 +221,18 @@ class ReviewController {
       this.segButtons.push(b)
     }
     this.hint = h('span', 'dia-cmp-hint')
-    tools.append(seg, this.hint)
+    this.hlBtn = btn('highlight', 'dn-btn')
+    this.hlBtn.title = 'shade a region on either pane to focus the model on it — click a shaded box to remove it'
+    this.hlBtn.addEventListener('click', () => {
+      this.hlMode = !this.hlMode
+      this.hlBtn.classList.toggle('dn-on', this.hlMode)
+      this.origHl.classList.toggle('is-active', this.hlMode)
+      this.convHl.classList.toggle('is-active', this.hlMode)
+      this.hint.textContent = this.hlMode
+        ? 'drag on either pane to shade a region for the model · Esc exits'
+        : ''
+    })
+    tools.append(seg, this.hlBtn, this.hint)
 
     // compare panes
     this.cmp = h('div', 'dia-cmp')
@@ -218,6 +241,14 @@ class ReviewController {
     const conv = this.buildPane('converted', 'is-converted')
     this.origViewport = orig.viewport
     this.convViewport = conv.viewport
+    // highlight layers sit exactly over each pane's slide crop (layoutPane
+    // keeps them positioned); marquee-drag shades a region for the model
+    this.origHl = h('div', 'dia-hl-layer')
+    this.convHl = h('div', 'dia-hl-layer')
+    this.origViewport.appendChild(this.origHl)
+    this.convViewport.appendChild(this.convHl)
+    installMarquee(this.origHl, (r) => this.addHighlight('original', r))
+    installMarquee(this.convHl, (r) => this.addHighlight('converted', r))
     // heatmap pane: the measurement's own diff image, for human eyes —
     // the same picture the VLM receives in repair rounds
     const heat = h('div', 'dia-cmp-heat dn-panel')
@@ -466,6 +497,7 @@ class ReviewController {
     const c = this.conversions[this.current]
     const pendingHere = this.pendingLift?.index === this.current
     this.renderVersions()
+    this.renderHighlights()
     this.acceptSlideBtn.textContent = c.accepted ? 'slide accepted ✓' : 'accept slide'
     this.retryBtn.disabled = !this.serviceOk || this.copBusy || pendingHere
     this.liftBtn.disabled = !this.serviceOk || this.copBusy || !this.hasLiftableSvg(this.current) || pendingHere
@@ -672,6 +704,15 @@ class ReviewController {
     const ox = (vw - rect.width * k) / 2
     const oy = (vh - rect.height * k) / 2
     frame.style.transform = `translate(${ox}px, ${oy}px) scale(${k}) translate(${-rect.left}px, ${-rect.top}px)`
+    // pin the highlight layer to the slide's displayed box, so marquee
+    // fractions are slide fractions with no letterbox math downstream
+    const hlLayer = viewport.querySelector<HTMLElement>(':scope > .dia-hl-layer')
+    if (hlLayer) {
+      hlLayer.style.left = `${ox}px`
+      hlLayer.style.top = `${oy}px`
+      hlLayer.style.width = `${rect.width * k}px`
+      hlLayer.style.height = `${rect.height * k}px`
+    }
     // mask everything but the current slide (neighbors would otherwise show
     // in the letterbox slack); clip-path is in pre-transform local coords
     const fw = frame.clientWidth || EXEC_W
@@ -691,8 +732,10 @@ class ReviewController {
     try {
       // a vision model should SEE the original it must reproduce
       await this.showOriginal(index)
-      const png = this.origRoots[index] ? await rasterizeToDataUrl(this.origRoots[index]) : null
-      const feedback = this.feedbackFor(index)
+      let png = this.origRoots[index] ? await rasterizeToDataUrl(this.origRoots[index]) : null
+      const hl = this.highlights[index]
+      if (png && hl) png = await stampHighlights(png, hl.original)
+      const feedback = [this.feedbackFor(index), this.highlightNotes(index)].filter(Boolean).join('\n')
       this.logModel(index, 'user', 'retranslate: full model re-translation of this slide')
       this.logDetail(index, `sent → translate-slide${png ? ' · 1 image (original render)' : ''}`,
         `source slide html (${slide.sourceHtml.length} chars)${feedback ? `\n\nreviewer feedback:\n${feedback}` : ''}\n\n${slide.sourceHtml}`,
@@ -800,7 +843,12 @@ class ReviewController {
         rasterizeRegion(orig), rasterizeRegion(conv),
       ])
       if (!origPng || !convPng) return []
-      const images = [origPng, convPng]
+      // reviewer highlights ride ON the renders — the model sees the boxes
+      const hl = this.highlights[i]
+      const images = [
+        hl ? await stampHighlights(origPng, hl.original) : origPng,
+        hl ? await stampHighlights(convPng, hl.converted) : convPng,
+      ]
       const heat = origBmp && convBmp ? diffHeatmapDataUrl(origBmp, convBmp) : null
       if (heat) images.push(heat)
       return images
@@ -816,7 +864,7 @@ class ReviewController {
     const before = this.conversions[i]
     const slide = this.input.extraction.slides[i]
     let improved = false
-    const feedback = [this.feedbackFor(i), note].filter(Boolean).join('\n')
+    const feedback = [this.feedbackFor(i), note, this.highlightNotes(i)].filter(Boolean).join('\n')
     try {
       const mismatch = this.describeMismatch(i)
       const images = await this.repairImages(i)
@@ -947,6 +995,42 @@ class ReviewController {
       .map((e) => e.text)
       .filter((t) => !t.startsWith('retry:'))
       .join('\n')
+  }
+
+  /* ---------- highlights: shade a region for the model ---------- */
+
+  private hlOf(i: number): { original: HighlightRegion[]; converted: HighlightRegion[] } {
+    return (this.highlights[i] ??= { original: [], converted: [] })
+  }
+
+  private addHighlight(pane: 'original' | 'converted', r: HighlightRegion): void {
+    this.hlOf(this.current)[pane].push(r)
+    this.renderHighlights()
+    this.logModel(this.current, 'quiet',
+      `highlighted a region on the ${pane} pane — it rides along with every model call for this slide`)
+    this.renderModelLog()
+  }
+
+  private renderHighlights(): void {
+    const hl = this.hlOf(this.current)
+    renderHighlightBoxes(this.origHl, hl.original, (k) => {
+      hl.original.splice(k, 1)
+      this.renderHighlights()
+    })
+    renderHighlightBoxes(this.convHl, hl.converted, (k) => {
+      hl.converted.splice(k, 1)
+      this.renderHighlights()
+    })
+  }
+
+  /** prompt lines for the slide's highlighted regions (both panes) */
+  private highlightNotes(i: number): string {
+    const hl = this.highlights[i]
+    if (!hl) return ''
+    return [
+      describeHighlights(hl.original, 'the ORIGINAL slide'),
+      describeHighlights(hl.converted, 'the CONVERTED candidate'),
+    ].filter(Boolean).join('\n')
   }
 
   private renderModelLog(): void {

@@ -189,6 +189,18 @@ def _compose_message(req: ChatRequest) -> str:
             " — reference for the content and intent the conversion aimed at):"
         )
         lines.append(str(original))
+    highlights = ctx.get("highlights") or []
+    if highlights:
+        lines.append(
+            f"the user shaded {len(highlights)} region(s) on the current slide's render "
+            "(orange boxes on the attached image; fractions of the slide, origin "
+            "top-left) — treat them as the focus of the request:"
+        )
+        for r in highlights:
+            if isinstance(r, dict):
+                lines.append(
+                    f"- x={r.get('x')} y={r.get('y')} w={r.get('w')} h={r.get('h')}"
+                )
     has_render = bool(ctx.get("slideImage"))
     has_original_render = bool(ctx.get("originalImage"))
     if has_render and has_original_render:

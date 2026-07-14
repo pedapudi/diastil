@@ -46,6 +46,11 @@ section.dia-slide svg.dia-scene-full { pointer-events: none; }
 section.dia-slide svg.dia-scene-full > :not(.dia-editor-artifact) { pointer-events: auto; }
 :host([data-dia-drawing]) section.dia-slide svg { pointer-events: bounding-box; }
 [contenteditable] { outline: 2px solid var(--accent); outline-offset: 2px; cursor: text; }
+/* highlight-for-context: user-shaded regions the copilot receives */
+section.dia-slide > .dia-hl-layer { position: absolute; inset: 0; z-index: 40; pointer-events: none; }
+section.dia-slide > .dia-hl-layer.is-active { pointer-events: auto; cursor: crosshair; }
+.dia-hl-layer .dia-hl-box { position: absolute; background: rgba(255,170,0,.18); border: 1.5px solid rgba(255,150,0,.9); pointer-events: auto; cursor: pointer; }
+.dia-hl-layer .dia-hl-box.is-ghost { pointer-events: none; border-style: dashed; }
 `
 
 export function mountEditor(host: HTMLElement): void {

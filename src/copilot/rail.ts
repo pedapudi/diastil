@@ -10,10 +10,73 @@ import { service } from '../service/client'
 import { batch } from '../model/ops'
 import { rasterizeToDataUrl } from '../ingest/fidelity'
 import { embeddedOriginals } from '../editor/compare'
+import {
+  installMarquee, renderHighlightBoxes, stampHighlights, type HighlightRegion,
+} from '../editor/highlights'
 import { compileOps } from './compile'
 import { renderMarkdown } from './markdown'
 
 const HEALTH_MIN_INTERVAL = 30_000
+
+/* ---------- highlight-for-context on the editing surface ----------
+ * The user shades regions of the current slide; they render as overlays
+ * (editor artifacts — stripped on save), get stamped onto the slide render
+ * the copilot receives, and are listed in the context. Keyed by slide
+ * ELEMENT, so reordering slides keeps highlights with their slide. */
+
+const slideHighlights = new WeakMap<HTMLElement, HighlightRegion[]>()
+let hlMode = false
+
+function hlList(slide: HTMLElement): HighlightRegion[] {
+  let list = slideHighlights.get(slide)
+  if (!list) { list = []; slideHighlights.set(slide, list) }
+  return list
+}
+
+function ensureHlLayer(slide: HTMLElement): HTMLElement {
+  let layer = slide.querySelector<HTMLElement>(':scope > .dia-hl-layer')
+  if (!layer) {
+    layer = document.createElement('div')
+    layer.className = 'dia-editor-artifact dia-hl-layer'
+    slide.appendChild(layer)
+    installMarquee(layer, (r) => {
+      hlList(slide).push(r)
+      refreshHlLayer(slide)
+      for (const fn of [...contextListeners]) fn()
+    })
+  }
+  return layer
+}
+
+function refreshHlLayer(slide: HTMLElement): void {
+  const layer = ensureHlLayer(slide)
+  renderHighlightBoxes(layer, hlList(slide), (k) => {
+    hlList(slide).splice(k, 1)
+    refreshHlLayer(slide)
+    for (const fn of [...contextListeners]) fn()
+  })
+  layer.classList.toggle('is-active', hlMode && slide === state.slides()[state.currentSlide])
+}
+
+/** activate only the current slide's layer; others go inert */
+function syncHlLayers(): void {
+  for (const [i, slide] of state.slides().entries()) {
+    const has = (slideHighlights.get(slide)?.length ?? 0) > 0
+    const isCurrent = i === state.currentSlide
+    if (has || (hlMode && isCurrent)) refreshHlLayer(slide)
+    else slide.querySelector(':scope > .dia-hl-layer')?.classList.remove('is-active')
+  }
+}
+
+function toggleHlMode(): void {
+  hlMode = !hlMode
+  syncHlLayers()
+  for (const fn of [...contextListeners]) fn()
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && hlMode) toggleHlMode()
+})
 
 /* ---------- the imported original as context ----------
  * Imported decks carry one self-contained reference page per slide
@@ -228,8 +291,19 @@ export function mountCopilot(host: HTMLElement): void {
     const tail = document.createElement('span')
     const pinGesture = /Mac|iP(hone|ad|od)/.test(navigator.platform) ? '⌥-click' : 'alt/shift-click'
     const withOriginal = deckHasOriginals(state.deck) ? ' + original' : ''
-    tail.textContent = `${what ? ` › ${what}` : ''} + tokens + slide render${withOriginal} · ${pinGesture} a minimap slide to pin`
+    const curSlide = state.slides()[state.currentSlide]
+    const hlCount = curSlide ? (slideHighlights.get(curSlide)?.length ?? 0) : 0
+    const withHl = hlCount > 0 ? ` + ${hlCount} highlight${hlCount > 1 ? 's' : ''}` : ''
+    tail.textContent = `${what ? ` › ${what}` : ''} + tokens + slide render${withOriginal}${withHl} · ${pinGesture} a minimap slide to pin`
     context.appendChild(tail)
+    // shade regions on the slide for the model — drag to add, click to remove
+    const hlBtn = document.createElement('button')
+    hlBtn.type = 'button'
+    hlBtn.className = `dia-cop-chip${hlMode ? ' is-pinned' : ''}`
+    hlBtn.textContent = hlMode ? 'highlighting… (Esc)' : 'highlight'
+    hlBtn.title = 'drag a region on the current slide to focus the copilot on it — click a shaded box to remove it'
+    hlBtn.addEventListener('click', toggleHlMode)
+    context.appendChild(hlBtn)
   }
   renderContext()
   onContextChange(renderContext)
@@ -237,6 +311,7 @@ export function mountCopilot(host: HTMLElement): void {
   state.bus.on((e) => {
     if (e.type === 'selection' || e.type === 'altitude' || e.type === 'current-slide' || e.type === 'slides-changed') {
       renderContext()
+      if (e.type === 'current-slide' || e.type === 'slides-changed') syncHlLayers()
     } else if (e.type === 'deck-loaded') {
       sessionId = newSessionId()
       renderContext()
@@ -374,8 +449,13 @@ export function mountCopilot(host: HTMLElement): void {
     // null (rasterization failed) degrades to text-only, same as before.
     let slideImage: string | null = null
     const current = slides[state.currentSlide]
+    const hl = current ? (slideHighlights.get(current) ?? []) : []
     if (current) {
-      try { slideImage = await rasterizeToDataUrl(current) } catch { /* text-only */ }
+      try {
+        slideImage = await rasterizeToDataUrl(current)
+        // the model sees the user's shaded regions ON the render
+        if (slideImage && hl.length > 0) slideImage = await stampHighlights(slideImage, hl)
+      } catch { /* text-only */ }
     }
     // the imported original of this slide, when the deck carries one —
     // the model sees what the conversion was aiming at, not just its result
@@ -394,6 +474,7 @@ export function mountCopilot(host: HTMLElement): void {
       slideImage,
       originalHtml: original?.html ?? null,
       originalImage: original?.image ?? null,
+      highlights: hl.length > 0 ? hl : undefined,
     }
   }
 
