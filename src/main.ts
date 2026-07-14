@@ -14,4 +14,5 @@ if (import.meta.env.DEV) {
     ;(window as unknown as Record<string, unknown>).__diaImport =
       (html: string, name: string) => startImport(html, name)
   })
+  void import('./ingest/corpus').then(({ installCorpusCapture }) => installCorpusCapture())
 }

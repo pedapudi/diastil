@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+<head>
+<style>
+  body { margin: 0; background: #fff; font-family: Georgia, serif; }
+  .slide { width: 1280px; height: 720px; padding: 60px; box-sizing: border-box; }
+  h1 { font-size: 48px; }
+  .kick { font-size: 14px; letter-spacing: .2em; text-transform: uppercase; color: #b4552d; }
+  .pt { font-size: 24px; opacity: 0; animation: fadein .4s ease both; }
+  .pt:nth-of-type(2) { animation-delay: .5s; }
+  .pt:nth-of-type(3) { animation-delay: 1s; }
+  .pt:nth-of-type(4) { animation-delay: 1.5s; }
+  @keyframes fadein { from { opacity: 0 } to { opacity: 1 } }
+</style>
+</head>
+<body>
+<div class="slide">
+  <div class="kick">build order</div>
+  <h1>Points appear one by one</h1>
+  <p class="pt">First point, visible after a beat.</p>
+  <p class="pt">Second point, half a second later.</p>
+  <p class="pt">Third point follows.</p>
+  <p class="pt">Fourth point closes.</p>
+</div>
+<div class="slide">
+  <div class="kick">second slide</div>
+  <h1>No builds here</h1>
+  <p>Static content only.</p>
+</div>
+</body>
+</html>

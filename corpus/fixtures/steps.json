@@ -1,0 +1,36 @@
+{
+  "name": "steps",
+  "capturedAt": "2026-07-14T18:01:20.599Z",
+  "slideCount": 2,
+  "confidence": [
+    1,
+    1
+  ],
+  "warnings": [
+    "confidence = mapped text chars / total text chars, ×0.9 where islands remain — structural, not visual",
+    "fidelity pass did not run — visual match unverified"
+  ],
+  "regionKinds": {},
+  "islands": 0,
+  "tokens": {
+    "--dia-paper": "rgb(255, 255, 255)",
+    "--dia-ink": "rgb(0, 0, 0)",
+    "--dia-ink-soft": "rgb(77, 77, 77)",
+    "--dia-accent": "rgb(180, 85, 45)",
+    "--dia-rule": "rgb(209, 209, 209)",
+    "--dia-face-display": "Georgia, serif",
+    "--dia-face-body": "Georgia, serif",
+    "--dia-face-label": "ui-monospace, \"SF Mono\", Menlo, monospace",
+    "--dia-scale-1": "1.38cqw",
+    "--dia-scale-2": "2.07cqw",
+    "--dia-scale-3": "2.92cqw",
+    "--dia-scale-4": "3.48cqw",
+    "--dia-scale-5": "4.14cqw",
+    "--dia-scale-6": "5.17cqw",
+    "--dia-scale-7": "6.47cqw",
+    "--dia-gap": "2.07cqw",
+    "--dia-pad": "4.69%"
+  },
+  "originalSlideCount": 2,
+  "deckHtml": "<!doctype html>\n<html lang=\"en\" data-dia-version=\"1\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>steps</title>\n<script type=\"text/x-dia-original\" id=\"dia-originals\">{\"version\":1,\"slides\":[\"\\u003c!doctype html>\\n\\u003chtml>\\n\\u003chead>\\n\\u003cmeta charset=\\\"utf-8\\\">\\n\\n\\u003cstyle>\\n\\n  body { margin: 0; background: #fff; font-family: Georgia, serif; }\\n  .slide { width: 1280px; height: 720px; padding: 60px; box-sizing: border-box; }\\n  h1 { font-size: 48px; }\\n  .kick { font-size: 14px; letter-spacing: .2em; text-transform: uppercase; color: #b4552d; }\\n  .pt { font-size: 24px; opacity: 0; animation: fadein .4s ease both; }\\n  .pt:nth-of-type(2) { animation-delay: .5s; }\\n  .pt:nth-of-type(3) { animation-delay: 1s; }\\n  .pt:nth-of-type(4) { animation-delay: 1.5s; }\\n  @keyframes fadein { from { opacity: 0 } to { opacity: 1 } }\\n\\n\\u003c/style>\\n\\u003c/head>\\n\\u003cbody>\\n\\u003cdiv class=\\\"slide\\\">\\n  \\u003cdiv class=\\\"kick\\\">build order\\u003c/div>\\n  \\u003ch1>Points appear one by one\\u003c/h1>\\n  \\u003cp class=\\\"pt\\\">First point, visible after a beat.\\u003c/p>\\n  \\u003cp class=\\\"pt\\\">Second point, half a second later.\\u003c/p>\\n  \\u003cp class=\\\"pt\\\">Third point follows.\\u003c/p>\\n  \\u003cp class=\\\"pt\\\">Fourth point closes.\\u003c/p>\\n\\u003c/div>\\n\\u003c/body>\\n\\u003c/html>\\n\",\"\\u003c!doctype html>\\n\\u003chtml>\\n\\u003chead>\\n\\u003cmeta charset=\\\"utf-8\\\">\\n\\n\\u003cstyle>\\n\\n  body { margin: 0; background: #fff; font-family: Georgia, serif; }\\n  .slide { width: 1280px; height: 720px; padding: 60px; box-sizing: border-box; }\\n  h1 { font-size: 48px; }\\n  .kick { font-size: 14px; letter-spacing: .2em; text-transform: uppercase; color: #b4552d; }\\n  .pt { font-size: 24px; opacity: 0; animation: fadein .4s ease both; }\\n  .pt:nth-of-type(2) { animation-delay: .5s; }\\n  .pt:nth-of-type(3) { animation-delay: 1s; }\\n  .pt:nth-of-type(4) { animation-delay: 1.5s; }\\n  @keyframes fadein { from { opacity: 0 } to { opacity: 1 } }\\n\\n\\u003c/style>\\n\\u003c/head>\\n\\u003cbody>\\n\\u003cdiv class=\\\"slide\\\">\\n  \\u003cdiv class=\\\"kick\\\">second slide\\u003c/div>\\n  \\u003ch1>No builds here\\u003c/h1>\\n  \\u003cp>Static content only.\\u003c/p>\\n\\u003c/div>\\n\\u003c/body>\\n\\u003c/html>\\n\"]}</script>\n<style id=\"dia-theme\">\n:root {\n  --dia-paper: rgb(255, 255, 255);\n  --dia-ink: rgb(0, 0, 0);\n  --dia-ink-soft: rgb(77, 77, 77);\n  --dia-accent: rgb(180, 85, 45);\n  --dia-rule: rgb(209, 209, 209);\n  --dia-face-display: Georgia, serif;\n  --dia-face-body: Georgia, serif;\n  --dia-face-label: ui-monospace, \"SF Mono\", Menlo, monospace;\n  --dia-scale-1: 1.38cqw;\n  --dia-scale-2: 2.07cqw;\n  --dia-scale-3: 2.92cqw;\n  --dia-scale-4: 3.48cqw;\n  --dia-scale-5: 4.14cqw;\n  --dia-scale-6: 5.17cqw;\n  --dia-scale-7: 6.47cqw;\n  --dia-gap: 2.07cqw;\n  --dia-pad: 4.69%;\n}\nsection.dia-slide {\n  aspect-ratio: 16 / 9;\n  /* the padding lives INSIDE the ratio — content-box sizing would add it\n   * on top and make every padded slide taller than 16:9 */\n  box-sizing: border-box;\n  /* a slide is one screen: content that runs long clips, exactly as the\n   * imported originals clipped it, instead of spilling over the next slide */\n  overflow: hidden;\n  container-type: inline-size; /* cqw-sized type scales with the slide */\n  position: relative; /* slides anchor absolutely-positioned decorations */\n  background: var(--dia-paper);\n  color: var(--dia-ink);\n  padding: var(--dia-pad);\n  font-family: var(--dia-face-body);\n}\n.dia-kicker { font-family: var(--dia-face-label); font-size: var(--dia-scale-1);\n  letter-spacing: .14em; text-transform: uppercase; color: var(--dia-accent); }\n.dia-title { font-family: var(--dia-face-display); font-size: var(--dia-scale-5);\n  line-height: 1.14; font-weight: 700; margin: 0; }\n.dia-body { font-size: var(--dia-scale-2); line-height: 1.55; color: var(--dia-ink-soft); }\n.dia-caption { font-family: var(--dia-face-label); font-size: var(--dia-scale-1);\n  color: var(--dia-ink-soft); }\n.dia-columns { display: grid; grid-template-columns: 1fr 1fr; gap: var(--dia-gap); }\n.dia-stack { display: flex; flex-direction: column; gap: calc(var(--dia-gap) / 2); }\n.dia-figure { align-self: center; }\n.dia-scene { width: 100%; }\n.dia-scene .dia-node-shape { fill: var(--dia-node-fill, var(--dia-paper)); stroke: var(--dia-node-stroke, var(--dia-ink)); stroke-width: var(--dia-node-stroke-w, 1.3); }\n.dia-scene .dia-node-label { font: 12px var(--dia-face-body); fill: var(--dia-node-ink, var(--dia-ink)); }\n.dia-scene .dia-edge-path { stroke: var(--dia-edge-stroke, var(--dia-ink)); stroke-width: var(--dia-edge-w, 1.2); fill: none; color: var(--dia-edge-stroke, var(--dia-ink)); }\n.dia-scene .dia-edge-label { font: 10px var(--dia-face-label); fill: var(--dia-edge-ink, var(--dia-ink-soft)); }\n.dia-scene [data-dia-emphasis] .dia-node-shape { stroke: var(--dia-accent); stroke-width: 2; }\n.dia-draw { fill: none; stroke: var(--dia-ink); stroke-linecap: round; stroke-linejoin: round; }\n</style>\n</head>\n<body>\n<section class=\"dia-slide\"><div class=\"dia-kicker\">build order</div><h1 class=\"dia-title\">Points appear one by one</h1><p class=\"dia-body\">First point, visible after a beat.</p><p class=\"dia-body\" data-dia-step=\"1\">Second point, half a second later.</p><p class=\"dia-body\" data-dia-step=\"2\">Third point follows.</p><p class=\"dia-body\" data-dia-step=\"3\">Fourth point closes.</p></section>\n\n<section class=\"dia-slide\"><div class=\"dia-kicker\">second slide</div><h1 class=\"dia-title\">No builds here</h1><p class=\"dia-body\" style=\"font-size: var(--dia-scale-1);\">Static content only.</p></section>\n<script id=\"dia-runtime\">\n</script>\n</body>\n</html>\n"
+}
