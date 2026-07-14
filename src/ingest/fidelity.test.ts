@@ -22,13 +22,13 @@ describe('diffBitmaps', () => {
     expect(diffBitmaps(a, b).score).toBe(1)
   })
 
-  it('content-weighted: junk covering half a BLANK original scores 0', () => {
+  it('junk covering half a BLANK original scores 0 (content invented)', () => {
     const a = bitmap(8, 8, [255, 255, 255, 255])
     const b = bitmap(8, 8, [255, 255, 255, 255])
     for (let i = 0; i < b.data.length / 2; i += 4) b.data[i] = 0 // top half red channel off
     const r = diffBitmaps(a, b)
-    // every content pixel (all of them introduced by the candidate) is wrong
     expect(r.score).toBe(0)
+    // the pixel accounting (heatmap/regions layer) is unchanged
     expect(r.diffPixels).toBe(32)
     expect(r.contentPixels).toBe(32)
     expect(r.totalPixels).toBe(64)
@@ -43,7 +43,7 @@ describe('diffBitmaps', () => {
     for (let p = 32; p < 44; p++) { const i = p * 4; a.data[i] = a.data[i + 1] = a.data[i + 2] = 255 }
     for (let p = 192; p < 204; p++) { const i = p * 4; b.data[i] = b.data[i + 1] = b.data[i + 2] = 255 }
     const r = diffBitmaps(a, b)
-    expect(r.score).toBe(0) // all content misplaced
+    expect(r.score).toBeLessThan(0.35) // all content misplaced
     expect(r.contentPixels).toBe(24)
   })
 
@@ -153,5 +153,63 @@ describe('estimateVerticalDrift', () => {
     paint(a, 20, 80, 60, 10)
     paint(b, 20, 45, 60, 10)
     expect(estimateVerticalDrift(a, b)).toBeNull()
+  })
+})
+
+/* The property the composite exists for: the penalty for displacement is
+ * GRADED, so a faithfully-converted slide whose text sits a few pixels off
+ * scores near the top, not near zero — and ranking follows perception. */
+describe('visual-consistency ranking', () => {
+  /** text-like content: several thin horizontal stripes */
+  function stripes(img: ImageData, xShift: number): void {
+    for (const row of [40, 60, 80, 100, 140]) {
+      for (let y = row; y < row + 4; y++) {
+        for (let x = 30 + xShift; x < 170 + xShift; x++) {
+          const i = (y * img.width + x) * 4
+          img.data[i] = img.data[i + 1] = img.data[i + 2] = 250
+        }
+      }
+    }
+  }
+  const dark: [number, number, number, number] = [20, 22, 28, 255]
+
+  it('a small global shift scores near the top; ranking is monotonic in displacement', () => {
+    const orig = bitmap(200, 200, dark); stripes(orig, 0)
+    const shifted2 = bitmap(200, 200, dark); stripes(shifted2, 2)
+    const shifted8 = bitmap(200, 200, dark); stripes(shifted8, 8)
+    const missing = bitmap(200, 200, dark) // no content at all
+    const s2 = diffBitmaps(orig, shifted2).score
+    const s8 = diffBitmaps(orig, shifted8).score
+    const sMissing = diffBitmaps(orig, missing).score
+    expect(s2).toBeGreaterThanOrEqual(0.8) // consistent slides score like it
+    expect(s2).toBeGreaterThan(s8)
+    expect(s8).toBeGreaterThan(sMissing)
+    expect(sMissing).toBe(0)
+  })
+
+  it('same shape in the wrong color: layout holds, appearance pays', () => {
+    const a = bitmap(200, 200, dark)
+    const b = bitmap(200, 200, dark)
+    for (let y = 50; y < 120; y++) for (let x = 50; x < 150; x++) {
+      const ia = (y * 200 + x) * 4
+      a.data[ia] = 220; a.data[ia + 1] = 60; a.data[ia + 2] = 60 // red block
+      b.data[ia] = 60; b.data[ia + 1] = 60; b.data[ia + 2] = 220 // blue block
+    }
+    const s = diffBitmaps(a, b).score
+    expect(s).toBeGreaterThan(0.4)
+    expect(s).toBeLessThan(0.92)
+  })
+
+  it('half the content missing scores well below a small shift', () => {
+    const orig = bitmap(200, 200, dark); stripes(orig, 0)
+    const half = bitmap(200, 200, dark)
+    for (const row of [40, 60]) { // keep only two of five stripes
+      for (let y = row; y < row + 4; y++) for (let x = 30; x < 170; x++) {
+        const i = (y * 200 + x) * 4
+        half.data[i] = half.data[i + 1] = half.data[i + 2] = 250
+      }
+    }
+    const shifted2 = bitmap(200, 200, dark); stripes(shifted2, 2)
+    expect(diffBitmaps(orig, shifted2).score - diffBitmaps(orig, half).score).toBeGreaterThan(0.2)
   })
 })

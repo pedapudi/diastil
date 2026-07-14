@@ -18,10 +18,12 @@ const CHANNEL_TOLERANCE = 40
 const RASTER_TIMEOUT_MS = 3000
 
 /** slides scoring below this are offered an automatic service repair round */
-export const REPAIR_THRESHOLD = 0.85
+export const REPAIR_THRESHOLD = 0.8
 
 export interface FidelityScore {
-  /** 1 − differing fraction over CONTENT pixels, 0..1 */
+  /** visual-consistency verdict, 0..1 — a composite of displacement
+   * (truncated chamfer), layout (coarse ink Dice), and appearance
+   * (multi-scale blurred color difference); see diffBitmaps */
   score: number
   diffPixels: number
   totalPixels: number
@@ -165,20 +167,217 @@ export function diffHeatmapDataUrl(a: ImageData, b: ImageData): string | null {
   }
 }
 
-/** Pixel-diff two same-size rasters, scored over CONTENT pixels.
+/** Score two rasters for VISUAL CONSISTENCY.
  *
- * A slide is mostly background; scoring over ALL pixels lets a
- * background-dominated slide read 0.9 while its content is destroyed —
- * on a dark deck, a five-card pipeline collapsing into one giant clipped
- * figure still "matches" on ~90% of pixels because black matches black.
- * The denominator is therefore the pixels that differ from the background
- * in EITHER raster; blank-ish slides fall back to the total so near-empty
- * originals don't divide by noise. */
+ * The verdict is a composite of three graded, orthogonal properties —
+ * not a binary per-pixel match, whose step-function penalty (1px free,
+ * 2px catastrophic) made faithfully-converted text collapse to ~0 the
+ * moment font metrics moved it a few pixels, while a single big filled
+ * shape scored high. Perceived consistency and the score diverged.
+ *
+ *   displacement — symmetric truncated chamfer distance between the two
+ *     ink masks: HOW FAR content moved, saturating at ~4% of height.
+ *     A 2px drift costs a little; absent ink costs everything.
+ *   layout — Dice overlap of ink mass on a coarse grid: is the
+ *     COMPOSITION the same, at the scale a human judges first.
+ *   appearance — mean color difference at blur radii 1/3/8px over the
+ *     union ink mask (plus a background term): the fine scale keeps the
+ *     metric honest about REWRITTEN content, the coarse scales grant
+ *     displacement tolerance proportional to scale.
+ *
+ * The per-pixel classification remains the EXPLANATION layer (heatmap,
+ * regions, drift); this composite is the verdict. Pixel counts are still
+ * reported for those explanations. */
 export function diffBitmaps(a: ImageData, b: ImageData): FidelityScore {
   const c = classifyPixels(a, b)
-  const denom = c.content >= c.total * 0.005 ? c.content : c.total
-  const score = Math.round(Math.max(0, 1 - c.diff / denom) * 1000) / 1000
+  const score = visualScore(a, b)
   return { score, diffPixels: c.diff, totalPixels: c.total, contentPixels: c.content }
+}
+
+const CHAMFER_MAX_FRAC = 0.04 // displacement saturates at 4% of height
+const APP_SCALES: Array<[radius: number, weight: number]> = [[1, 0.5], [3, 0.3], [8, 0.2]]
+
+function visualScore(a: ImageData, b: ImageData): number {
+  const w = Math.min(a.width, b.width)
+  const h = Math.min(a.height, b.height)
+  if (w < 2 || h < 2) return 0
+  // content = differs from the raster's OWN background: a retinted-but-
+  // faithful conversion keeps its mask; the appearance term sees the tint
+  const maskA = inkMask(a, w, h, estimateBackground(a))
+  const maskB = inkMask(b, w, h, estimateBackground(b))
+  let nA = 0
+  let nB = 0
+  for (let i = 0; i < w * h; i++) { nA += maskA[i]; nB += maskB[i] }
+  if (nA === 0 && nB === 0) return 1 // two blank slides agree
+  if (nA === 0 || nB === 0) return 0 // content invented, or destroyed wholesale
+  const displacement = chamferSim(maskA, maskB, w, h)
+  const layout = layoutSim(maskA, maskB, w, h)
+  const appearance = appearanceSim(a, b, maskA, maskB, w, h)
+  const score = 0.35 * displacement + 0.3 * layout + 0.35 * appearance
+  return Math.round(Math.max(0, Math.min(1, score)) * 1000) / 1000
+}
+
+function inkMask(img: ImageData, w: number, h: number, bg: [number, number, number]): Uint8Array {
+  const mask = new Uint8Array(w * h)
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * img.width + x) * 4
+      if (
+        Math.abs(img.data[i] - bg[0]) > CHANNEL_TOLERANCE ||
+        Math.abs(img.data[i + 1] - bg[1]) > CHANNEL_TOLERANCE ||
+        Math.abs(img.data[i + 2] - bg[2]) > CHANNEL_TOLERANCE
+      ) mask[y * w + x] = 1
+    }
+  }
+  return mask
+}
+
+/** symmetric truncated chamfer similarity: mean distance from each ink
+ * pixel to the nearest ink in the OTHER mask, saturated and normalized */
+function chamferSim(maskA: Uint8Array, maskB: Uint8Array, w: number, h: number): number {
+  const dmax = Math.max(2, h * CHAMFER_MAX_FRAC)
+  const dtA = distanceTransform(maskA, w, h)
+  const dtB = distanceTransform(maskB, w, h)
+  let pa = 0
+  let na = 0
+  let pb = 0
+  let nb = 0
+  for (let i = 0; i < w * h; i++) {
+    if (maskA[i]) { pa += Math.min(dtB[i], dmax) / dmax; na++ }
+    if (maskB[i]) { pb += Math.min(dtA[i], dmax) / dmax; nb++ }
+  }
+  return 1 - ((na ? pa / na : 1) + (nb ? pb / nb : 1)) / 2
+}
+
+/** two-pass 3-4 chamfer distance transform (≈ euclidean px after /3) */
+function distanceTransform(mask: Uint8Array, w: number, h: number): Float32Array {
+  const INF = 1e9
+  const d = new Float32Array(w * h)
+  for (let i = 0; i < w * h; i++) d[i] = mask[i] ? 0 : INF
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x
+      if (x > 0 && d[i - 1] + 3 < d[i]) d[i] = d[i - 1] + 3
+      if (y > 0) {
+        if (d[i - w] + 3 < d[i]) d[i] = d[i - w] + 3
+        if (x > 0 && d[i - w - 1] + 4 < d[i]) d[i] = d[i - w - 1] + 4
+        if (x < w - 1 && d[i - w + 1] + 4 < d[i]) d[i] = d[i - w + 1] + 4
+      }
+    }
+  }
+  for (let y = h - 1; y >= 0; y--) {
+    for (let x = w - 1; x >= 0; x--) {
+      const i = y * w + x
+      if (x < w - 1 && d[i + 1] + 3 < d[i]) d[i] = d[i + 1] + 3
+      if (y < h - 1) {
+        if (d[i + w] + 3 < d[i]) d[i] = d[i + w] + 3
+        if (x < w - 1 && d[i + w + 1] + 4 < d[i]) d[i] = d[i + w + 1] + 4
+        if (x > 0 && d[i + w - 1] + 4 < d[i]) d[i] = d[i + w - 1] + 4
+      }
+    }
+  }
+  for (let i = 0; i < w * h; i++) d[i] /= 3
+  return d
+}
+
+/** continuous Dice coefficient of ink mass on a coarse grid — same
+ * composition ⇒ 1, disjoint composition ⇒ 0 */
+function layoutSim(maskA: Uint8Array, maskB: Uint8Array, w: number, h: number): number {
+  const GX = 16
+  const GY = 9
+  const cellsA = new Float32Array(GX * GY)
+  const cellsB = new Float32Array(GX * GY)
+  for (let y = 0; y < h; y++) {
+    const gy = Math.min(GY - 1, Math.floor((y / h) * GY))
+    for (let x = 0; x < w; x++) {
+      const gx = Math.min(GX - 1, Math.floor((x / w) * GX))
+      const c = gy * GX + gx
+      cellsA[c] += maskA[y * w + x]
+      cellsB[c] += maskB[y * w + x]
+    }
+  }
+  let inter = 0
+  let total = 0
+  for (let c = 0; c < GX * GY; c++) {
+    inter += Math.min(cellsA[c], cellsB[c])
+    total += cellsA[c] + cellsB[c]
+  }
+  return total > 0 ? (2 * inter) / total : 1
+}
+
+/** multi-scale blurred color difference over the union ink mask, plus a
+ * background term — fine scale keeps rewritten content expensive, coarse
+ * scales tolerate displacement proportional to radius */
+function appearanceSim(
+  a: ImageData, b: ImageData, maskA: Uint8Array, maskB: Uint8Array, w: number, h: number,
+): number {
+  const bgA = estimateBackground(a)
+  const bgB = estimateBackground(b)
+  let scaled = 0
+  for (const [radius, weight] of APP_SCALES) {
+    const A = blurRGB(a, w, h, radius)
+    const B = blurRGB(b, w, h, radius)
+    let sum = 0
+    let n = 0
+    for (let i = 0; i < w * h; i++) {
+      if (!maskA[i] && !maskB[i]) continue
+      const j = i * 3
+      const d = Math.max(
+        Math.abs(A[j] - B[j]), Math.abs(A[j + 1] - B[j + 1]), Math.abs(A[j + 2] - B[j + 2]))
+      sum += d / 255
+      n++
+    }
+    scaled += weight * (1 - (n ? sum / n : 0))
+  }
+  const bgDiff = Math.max(
+    Math.abs(bgA[0] - bgB[0]), Math.abs(bgA[1] - bgB[1]), Math.abs(bgA[2] - bgB[2])) / 255
+  return 0.85 * scaled + 0.15 * (1 - bgDiff)
+}
+
+/** box blur (two-pass running sum), RGB only, cropped to w×h */
+function blurRGB(img: ImageData, w: number, h: number, radius: number): Float32Array {
+  const src = new Float32Array(w * h * 3)
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * img.width + x) * 4
+      const j = (y * w + x) * 3
+      src[j] = img.data[i]
+      src[j + 1] = img.data[i + 1]
+      src[j + 2] = img.data[i + 2]
+    }
+  }
+  if (radius < 1) return src
+  const tmp = new Float32Array(w * h * 3)
+  // horizontal
+  for (let y = 0; y < h; y++) {
+    for (let c = 0; c < 3; c++) {
+      let sum = 0
+      let count = 0
+      for (let x = -radius; x < w; x++) {
+        const add = x + radius
+        if (add < w) { sum += src[(y * w + add) * 3 + c]; count++ }
+        const sub = x - radius - 1
+        if (sub >= 0) { sum -= src[(y * w + sub) * 3 + c]; count-- }
+        if (x >= 0) tmp[(y * w + x) * 3 + c] = sum / count
+      }
+    }
+  }
+  // vertical
+  const out = new Float32Array(w * h * 3)
+  for (let x = 0; x < w; x++) {
+    for (let c = 0; c < 3; c++) {
+      let sum = 0
+      let count = 0
+      for (let y = -radius; y < h; y++) {
+        const add = y + radius
+        if (add < h) { sum += tmp[(add * w + x) * 3 + c]; count++ }
+        const sub = y - radius - 1
+        if (sub >= 0) { sum -= tmp[(sub * w + x) * 3 + c]; count-- }
+        if (y >= 0) out[(y * w + x) * 3 + c] = sum / count
+      }
+    }
+  }
+  return out
 }
 
 /** per-pixel verdicts shared by the score and the region clustering — one

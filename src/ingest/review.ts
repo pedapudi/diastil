@@ -1041,8 +1041,8 @@ class ReviewController {
     const c = this.conversions[i]
     const lines: string[] = []
     lines.push(c.fidelity != null
-      ? `pixel diff: ${Math.round((1 - c.fidelity) * 100)}% of sampled pixels differ between the source render and the converted render.`
-      : 'pixel diff unavailable (slide would not rasterize) — rely on the structural notes below.')
+      ? `visual mismatch: ${Math.round((1 - c.fidelity) * 100)}% (composite of content displacement, layout overlap, and appearance between the source render and the converted render).`
+      : 'visual comparison unavailable (slide would not rasterize) — rely on the structural notes below.')
     // a single vertical shift that explains the mismatch is a SPACING miss —
     // name it, or the model rewrites content when it should move it
     const drift = this.slideDiffs[i]?.verticalDrift
