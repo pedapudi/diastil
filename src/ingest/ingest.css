@@ -233,6 +233,33 @@ iframe.dia-ingest-exec {
   color: var(--bad);
 }
 
+/* candidate version selector: every produced candidate stays choosable —
+ * the one in the converted pane carries the accent edge */
+.dia-versions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+}
+.dia-versions-label {
+  font-family: var(--mono);
+  font-size: calc(9.5px * var(--dt-font-scale, 1));
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-right: 2px;
+}
+.dia-version {
+  font-family: var(--mono);
+  font-size: calc(10px * var(--dt-font-scale, 1));
+  white-space: nowrap;
+}
+.dia-version.is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 /* ---------- per-slide model conversation (right column) ---------- */
 
 .dia-review-cop {

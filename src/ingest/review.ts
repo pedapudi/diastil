@@ -89,6 +89,11 @@ class ReviewController {
   private modelLog: Array<Array<ModelLogEntry>> = []
   /** a lift that re-measured lower, awaiting the reviewer's keep/revert call */
   private pendingLift: { index: number; before: SlideConversion; prev: number | null; after: number | null } | null = null
+  /** every candidate the pipeline or the model ever produced for each slide —
+   * auto-keep-best picks a default, but the OPERATOR outranks the metric:
+   * any recorded version can be selected in the verdict row */
+  private versions: Array<Array<{ conv: SlideConversion; fidelity: number | null | undefined; origin: string }>> = []
+  private versionsEl!: HTMLElement
   private acceptSlideBtn!: HTMLButtonElement
   private retryBtn!: HTMLButtonElement
   private liftBtn!: HTMLButtonElement
@@ -159,6 +164,7 @@ class ReviewController {
 
   mount(): void {
     const { name, execution, conversions } = this.input
+    this.versions = conversions.map((c) => [{ conv: { ...c }, fidelity: undefined, origin: 'converted' }])
 
     this.overlay = h('div', 'dia-review')
     this.overlay.setAttribute('role', 'dialog')
@@ -266,12 +272,19 @@ class ReviewController {
     })
     const islandBtn = btn('island entire slide', 'dn-btn')
     islandBtn.addEventListener('click', () => {
-      this.conversions[this.current] = islandEntireSlide(this.input.extraction.slides[this.current], this.current)
-      this.rebuild()
+      void (async () => {
+        const i = this.current
+        this.conversions[i] = islandEntireSlide(this.input.extraction.slides[i], i)
+        await this.rebuildAndWait()
+        await this.measureSlide(i)
+        this.recordVersion(i, 'islanded')
+        this.renderVerdict()
+      })()
     })
     this.verdictMsg = h('span', 'dia-verdict-msg')
     this.liftDecision = h('span', 'dia-lift-decision')
-    verdict.append(this.acceptSlideBtn, islandBtn, this.liftDecision, this.verdictMsg)
+    this.versionsEl = h('span', 'dia-versions')
+    verdict.append(this.acceptSlideBtn, islandBtn, this.versionsEl, this.liftDecision, this.verdictMsg)
 
     // region notes
     this.notesEl = h('div', 'dia-notes')
@@ -452,6 +465,7 @@ class ReviewController {
   private renderVerdict(): void {
     const c = this.conversions[this.current]
     const pendingHere = this.pendingLift?.index === this.current
+    this.renderVersions()
     this.acceptSlideBtn.textContent = c.accepted ? 'slide accepted ✓' : 'accept slide'
     this.retryBtn.disabled = !this.serviceOk || this.copBusy || pendingHere
     this.liftBtn.disabled = !this.serviceOk || this.copBusy || !this.hasLiftableSvg(this.current) || pendingHere
@@ -484,6 +498,60 @@ class ReviewController {
         })()
       })
       this.liftDecision.append(keep, revert)
+    }
+  }
+
+  /* ---------- candidate versions: nothing the model produced is lost ----------
+   * Auto-keep-best is a DEFAULT, not a verdict: every candidate (initial
+   * conversion, each repair round, retranslations, lifts, islanding) is
+   * recorded with its measured score, and the operator can put any of them
+   * back in the converted pane. */
+
+  /** record the slide's ACTIVE conversion as a version (deduped by html) */
+  private recordVersion(i: number, origin: string): void {
+    const conv = this.conversions[i]
+    const list = (this.versions[i] ??= [])
+    const existing = list.find((v) => v.conv.html === conv.html)
+    if (existing) {
+      existing.fidelity = conv.fidelity ?? existing.fidelity
+      return
+    }
+    list.push({ conv: { ...conv }, fidelity: conv.fidelity, origin })
+    this.renderVersions()
+  }
+
+  /** measured score flows back into the matching recorded version */
+  private syncVersionScore(i: number): void {
+    const conv = this.conversions[i]
+    const v = this.versions[i]?.find((v) => v.conv.html === conv.html)
+    if (v) { v.fidelity = conv.fidelity; v.conv.fidelity = conv.fidelity }
+  }
+
+  private async selectVersion(i: number, k: number): Promise<void> {
+    const v = this.versions[i]?.[k]
+    if (!v || this.conversions[i].html === v.conv.html) return
+    this.conversions[i] = { ...v.conv }
+    await this.rebuildAndWait()
+    await this.measureSlide(i)
+    this.verdictMsg.textContent = `showing the "${v.origin}" version`
+    this.renderNotes(); this.renderVerdict()
+  }
+
+  private renderVersions(): void {
+    this.versionsEl.replaceChildren()
+    const list = this.versions[this.current] ?? []
+    if (list.length < 2) return
+    const active = this.conversions[this.current].html
+    this.versionsEl.appendChild(h('span', 'dia-versions-label', 'versions'))
+    for (const [k, v] of list.entries()) {
+      const b = btn('', `dn-btn dia-version${v.conv.html === active ? ' is-active' : ''}`)
+      const score = v.fidelity == null ? (v.fidelity === null ? '—' : '·') : v.fidelity.toFixed(2)
+      b.textContent = `${v.origin} ${score}`
+      b.title = v.conv.html === active
+        ? `the converted pane is showing this version`
+        : `show this version in the converted pane (fidelity ${score})`
+      b.addEventListener('click', () => void this.selectVersion(this.current, k))
+      this.versionsEl.appendChild(b)
     }
   }
 
@@ -636,7 +704,9 @@ class ReviewController {
       this.logDetail(index, 'received → translated slide html', result.output, { mono: true })
       this.conversions[index] = revalidateSlide(slide, index, result.output)
       this.logModel(index, 'assistant', 'retranslated — re-measuring fidelity')
-      this.rebuild()
+      await this.rebuildAndWait()
+      await this.measureSlide(index)
+      this.recordVersion(index, 'retranslate')
     } catch {
       this.verdictMsg.textContent = 'service translation failed — slide unchanged'
       this.logModel(index, 'quiet', 'retranslation failed — slide unchanged')
@@ -710,6 +780,7 @@ class ReviewController {
     }
     this.conversions[i].fidelity = detail ? detail.score.score : null
     this.slideDiffs[i] = detail
+    this.syncVersionScore(i)
     this.renderStrip()
     if (i === this.current) { this.renderNotes(); this.renderVerdict(); this.renderHeatmap() }
   }
@@ -763,10 +834,13 @@ class ReviewController {
       await this.rebuildAndWait()
       await this.measureSlide(i)
       const after = this.conversions[i].fidelity
+      // the candidate is recorded WHATEVER the verdict — auto-keep-best only
+      // chooses the default; the operator can select any version later
+      this.recordVersion(i, `repair ${repaired.repairRounds}`)
       if (before.fidelity != null && (after ?? -1) < before.fidelity) {
         this.conversions[i] = { ...before, repairRounds: repaired.repairRounds }
         await this.rebuildAndWait()
-        if (!auto) this.verdictMsg.textContent = 'repair scored lower — kept the previous candidate'
+        if (!auto) this.verdictMsg.textContent = 'repair scored lower — kept the previous candidate (still in versions)'
       } else {
         improved = before.fidelity == null || (after ?? 0) > before.fidelity
       }
@@ -828,6 +902,7 @@ class ReviewController {
     this.conversions[i] = liftedConv
     await this.rebuildAndWait()
     await this.measureSlide(i)
+    this.recordVersion(i, 'lift')
     const after = this.conversions[i].fidelity ?? null
     if (before.fidelity != null && (after ?? -1) < before.fidelity) {
       // the pane shows the lifted version — ask the reviewer instead of
