@@ -448,65 +448,124 @@ function applyVerticalRhythm(
   const layoutW = slide.layoutW || rect.w
   const cqw = (px: number): string => `${Math.round((px / layoutW) * 10000) / 100}cqw`
 
-  // bottom-anchored trailing group (footer): a contiguous run of trailing
-  // top-level blocks that the source drew low on the slide, separated from
-  // the body content by a real gap. This is anchoring INTENT, not just a
-  // measurement — margin-top:auto keeps the footer on the bottom edge even
-  // when converted content wraps to a different height.
-  let footerAt = -1
-  let f = boxes.length
-  while (f > 0 && boxes[f - 1].s.y > rect.y + rect.h * 0.66) f--
-  if (f > 0 && f < boxes.length) {
-    const footer = boxes.slice(f)
-    const body = boxes.slice(0, f)
-    const footerTop = Math.min(...footer.map((b) => b.s.y))
-    const footerBottom = Math.max(...footer.map((b) => b.s.y + b.s.h))
-    const bodyBottom = Math.max(...body.map((b) => b.s.y + b.s.h))
-    const endsLow = rect.y + rect.h - footerBottom < rect.h * 0.18
-    if (footerTop - bodyBottom > rect.h * 0.08 && endsLow) footerAt = f
+  /* ---- THE GAP GRAPH: layout reconstruction from measured distances ----
+   *
+   * The children plus the container's two edges form a distance sequence:
+   *   topSlack · block · (gap · block)* · bottomSlack
+   * Every distance the theme's flow rhythm would not reproduce is DESIGN
+   * and must survive. Two encodings, chosen by what a distance relates:
+   *
+   *   fixed (cqw margin)   spacing between CONTENT — exact, proportional
+   *   elastic (auto margin) slack shared with container EDGES — reflows
+   *                         (a footer stays ON the bottom edge when text
+   *                         wraps taller; a centered group stays centered)
+   *
+   * Footer, centered, low statement, and even distribution are not cases —
+   * they all derive from edge anchoring:
+   *   top+bottom anchored → the gaps ARE the free space: comparable gaps
+   *     split it as autos (even spread / pinned footer); dominant designed
+   *     gaps stay fixed and the largest absorbs reflow
+   *   top anchored only  → every gap fixed (exact; the open bottom absorbs)
+   *   bottom anchored only → gaps fixed, top slack elastic (content rides
+   *     the bottom edge)
+   *   neither anchored   → gaps fixed; balanced edges → both elastic
+   *     (centered group with exact internal rhythm); unbalanced → exact
+   *     top offset, open bottom absorbs
+   */
+  // anchored = the content hugs that edge beyond its own padding; the
+  // threshold is deliberately tight — misreading a centered hero as
+  // top-anchored pins it to the top and costs real fidelity
+  const EDGE = Math.max(rect.h * 0.03, slide.padPx * 0.3)
+  const FLOW_MAX = rect.h * 0.04 // below this, the theme's own rhythm is fine
+  const SLOT_MIN = rect.h * 0.06 // above this, a gap can share edge slack
+
+  const topSlack = Math.max(0, topGap - slide.padPx)
+  const bottomSlack = Math.max(0, bottomGap - slide.padPx)
+  const topAnchored = topSlack < EDGE
+  const bottomAnchored = bottomSlack < EDGE
+
+  // no measurable direct children (content nested beyond the stamped
+  // wrappers): the only safe move is centering the whole section
+  if (boxes.length === 0) {
+    if (!topAnchored && !bottomAnchored &&
+        Math.abs(topSlack - bottomSlack) < Math.max(topSlack, bottomSlack) * 0.6) {
+      section.style.display = 'flex'
+      section.style.flexDirection = 'column'
+      section.style.justifyContent = 'center'
+    }
+    return
   }
 
-  // explicit inter-block spacing: every source gap between consecutive
-  // top-level blocks that flow spacing would not reproduce (≥4% of the
-  // slide height) carries over as a proportional margin. This is the
-  // GENERAL form of the footer fix — deliberate whitespace anywhere on the
-  // slide (grouped lists, spaced sections, isolated statements) survives.
-  const GAP_MIN = rect.h * 0.04
+  interface Gap { i: number; px: number }
+  const gaps: Gap[] = []
   for (let i = 1; i < boxes.length; i++) {
-    if (i === footerAt) continue // that boundary is the anchoring auto margin
-    const prev = boxes[i - 1].s
-    const cur = boxes[i].s
-    const gap = cur.y - (prev.y + prev.h)
+    const px = boxes[i].s.y - (boxes[i - 1].s.y + boxes[i - 1].s.h)
     // out-of-order or overlapping samples (overlays, columns) say nothing
     // about flow spacing — skip rather than invent a margin
-    if (gap >= GAP_MIN && gap <= rect.h * 0.9) setStyleSafe(boxes[i].el, 'margin-top', cqw(gap))
+    if (px >= FLOW_MAX && px <= rect.h * 0.9) gaps.push({ i, px })
   }
 
-  if (footerAt > 0) {
-    section.style.display = 'flex'
-    section.style.flexDirection = 'column'
-    boxes[footerAt].el.style.marginTop = 'auto'
-    // body drawn clear of the top too (beyond the slide's own padding) →
-    // two auto margins split the slack, centering the body between the
-    // top edge and the pinned footer
-    if (topGap > Math.max(rect.h * 0.06, slide.padPx * 1.4)) boxes[0].el.style.marginTop = 'auto'
-    return
+  const fixed = (g: Gap): void => setStyleSafe(boxes[g.i].el, 'margin-top', cqw(g.px))
+  let usedAuto = false
+  const auto = (el: HTMLElement, side: 'margin-top' | 'margin-bottom' = 'margin-top'): void => {
+    el.style.setProperty(side, 'auto')
+    usedAuto = true
   }
 
-  const centered =
-    topGap > rect.h * 0.06 && bottomGap > rect.h * 0.06 &&
-    Math.abs(topGap - bottomGap) < Math.max(topGap, bottomGap) * 0.6
-  if (centered) {
+  if (topAnchored && bottomAnchored) {
+    // content spans the full height — the big gaps ARE the free space
+    const slots = gaps.filter((g) => g.px >= SLOT_MIN)
+    const rest = gaps.filter((g) => g.px < SLOT_MIN)
+    for (const g of rest) fixed(g)
+    if (slots.length > 0) {
+      const sizes = slots.map((g) => g.px)
+      const comparable = Math.max(...sizes) / Math.min(...sizes) < 2
+      if (comparable) for (const g of slots) auto(boxes[g.i].el) // even spread / pinned footer
+      else {
+        // designed, unequal gaps: exact except the largest, which absorbs reflow
+        const largest = slots.reduce((a, b) => (b.px > a.px ? b : a))
+        for (const g of slots) g === largest ? auto(boxes[g.i].el) : fixed(g)
+      }
+    }
+  } else if (topAnchored) {
+    for (const g of gaps) fixed(g) // exact everywhere; the open bottom absorbs
+  } else if (bottomAnchored) {
+    for (const g of gaps) fixed(g)
+    auto(boxes[0].el) // content rides the bottom edge, slack above is elastic
+  } else {
+    for (const g of gaps) fixed(g)
+    const balanced = Math.abs(topSlack - bottomSlack) < Math.max(topSlack, bottomSlack) * 0.6
+    if (balanced) {
+      // centered group with exact internal rhythm
+      auto(boxes[0].el)
+      auto(boxes[boxes.length - 1].el, 'margin-bottom')
+    } else if (boxes.length > 0) {
+      // a deliberate off-center placement keeps its exact top offset
+      setStyleSafe(boxes[0].el, 'margin-top', cqw(topSlack))
+    }
+  }
+  if (usedAuto) {
     section.style.display = 'flex'
     section.style.flexDirection = 'column'
-    section.style.justifyContent = 'center'
-    return
   }
-  // content that genuinely starts below the slide's own padding keeps its
-  // top offset (a lone statement low on the slide, a quote at two-thirds)
-  const padTop = topGap - slide.padPx
-  if (boxes.length > 0 && padTop > Math.max(rect.h * 0.06, slide.padPx * 0.4)) {
-    setStyleSafe(boxes[0].el, 'margin-top', cqw(padTop))
+
+  /* ---- horizontal: the same distances, on the other axis ---- */
+  const contentW = layoutW - 2 * slide.padPx
+  for (const b of boxes) {
+    if (b.el.style.marginLeft || b.el.style.marginRight) continue
+    const left = b.s.x - (rect.x + slide.padPx)
+    const right = rect.x + rect.w - slide.padPx - (b.s.x + b.s.w)
+    // only blocks the source drew meaningfully narrower than the content
+    // column carry horizontal placement — full-width blocks stay fluid
+    if (b.s.w > contentW * 0.85 || contentW <= 0) continue
+    if (left > rect.w * 0.05 && Math.abs(left - right) < Math.max(left, right) * 0.4) {
+      // centered narrow block: elastic margins + its designed measure
+      b.el.style.marginLeft = 'auto'
+      b.el.style.marginRight = 'auto'
+      setStyleSafe(b.el, 'max-width', cqw(b.s.w))
+    } else if (left > rect.w * 0.05) {
+      setStyleSafe(b.el, 'margin-left', cqw(left))
+    }
   }
 }
 

@@ -296,7 +296,7 @@ describe('vertical anchoring', () => {
     expect(blocks[0].style.marginTop).toBe('')
   })
 
-  it('body clear of the top AND a footer → both anchored (body centered between)', () => {
+  it('bottom-anchored group under open air: elastic top, EXACT designed gap', () => {
     const slide = minimalSlide({
       html: '<div data-dia-x="0"><p data-dia-x="1">statement</p><p data-dia-x="2">footer</p></div>',
       texts: [],
@@ -308,8 +308,61 @@ describe('vertical anchoring', () => {
     })
     const doc = convertToDoc(slide)
     const blocks = [...doc.querySelector('section.dia-slide')!.children] as HTMLElement[]
+    // the slack above is elastic (reflow-safe); the 300px gap between the
+    // blocks is DESIGN and carries exactly — not an equal split of free space
     expect(blocks[0].style.marginTop).toBe('auto')
+    expect(blocks[1].getAttribute('style')).toContain('margin-top: 23.44cqw')
+  })
+
+  it('top+bottom anchored with comparable gaps: even elastic distribution', () => {
+    const slide = minimalSlide({
+      html: '<div data-dia-x="0"><p data-dia-x="1">a</p><p data-dia-x="2">b</p><p data-dia-x="3">c</p></div>',
+      texts: [],
+      samples: {
+        0: sample({ x: 0, y: 0, w: 1280, h: 720, ownChars: 0, ownText: '' }),
+        1: sample({ y: 50, h: 100, ownText: 'a' }),
+        2: sample({ y: 310, h: 100, ownText: 'b' }), // gap 160
+        3: sample({ y: 580, h: 100, ownText: 'c' }), // gap 170 — comparable
+      },
+    })
+    const doc = convertToDoc(slide)
+    const blocks = [...doc.querySelector('section.dia-slide')!.children] as HTMLElement[]
     expect(blocks[1].style.marginTop).toBe('auto')
+    expect(blocks[2].style.marginTop).toBe('auto')
+  })
+
+  it('a centered narrow block carries elastic margins and its designed measure', () => {
+    const slide = minimalSlide({
+      html: '<div data-dia-x="0"><h1 data-dia-x="1">Title</h1><p data-dia-x="2">quote</p></div>',
+      texts: [],
+      samples: {
+        0: sample({ x: 0, y: 0, w: 1280, h: 720, ownChars: 0, ownText: '' }),
+        1: sample({ x: 48, y: 60, h: 60, w: 1184, ownText: 'Title' }),
+        2: sample({ x: 390, y: 200, h: 80, w: 500, ownText: 'quote' }), // centered ±ish
+      },
+    })
+    const doc = convertToDoc(slide)
+    const quote = [...doc.querySelectorAll<HTMLElement>('section.dia-slide > *')]
+      .find((b) => b.textContent?.includes('quote'))!
+    expect(quote.style.marginLeft).toBe('auto')
+    expect(quote.style.marginRight).toBe('auto')
+    expect(quote.getAttribute('style')).toContain('max-width: 39.06cqw')
+  })
+
+  it('an indented narrow block keeps its exact left offset', () => {
+    const slide = minimalSlide({
+      html: '<div data-dia-x="0"><h1 data-dia-x="1">Title</h1><p data-dia-x="2">aside</p></div>',
+      texts: [],
+      samples: {
+        0: sample({ x: 0, y: 0, w: 1280, h: 720, ownChars: 0, ownText: '' }),
+        1: sample({ x: 48, y: 60, h: 60, w: 1184, ownText: 'Title' }),
+        2: sample({ x: 548, y: 200, h: 80, w: 600, ownText: 'aside' }), // left 500, right 84
+      },
+    })
+    const doc = convertToDoc(slide)
+    const aside = [...doc.querySelectorAll<HTMLElement>('section.dia-slide > *')]
+      .find((b) => b.textContent?.includes('aside'))!
+    expect(aside.getAttribute('style')).toContain('margin-left: 39.06cqw')
   })
 
   it('content flowing to the bottom stays plain flow — no false footer', () => {
