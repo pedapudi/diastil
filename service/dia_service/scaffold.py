@@ -154,6 +154,8 @@ step and no private data model.
   import review
 - `dia serve` — the local inference service (copilot/repair skills)
 - headless environments: add `--no-open`; every command prints its URL
+- `dia mcp` — the same operations as MCP tools over stdio, for agents
+  without shell access (inference tools proxy to a running `dia serve`)
 
 ### Deeper reference
 

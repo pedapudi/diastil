@@ -47,6 +47,20 @@ The snippet teaches the generate-validate loop, the dialect grammar in
 brief, and points at `skills/` for depth. It is generated from the same
 source as everything else, so it never drifts from the validator.
 
+## MCP (any client, no shell required)
+
+```sh
+claude mcp add dia -- dia mcp        # Claude Code
+# other clients: command "dia", args ["mcp"], stdio transport
+```
+
+Tools: `dia_new`, `dia_validate`, `dia_manual` run in-process
+(stdlib-only); `dia_translate_slide`, `dia_repair_slide`,
+`dia_lift_diagram`, `dia_service_health` proxy to a running `dia serve`
+and return a clear "start it with `dia serve`" error when it is down.
+The MCP surface exists for agents WITHOUT shell access — with a shell,
+the CLI is the same capability with a stronger contract (exit codes).
+
 ## Tools with neither plugins nor instruction files
 
 Point the agent at two things:

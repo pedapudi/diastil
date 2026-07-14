@@ -7,6 +7,7 @@
   dia present <deck.html>open the deck in the browser (it presents itself)
   dia validate <file>…   profile-validate saved decks (exit 1 on errors)
   dia agents-md          print an AGENTS.md section for coding agents
+  dia mcp                MCP server over stdio (tools for shell-less agents)
   dia serve              run the inference service alone
   dia serve --editor     run the service AND host the editor (built-in demo deck)
 
@@ -223,7 +224,7 @@ def main(argv: list[str] | None = None) -> None:
     argv = list(sys.argv[1:] if argv is None else argv)
 
     # `dia <deck.html>` sugar: a path as the first arg means edit
-    if argv and argv[0] not in {"edit", "ingest", "present", "validate", "serve", "eval", "new", "agents-md", "-h", "--help"}:
+    if argv and argv[0] not in {"edit", "ingest", "present", "validate", "serve", "eval", "new", "agents-md", "mcp", "-h", "--help"}:
         argv.insert(0, "edit")
 
     parser = argparse.ArgumentParser(prog="dia", description=__doc__,
@@ -245,6 +246,7 @@ def main(argv: list[str] | None = None) -> None:
     nw.add_argument("--no-open", action="store_true", help=no_open_help)
     sub.add_parser("agents-md",
                    help="print an AGENTS.md-ready section so any coding agent can generate and operate dia")
+    sub.add_parser("mcp", help="run the Model Context Protocol server over stdio")
     sub.add_parser("validate", help="profile-validate saved decks").add_argument("paths", nargs="+")
     sv = sub.add_parser("serve", help="run the inference service (add --editor to also host the editor)")
     sv.add_argument("--editor", action="store_true",
@@ -259,6 +261,10 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(cmd_new(args.path, args.title, no_open=args.no_open))
     elif args.cmd == "agents-md":
         sys.exit(cmd_agents_md())
+    elif args.cmd == "mcp":
+        from .mcp import serve as mcp_serve
+
+        sys.exit(mcp_serve())
     elif args.cmd == "edit":
         sys.exit(cmd_edit(args.path, no_open=args.no_open))
     elif args.cmd == "ingest":

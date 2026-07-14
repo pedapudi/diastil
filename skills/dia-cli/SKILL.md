@@ -38,6 +38,10 @@ dia validate a.html b…   # profile-validate; prints rule-id findings;
 dia agents-md            # print an AGENTS.md-ready section teaching any
                          #   coding agent the generate-validate loop
                          #   (`dia agents-md >> AGENTS.md`)
+dia mcp                  # MCP server over stdio: dia_new/dia_validate/
+                         #   dia_manual run in-process; dia_translate_slide/
+                         #   dia_repair_slide/dia_lift_diagram proxy to a
+                         #   running `dia serve`
 dia serve                # inference service alone on 127.0.0.1:8317
 dia eval [--skill NAME] [--strict]
                          # run golden skill evals against the configured
