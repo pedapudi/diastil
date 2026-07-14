@@ -29,8 +29,15 @@ dia edit deck.html       # host service + editor at 127.0.0.1:8317/editor,
 dia ingest foreign.html  # same, but opens straight into import review
 dia present deck.html    # open the saved deck in the browser — it presents
                          #   itself (runtime embedded), works off file://
+dia new deck.html [--title t]
+                         # scaffold a profile-valid starting deck — the
+                         #   generation entry point: scaffold, edit the
+                         #   html, hold yourself to `dia validate`
 dia validate a.html b…   # profile-validate; prints rule-id findings;
                          #   exit 1 on any error-level finding (stdlib-only)
+dia agents-md            # print an AGENTS.md-ready section teaching any
+                         #   coding agent the generate-validate loop
+                         #   (`dia agents-md >> AGENTS.md`)
 dia serve                # inference service alone on 127.0.0.1:8317
 dia eval [--skill NAME] [--strict]
                          # run golden skill evals against the configured

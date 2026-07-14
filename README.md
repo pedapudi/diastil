@@ -50,6 +50,7 @@ repair, diagram lifting, the copilot rail):
 
 ```sh
 cd service && python3 -m venv .venv && .venv/bin/pip install -e .
+dia new talk.html        # scaffold a profile-valid deck (agents start here)
 dia deck.html            # edit a local file, ⌘S writes back
 dia ingest foreign.html  # convert a foreign deck
 dia validate deck.html   # profile-check (stdlib-only, no venv needed)
@@ -57,6 +58,12 @@ dia serve                # inference sidecar — see service/README.md
 ```
 
 Tests: `npm test`. Agent operating manuals: [skills/](skills/README.md).
+
+Coding agents (Claude Code, Codex, opencode, Antigravity, Cursor, …) can
+generate dia-native decks and operate everything above — see
+[integrations/](integrations/README.md): a Claude Code plugin
+(`/plugin marketplace add pedapudi/diastil`) and `dia agents-md` for
+every AGENTS.md-reading tool.
 
 ## Invariants
 

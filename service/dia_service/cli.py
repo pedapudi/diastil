@@ -2,9 +2,11 @@
 
   dia <deck.html>        open the editor on a local file (watch + write back)
   dia edit <deck.html>   same, explicit
+  dia new <deck.html>    scaffold a profile-valid starting deck
   dia ingest <file.html> open the editor with the import review on the file
   dia present <deck.html>open the deck in the browser (it presents itself)
   dia validate <file>…   profile-validate saved decks (exit 1 on errors)
+  dia agents-md          print an AGENTS.md section for coding agents
   dia serve              run the inference service alone
   dia serve --editor     run the service AND host the editor (built-in demo deck)
 
@@ -135,6 +137,37 @@ def cmd_present(path: str, no_open: bool = False) -> int:
     return 0
 
 
+def cmd_new(path: str, title: str, no_open: bool = False) -> int:
+    """Scaffold a profile-valid starting deck — the generation entry point
+    for agents: scaffold, edit the html, hold yourself to `dia validate`."""
+    from .scaffold import deck_html
+
+    p = Path(path)
+    if p.exists():
+        print(f"dia: {p} already exists — not overwriting", file=sys.stderr)
+        return 2
+    html = deck_html(title or p.stem.replace("-", " ").replace("_", " "))
+    report = validate_html(html)  # the scaffold must never ship invalid
+    errors = [f for f in report["findings"] if f["level"] == "error"]
+    if errors:  # pragma: no cover — template regression guard
+        print(f"dia: internal error — scaffold is out of profile: {errors}", file=sys.stderr)
+        return 2
+    p.write_text(html, encoding="utf-8")
+    print(f"dia: wrote {p} ({report['slideCount']} slides, profile-valid)")
+    print(f"dia: next — edit the html, then `dia validate {p}`")
+    if not no_open and _display_available():
+        webbrowser.open_new_tab(p.resolve().as_uri())
+    return 0
+
+
+def cmd_agents_md() -> int:
+    """Print the AGENTS.md-ready operating manual (tool-agnostic)."""
+    from .scaffold import AGENTS_SNIPPET
+
+    print(AGENTS_SNIPPET)
+    return 0
+
+
 def cmd_validate(paths: list[str]) -> int:
     any_errors = False
     for raw in paths:
@@ -190,7 +223,7 @@ def main(argv: list[str] | None = None) -> None:
     argv = list(sys.argv[1:] if argv is None else argv)
 
     # `dia <deck.html>` sugar: a path as the first arg means edit
-    if argv and argv[0] not in {"edit", "ingest", "present", "validate", "serve", "eval", "-h", "--help"}:
+    if argv and argv[0] not in {"edit", "ingest", "present", "validate", "serve", "eval", "new", "agents-md", "-h", "--help"}:
         argv.insert(0, "edit")
 
     parser = argparse.ArgumentParser(prog="dia", description=__doc__,
@@ -206,6 +239,12 @@ def main(argv: list[str] | None = None) -> None:
     pr = sub.add_parser("present", help="open a saved deck in the browser")
     pr.add_argument("path")
     pr.add_argument("--no-open", action="store_true", help=no_open_help)
+    nw = sub.add_parser("new", help="scaffold a profile-valid starting deck")
+    nw.add_argument("path")
+    nw.add_argument("--title", default="", help="deck title (default: derived from the filename)")
+    nw.add_argument("--no-open", action="store_true", help=no_open_help)
+    sub.add_parser("agents-md",
+                   help="print an AGENTS.md-ready section so any coding agent can generate and operate dia")
     sub.add_parser("validate", help="profile-validate saved decks").add_argument("paths", nargs="+")
     sv = sub.add_parser("serve", help="run the inference service (add --editor to also host the editor)")
     sv.add_argument("--editor", action="store_true",
@@ -216,7 +255,11 @@ def main(argv: list[str] | None = None) -> None:
     ev.add_argument("--strict", action="store_true")
 
     args = parser.parse_args(argv)
-    if args.cmd == "edit":
+    if args.cmd == "new":
+        sys.exit(cmd_new(args.path, args.title, no_open=args.no_open))
+    elif args.cmd == "agents-md":
+        sys.exit(cmd_agents_md())
+    elif args.cmd == "edit":
         sys.exit(cmd_edit(args.path, no_open=args.no_open))
     elif args.cmd == "ingest":
         sys.exit(cmd_ingest(args.path, no_open=args.no_open))

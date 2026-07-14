@@ -1,0 +1,11 @@
+{
+  "name": "diastil",
+  "owner": { "name": "Sunil Pedapudi", "url": "https://github.com/pedapudi/diastil" },
+  "plugins": [
+    {
+      "name": "dia",
+      "source": "./integrations/claude-code",
+      "description": "Generate and operate diastil slide decks: dialect authoring, scene diagrams, validation, import, and the dia CLI — as agent skills."
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "name": "dia",
+  "description": "Generate and operate diastil slide decks — dialect authoring, scene diagrams, validation, import, and the dia CLI.",
+  "version": "0.1.0",
+  "author": { "name": "Sunil Pedapudi" }
+}
