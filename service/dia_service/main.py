@@ -182,8 +182,24 @@ def _compose_message(req: ChatRequest) -> str:
         lines.append("slides-in-view (document order around the current slide):")
         for n in neighbors:
             lines.append(str(n))
-    if ctx.get("slideImage"):
+    original = ctx.get("originalHtml")
+    if original:
+        lines.append(
+            "original-slide (the imported source this slide was converted from"
+            " — reference for the content and intent the conversion aimed at):"
+        )
+        lines.append(str(original))
+    has_render = bool(ctx.get("slideImage"))
+    has_original_render = bool(ctx.get("originalImage"))
+    if has_render and has_original_render:
+        lines.append(
+            "two images are attached, in order: (1) the current slide as"
+            " rendered, (2) the ORIGINAL imported slide as rendered"
+        )
+    elif has_render:
         lines.append("a render of the current slide is attached as an image")
+    elif has_original_render:
+        lines.append("a render of the ORIGINAL imported slide is attached as an image")
     lines.append("</editor-context>")
     lines.append("")
     lines.append(req.message)
@@ -202,16 +218,17 @@ async def _chat_events(req: ChatRequest) -> AsyncIterator[dict[str, str]]:
         runner = _get_copilot_runner()
         await _ensure_session(req.sessionId)
         parts = [genai_types.Part(text=_compose_message(req))]
-        # the copilot's eyes: the current slide as rendered, when the editor
-        # attached one — a vision endpoint sees what the user sees
-        slide_image = (req.context or {}).get("slideImage")
-        if isinstance(slide_image, str):
-            decoded = agents.decode_data_uri(slide_image)
-            if decoded is not None:
-                mime, data = decoded
-                parts.append(
-                    genai_types.Part(inline_data=genai_types.Blob(mime_type=mime, data=data))
-                )
+        # the copilot's eyes: current render first, then the imported
+        # original's render — the order the composed message promises
+        for key in ("slideImage", "originalImage"):
+            image = (req.context or {}).get(key)
+            if isinstance(image, str):
+                decoded = agents.decode_data_uri(image)
+                if decoded is not None:
+                    mime, data = decoded
+                    parts.append(
+                        genai_types.Part(inline_data=genai_types.Blob(mime_type=mime, data=data))
+                    )
         content = genai_types.Content(role="user", parts=parts)
         streamed_text = False
         async for event in runner.run_async(

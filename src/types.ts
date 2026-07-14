@@ -108,6 +108,10 @@ export interface ChatContext {
   flowNeighborsHtml?: string[]
   /** PNG data URL of the current slide as rendered — the copilot's eyes */
   slideImage?: string | null
+  /** the embedded reference original of this slide (profile §8): body markup */
+  originalHtml?: string | null
+  /** PNG data URL of that original as rendered — what the import aimed at */
+  originalImage?: string | null
 }
 
 export type ChatEvent =

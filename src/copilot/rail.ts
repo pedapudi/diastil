@@ -4,15 +4,98 @@
  * direct edits. Fully quiet when the service is offline. */
 
 import './copilot.css'
-import type { ChatContext, ProposedOp, Selection } from '../types'
+import type { ChatContext, Deck, ProposedOp, Selection } from '../types'
 import { state } from '../state'
 import { service } from '../service/client'
 import { batch } from '../model/ops'
 import { rasterizeToDataUrl } from '../ingest/fidelity'
+import { embeddedOriginals } from '../editor/compare'
 import { compileOps } from './compile'
 import { renderMarkdown } from './markdown'
 
 const HEALTH_MIN_INTERVAL = 30_000
+
+/* ---------- the imported original as context ----------
+ * Imported decks carry one self-contained reference page per slide
+ * (script#dia-originals, profile §8) — the same pages the compare overlay
+ * shows. The copilot gets the current slide's original as BOTH body markup
+ * (content and implementation to reference) and a render (what the import
+ * aimed at). Originals never change for a loaded deck, so everything is
+ * cached per deck object. */
+
+const ORIGINAL_HTML_CAP = 8000
+const ORIGINAL_LOAD_TIMEOUT_MS = 4000
+
+interface OriginalContext { html: string | null; image: string | null }
+
+const originalCache = new WeakMap<Deck, { pages: string[] | null; bySlide: Map<number, OriginalContext> }>()
+
+/** true when the loaded deck carries embedded originals at all — cheap,
+ * safe to call from render paths */
+export function deckHasOriginals(deck: Deck | null): boolean {
+  return !!deck && deck.headExtras.includes('dia-originals')
+}
+
+async function originalFor(deck: Deck, index: number): Promise<OriginalContext | null> {
+  let entry = originalCache.get(deck)
+  if (!entry) {
+    entry = { pages: deckHasOriginals(deck) ? embeddedOriginals(deck) : null, bySlide: new Map() }
+    originalCache.set(deck, entry)
+  }
+  // indices past the imported slide count (slides added since import) have
+  // no original — send nothing rather than a neighboring slide's original
+  const page = entry.pages?.[index]
+  if (!page) return null
+  const cached = entry.bySlide.get(index)
+  // a null image is retried (rasterization can fail transiently while the
+  // tab is occluded); a successful raster is final
+  if (cached?.image) return cached
+  const doc = new DOMParser().parseFromString(page, 'text/html')
+  const body = doc.body?.innerHTML.trim() ?? ''
+  const html = body
+    ? (body.length > ORIGINAL_HTML_CAP ? `${body.slice(0, ORIGINAL_HTML_CAP)}\n<!-- …truncated -->` : body)
+    : null
+  // hard deadline: a wedged raster degrades this send to markup-only —
+  // it must never block the chat
+  const image = await Promise.race([
+    rasterizeOriginalPage(page),
+    new Promise<null>((r) => setTimeout(() => r(null), ORIGINAL_LOAD_TIMEOUT_MS * 2)),
+  ])
+  const fresh: OriginalContext = { html, image }
+  entry.bySlide.set(index, fresh)
+  return fresh
+}
+
+/** render a reference page in a hidden same-origin iframe and rasterize its
+ * body — the pages are static (css + cleaned markup, no scripts) */
+async function rasterizeOriginalPage(page: string): Promise<string | null> {
+  const frame = document.createElement('iframe')
+  frame.setAttribute('aria-hidden', 'true')
+  frame.style.cssText = 'position:fixed;left:-10020px;top:0;width:1280px;height:720px;border:0;'
+  document.body.appendChild(frame)
+  try {
+    const loaded = new Promise<boolean>((resolve) => {
+      const timer = window.setTimeout(() => resolve(false), ORIGINAL_LOAD_TIMEOUT_MS)
+      frame.addEventListener('load', () => { window.clearTimeout(timer); resolve(true) })
+    })
+    frame.srcdoc = page
+    if (!(await loaded)) return null
+    const doc = frame.contentDocument
+    if (!doc?.body) return null
+    try {
+      await Promise.race([doc.fonts?.ready, new Promise((r) => setTimeout(r, 1500))])
+    } catch { /* best effort */ }
+    // NOT requestAnimationFrame: rAF never fires in an occluded tab and
+    // would hang every chat send. Layout is synchronous after load; this
+    // pause only lets decoded images/fonts reach the frame's render tree.
+    await new Promise((r) => setTimeout(r, 80))
+    return await rasterizeToDataUrl(doc.body)
+  } catch {
+    return null
+  } finally {
+    frame.remove()
+  }
+}
 
 /* ---------- context slice: which slides ride along ----------
  * auto = previous · current · next; pins add more (⌥-click in the minimap
@@ -144,7 +227,8 @@ export function mountCopilot(host: HTMLElement): void {
     const what = describeSelection(state.selection)
     const tail = document.createElement('span')
     const pinGesture = /Mac|iP(hone|ad|od)/.test(navigator.platform) ? '⌥-click' : 'alt/shift-click'
-    tail.textContent = `${what ? ` › ${what}` : ''} + tokens + slide render · ${pinGesture} a minimap slide to pin`
+    const withOriginal = deckHasOriginals(state.deck) ? ' + original' : ''
+    tail.textContent = `${what ? ` › ${what}` : ''} + tokens + slide render${withOriginal} · ${pinGesture} a minimap slide to pin`
     context.appendChild(tail)
   }
   renderContext()
@@ -263,6 +347,12 @@ export function mountCopilot(host: HTMLElement): void {
     if (current) {
       try { slideImage = await rasterizeToDataUrl(current) } catch { /* text-only */ }
     }
+    // the imported original of this slide, when the deck carries one —
+    // the model sees what the conversion was aiming at, not just its result
+    let original: OriginalContext | null = null
+    if (deck) {
+      try { original = await originalFor(deck, state.currentSlide) } catch { /* without */ }
+    }
     return {
       altitude: state.altitude,
       slideIndex: state.currentSlide,
@@ -272,6 +362,8 @@ export function mountCopilot(host: HTMLElement): void {
         .map((i) => cap(slides[i]))
         .filter((s): s is string => s !== null),
       slideImage,
+      originalHtml: original?.html ?? null,
+      originalImage: original?.image ?? null,
     }
   }
 
