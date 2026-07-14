@@ -36,6 +36,12 @@ export interface ElementSample {
   borderUniform: boolean
   radius: string
   transform: string
+  /** computed line-height in px (0 when 'normal') — leading is typography
+   * the role rules guess at; the measured value corrects them */
+  lineHeight: number
+  /** entrance-animation delay in ms, recorded pre-settle — staggered delays
+   * are the deck saying "reveal in this order" (mapped to data-dia-step) */
+  stepDelayMs?: number
   /** length of the element's own (direct) text, whitespace-normalized */
   ownChars: number
   ownText: string
@@ -62,6 +68,9 @@ export interface ExtractedSlide {
   texts: string[]
   padPx: number
   gaps: number[]
+  /** the slide runs an infinite animation that settling froze mid-motion —
+   * conversion notes it so the loss is visible, never silent */
+  hasLoopingAnimation?: boolean
 }
 
 export interface Extraction {
@@ -166,6 +175,10 @@ function harvestSlide(
   win: Window,
   counter: { n: number },
 ): ExtractedSlide {
+  // builds are MEANING, not decoration: staggered entrance delays are the
+  // deck saying "reveal in this order". Census them BEFORE settling erases
+  // the animation state — settle then freezes the end frame for sampling.
+  const census = censusAnimations(root, win)
   // activation restarts entrance animations; sampling mid-fade freezes
   // opacity/transform at a transient frame — settle to the end state first
   settleAnimations(root)
@@ -173,10 +186,50 @@ function harvestSlide(
   // for the duration of sampling so geometry and computed styles are real
   const unforce = forceVisible(root)
   try {
-    return harvestVisibleSlide(root, index, doc, win, counter)
+    return harvestVisibleSlide(root, index, doc, win, counter, census)
   } finally {
     unforce?.()
   }
+}
+
+interface AnimationCensus {
+  /** element → smallest entrance delay in ms (positive delays only) */
+  delays: Map<Element, number>
+  /** an infinite animation runs somewhere in the subtree */
+  looping: boolean
+}
+
+/** Read every animation's delay/iterations off the LIVE subtree. Web
+ * Animations API first (covers script-driven animations too); computed
+ * animation-* styles as the fallback for engines without getAnimations. */
+function censusAnimations(root: HTMLElement, win: Window): AnimationCensus {
+  const delays = new Map<Element, number>()
+  let looping = false
+  try {
+    const target = root as HTMLElement & { getAnimations?: (o: { subtree: boolean }) => Animation[] }
+    for (const anim of target.getAnimations?.({ subtree: true }) ?? []) {
+      const effect = anim.effect as KeyframeEffect | null
+      const el = effect?.target
+      if (!el || !root.contains(el)) continue
+      let timing: ComputedEffectTiming
+      try { timing = effect.getComputedTiming() } catch { continue }
+      if (timing.iterations === Infinity) { looping = true; continue }
+      const delay = timing.delay ?? 0
+      if (delay > 0) {
+        const prev = delays.get(el)
+        if (prev === undefined || delay < prev) delays.set(el, delay)
+      }
+    }
+  } catch { /* getAnimations unavailable — computed styles below still work */ }
+  for (const el of [root, ...root.querySelectorAll('*')]) {
+    if (delays.has(el) || SKIP_TAGS.has(el.tagName.toUpperCase())) continue
+    const cs = win.getComputedStyle(el)
+    if (!cs.animationName || cs.animationName === 'none') continue
+    if (/infinite/.test(cs.animationIterationCount)) { looping = true; continue }
+    const delay = parseFloat(cs.animationDelay) * 1000 // computed value is seconds
+    if (Number.isFinite(delay) && delay > 0) delays.set(el, delay)
+  }
+  return { delays, looping }
 }
 
 /** temporarily force a hidden slide root to lay out; returns the restore fn */
@@ -198,6 +251,7 @@ function harvestVisibleSlide(
   doc: Document,
   win: Window,
   counter: { n: number },
+  census: AnimationCensus,
 ): ExtractedSlide {
   const samples: Record<number, ElementSample> = {}
   const gaps: number[] = []
@@ -236,6 +290,8 @@ function harvestVisibleSlide(
         cs.borderTopColor === cs.borderRightColor,
       radius: cs.borderRadius,
       transform: cs.transform,
+      lineHeight: parseFloat(cs.lineHeight) || 0,
+      stepDelayMs: census.delays.get(el),
       ownChars: ownText.length,
       ownText,
     }
@@ -261,6 +317,7 @@ function harvestVisibleSlide(
     texts: collectTexts(root, win),
     padPx: parseFloat(rootCs.paddingLeft) || 0,
     gaps,
+    hasLoopingAnimation: census.looping || undefined,
   }
 }
 
@@ -514,7 +571,35 @@ function harvestTokens(slides: ExtractedSlide[]): Record<string, string> {
   const ink = argmax(charsByColor) ?? 'rgb(23, 36, 43)'
   const paper = argmax(bgCount) ?? 'rgb(251, 250, 246)'
   const accent = pickAccent(charsByColor, ink, paper)
-  const bodyFace = argmax(charsByFamily) ?? 'Georgia, "Times New Roman", serif'
+
+  // faces are ROLE-cohort measurements, not one global argmax: display text
+  // (the largest cohort) routinely uses a different family than body copy,
+  // and the smallest cohort (captions/labels) often a third — a single
+  // family for all three erases the source's typographic voice
+  const bodyFamilies = new Map<string, number>()
+  const labelFamilies = new Map<string, number>()
+  let smallest = Infinity
+  for (const slide of slides) {
+    for (const s of Object.values(slide.samples)) {
+      if (s.ownChars === 0 || s.fontSizePx <= 0) continue
+      if (s.fontSizePx < displaySize * 0.75) smallest = Math.min(smallest, s.fontSizePx)
+    }
+  }
+  for (const slide of slides) {
+    for (const s of Object.values(slide.samples)) {
+      if (s.ownChars === 0 || s.fontSizePx <= 0) continue
+      if (s.fontSizePx < displaySize * 0.75) {
+        bodyFamilies.set(s.fontFamily, (bodyFamilies.get(s.fontFamily) ?? 0) + s.ownChars)
+      }
+      if (Math.abs(s.fontSizePx - smallest) <= 1.5) {
+        labelFamilies.set(s.fontFamily, (labelFamilies.get(s.fontFamily) ?? 0) + s.ownChars)
+      }
+    }
+  }
+  const bodyFace = argmax(bodyFamilies) ?? argmax(charsByFamily) ?? 'Georgia, "Times New Roman", serif'
+  // the label face only earns its token when the smallest cohort genuinely
+  // uses a DIFFERENT family — otherwise the mono fallback chain stands
+  const labelFace = argmax(labelFamilies)
 
   const pads = slides.map((s) => s.padPx).filter((p) => p > 0).sort((a, b) => a - b)
   const pad = pads.length > 0 ? pads[Math.floor(pads.length / 2)] : 48
@@ -529,7 +614,9 @@ function harvestTokens(slides: ExtractedSlide[]): Record<string, string> {
     '--dia-rule': blend(ink, paper, 0.82),
     '--dia-face-display': displayFace || bodyFace,
     '--dia-face-body': bodyFace,
-    '--dia-face-label': monoFace || 'ui-monospace, "SF Mono", Menlo, monospace',
+    '--dia-face-label':
+      (labelFace && labelFace !== bodyFace ? labelFace : monoFace) ||
+      monoFace || 'ui-monospace, "SF Mono", Menlo, monospace',
   }
   scale.forEach((px, i) => { tokens[`--dia-scale-${i + 1}`] = `${px}px` })
   tokens['--dia-gap'] = `${Math.round(gap)}px`

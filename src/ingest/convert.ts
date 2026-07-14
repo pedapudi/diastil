@@ -147,7 +147,15 @@ export function convertSlide(
   section.className = 'dia-slide'
   section.append(...convertContainerChildren(srcRoot, ctx))
   rebindSizes(section, ctx.sample, scalePx, designW)
+  applyTypography(section, ctx)
+  applyBuildSteps(section, ctx, slide)
   applyVerticalRhythm(section, srcRoot, ctx, slide)
+  if (slide.hasLoopingAnimation) {
+    ctx.notes.push({
+      node: null, kind: 'low-structure',
+      note: 'looping animation frozen at its settle frame',
+    })
+  }
 
   return finalize(section, slide, index, ctx.notes, ctx.islands)
 }
@@ -264,6 +272,57 @@ export function readEmbeddedOriginals(doc: Document): string[] | null {
       : null
   } catch {
     return null
+  }
+}
+
+/** role leading defaults, mirroring defaultThemeCss in model/parse.ts —
+ * .dia-title { line-height: 1.14 }, .dia-body { line-height: 1.55 } */
+const ROLE_LEADING: Array<[string, number]> = [['dia-title', 1.14], ['dia-body', 1.55]]
+
+/** Role rules impose ONE typographic voice per role; sources vary. Carry the
+ * MEASURED deviations inline — transform, tracking, leading — so a converted
+ * slide keeps the source's typography, not the theme's guess. Kickers are
+ * exempt: the dia-kicker rule already uppercases and tracks. */
+function applyTypography(section: HTMLElement, ctx: Ctx): void {
+  for (const el of section.querySelectorAll<HTMLElement>(`[${STAMP}]`)) {
+    const s = ctx.sample(el)
+    if (!s || s.ownChars === 0) continue
+    const isKicker = el.closest('.dia-kicker') !== null
+    if (!isKicker && s.textTransform === 'uppercase') {
+      el.style.textTransform = 'uppercase'
+    }
+    // computed letter-spacing is px ('normal' parses NaN); carry as em so it
+    // survives the proportional (cqw) font sizing
+    const ls = parseFloat(s.letterSpacing)
+    if (!isKicker && Number.isFinite(ls) && s.fontSizePx > 0 && Math.abs(ls) / s.fontSizePx > 0.02) {
+      el.style.letterSpacing = `${Math.round((ls / s.fontSizePx) * 1000) / 1000}em`
+    }
+    const role = ROLE_LEADING.find(([cls]) => el.closest(`.${cls}`))
+    if (role && s.lineHeight > 0 && s.fontSizePx > 0) {
+      const ratio = s.lineHeight / s.fontSizePx
+      if (Math.abs(ratio - role[1]) / role[1] > 0.15) {
+        el.style.lineHeight = String(Math.round(ratio * 100) / 100)
+      }
+    }
+  }
+}
+
+/** Builds are meaning the pixel score can't see: staggered entrance delays
+ * (0.2s, 0.4s, …) are the deck saying "reveal in this order". Distinct
+ * positive delays become data-dia-step groups the dialect runtime replays.
+ * One delay is an entrance flourish, not a build; more than nine distinct
+ * delays is an animation soup — both leave the slide static. */
+function applyBuildSteps(section: HTMLElement, ctx: Ctx, slide: ExtractedSlide): void {
+  const delays = new Set<number>()
+  for (const s of Object.values(slide.samples)) {
+    if (s.stepDelayMs !== undefined && s.stepDelayMs > 0) delays.add(s.stepDelayMs)
+  }
+  if (delays.size < 2 || delays.size > 9) return
+  const order = [...delays].sort((a, b) => a - b)
+  for (const el of section.querySelectorAll<HTMLElement>(`[${STAMP}]`)) {
+    const s = ctx.sample(el)
+    if (s?.stepDelayMs === undefined || s.stepDelayMs <= 0) continue
+    el.setAttribute('data-dia-step', String(order.indexOf(s.stepDelayMs) + 1))
   }
 }
 
@@ -416,6 +475,12 @@ function inlineSegment(container: Element, nodes: ChildNode[], ctx: Ctx): HTMLEl
   }
   for (const junk of node.querySelectorAll('script, style, noscript')) junk.remove()
   stripStamps(node)
+  // the segment inherits its CONTAINER's stamp: the post-passes (size
+  // rebinding, typography carry, build steps) look elements up by stamp,
+  // and a segment without one is invisible to all of them — the source
+  // kicker's uppercase/tracking silently vanished this way
+  const stamp = container.getAttribute(STAMP)
+  if (stamp) node.setAttribute(STAMP, stamp)
   return node
 }
 
