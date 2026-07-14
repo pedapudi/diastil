@@ -12,8 +12,9 @@ import { moveEl, setStyleProp } from '../model/ops'
 import { getShape } from './route'
 import { miscIcon, routeIcon, shapeIcon, swatch, widthIcon, type MiscIcon } from './icons'
 import {
-  contentEndIndex, deleteSceneSelection, ensureSceneStyleRules, openEdgeLabelEdit,
-  setAnchorsOp, setRouteOp, setShapeOp, spawnConnectedNode,
+  canUngroupFree, contentEndIndex, deleteSceneSelection, ensureSceneStyleRules,
+  openEdgeLabelEdit, promoteFreeToNode, setAnchorsOp, setRouteOp, setShapeOp,
+  spawnConnectedNode, ungroupFree,
 } from './interact'
 
 const SHAPES: NodeShape[] = [
@@ -148,6 +149,14 @@ function buildFreeBar(el: HTMLDivElement, scene: SVGSVGElement, target: SVGGraph
   }))
   top.appendChild(iconBtn('back', 'send to back', () => {
     state.apply(moveEl(target, scene, firstContentIndex(scene), 'ToBack'))
+  }))
+  if (canUngroupFree(target)) {
+    top.appendChild(iconBtn('ungroup', 'ungroup — unwrap contents to the scene', () => {
+      ungroupFree(scene, target)
+    }))
+  }
+  top.appendChild(iconBtn('make-node', 'make node — promote to a scene node (keeps the artwork)', () => {
+    promoteFreeToNode(scene, target)
   }))
   top.appendChild(iconBtn('del', 'delete', () => deleteSceneSelection()))
 

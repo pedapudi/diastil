@@ -62,6 +62,7 @@ child shapes/paths are derived artifacts.
 | `scene/node-geometry` | error | `data-x/y/w/h`, when present, are finite numbers |
 | `scene/node-shape` | error | `data-shape` ∈ rect · rounded · pill · ellipse · diamond · cylinder · hex · parallelogram · triangle · cloud · note · path |
 | `scene/node-path` | error | shape `path` carries `data-path` (SVG path data in a 100×100-normalized space, scaled into the node box) |
+| `scene/node-rotate` | error | `data-rotate` (degrees), when present, is a finite number |
 | `scene/edge-format` | error | `data-dia-edge` matches `a->b` |
 | `scene/edge-endpoint` | error | both edge endpoints name nodes in the same scene |
 | `scene/edge-route` | error | `data-route` ∈ straight · ortho · curve |
@@ -74,7 +75,10 @@ derive their outline from the box like `diamond` does. Shape `path` is
 the freeform backstop: the outline lives in `data-path` as SVG path data
 in a 100×100-normalized coordinate space and is scaled into the node box
 on render — any vector mark (annotation ring, brace, star, blob) becomes
-a movable, resizable node. Scenes may also contain verbatim SVG children
+a movable, resizable node. `data-rotate` (degrees) spins any node's shape
+and label about its box center — geometry attributes stay axis-aligned,
+so moves, resizes, and edge routing never re-derive the rotation.
+Scenes may also contain verbatim SVG children
 (plain `<path>`, `<text>`, …) that are neither nodes nor edges; they are
 preserved as-is and are not validated beyond the general content rules.
 
@@ -119,9 +123,10 @@ inside an island is validated.
 ## 7. Attribute vocabulary (persisted)
 
 `data-dia-version` (html) · `data-dia-node`, `data-dia-edge`,
-`data-shape`, `data-path`, `data-x`, `data-y`, `data-w`, `data-h`,
-`data-anchors`, `data-route`, `data-label` (scene) · `data-dia-step`,
-`data-dia-emphasis` (behavior) · `data-dia-island` (islands).
+`data-shape`, `data-path`, `data-rotate`, `data-x`, `data-y`, `data-w`,
+`data-h`, `data-anchors`, `data-route`, `data-label` (scene) ·
+`data-dia-step`, `data-dia-emphasis` (behavior) · `data-dia-island`
+(islands).
 
 Session-only attributes (`data-dia-id`, `data-dia-selected`,
 `data-dia-current`, `data-dia-step-shown`, `contenteditable`,

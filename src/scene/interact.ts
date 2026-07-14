@@ -5,7 +5,7 @@
 
 import type { AnchorSide, EdgeRoute, NodeGeom, NodeShape, Op, SlideEl } from '../types'
 import { state } from '../state'
-import { batch, insertEl, moveSceneNode, removeEl, setAttr } from '../model/ops'
+import { batch, insertEl, moveEl, moveSceneNode, removeEl, setAttr } from '../model/ops'
 import {
   anchorPoint, createEdge, createNode, edgesOf, freshNodeId, getNodeGeom, getShape,
   nodesOf, parseEdgeRef, renderNodeShape, routeEdge, routeEdgesOf, setNodeGeom,
@@ -209,9 +209,19 @@ function freeTargetOf(scene: SVGSVGElement, target: Element): SVGGraphicsElement
 function onDblClick(e: MouseEvent): void {
   const target = e.target as Element | null
   if (!(target instanceof Element)) return
+  if (target.closest('[data-dia-handle],[data-dia-anchor],[data-dia-endpoint]')) return
+  // verbatim <text> anywhere on an editable svg surface (dia-scene or plain
+  // imported svg) edits in place — labels inside node/edge groups keep their
+  // dedicated editors below
+  const surface = sceneFor(target)
+  const textEl = target.closest('text')
+  if (surface && textEl && !textEl.closest('[data-dia-node],[data-dia-edge],.dia-editor-artifact')) {
+    e.preventDefault()
+    openTextEdit(surface, textEl as SVGTextElement)
+    return
+  }
   const scene = target.closest('svg.dia-scene') as SVGSVGElement | null
   if (!scene) return
-  if (target.closest('[data-dia-handle],[data-dia-anchor],[data-dia-endpoint]')) return
   const p = toScene(scene, e.clientX, e.clientY)
   const node = hitNode(scene, p)
   if (node) {
@@ -871,6 +881,65 @@ export function deleteSceneSelection(): void {
   }
 }
 
+/** a selected free element is ungroupable when it is a plain container <g>
+ * (not a node/edge group) with element children */
+export function canUngroupFree(el: SVGGraphicsElement): boolean {
+  return el.tagName === 'g' &&
+    !el.hasAttribute('data-dia-node') && !el.hasAttribute('data-dia-edge') &&
+    el.children.length > 0
+}
+
+/** toolbar "ungroup": unwrap a plain <g>'s children to the scene root at the
+ * group's position — ONE batch op, exact undo */
+export function ungroupFree(scene: SVGSVGElement, group: SVGGraphicsElement): void {
+  if (!canUngroupFree(group)) return
+  const at = domIndex(group)
+  const kids = [...group.children]
+  // a group's own transform/style would be LOST by unwrapping — refuse
+  // rather than shift pixels (the group stays selected, nothing happens)
+  if (group.getAttribute('transform') || group.getAttribute('style')) {
+    showToast('group carries its own transform/style — ungrouping would move its contents')
+    window.setTimeout(hideToast, 2200)
+    return
+  }
+  const ops: Op[] = kids.map((child, k) => moveEl(child, scene, at + k, undefined, 'you'))
+  ops.push(removeEl(group, undefined, 'you'))
+  state.apply(batch(`Ungroup <g> (${kids.length} elements)`, ops))
+  state.selection = { kind: 'element', el: scene as unknown as HTMLElement, slide: slideOf(scene) }
+  syncEdgeHits(scene)
+}
+
+/** toolbar "make node": promote a free element into a scene node at its
+ * bbox. The element itself moves INSIDE the node group (after the derived
+ * shape, which paints fill:none/stroke:none via scoped props) so its pixels
+ * are preserved exactly while gaining node powers — geometry attributes,
+ * edge anchoring, toolbar styling. ONE batch op, selected afterwards. */
+export function promoteFreeToNode(scene: SVGSVGElement, el: SVGGraphicsElement): void {
+  let b: DOMRect
+  try { b = el.getBBox() } catch { return }
+  if (b.width < 1 || b.height < 1) return
+  const nid = freshNodeId(scene)
+  const g = document.createElementNS(NS, 'g') as SVGGElement
+  g.setAttribute('data-dia-node', nid)
+  g.setAttribute('data-shape', 'rect')
+  g.setAttribute('data-x', String(round2(b.x)))
+  g.setAttribute('data-y', String(round2(b.y)))
+  g.setAttribute('data-w', String(round2(b.width)))
+  g.setAttribute('data-h', String(round2(b.height)))
+  // the derived shape is an invisible hit/anchor box; the artwork stays
+  // the visible pixels
+  g.setAttribute('style', '--dia-node-fill: none; --dia-node-stroke: none')
+  const at = domIndex(el)
+  state.apply(batch(`MakeNode ${nid} from <${el.tagName.toLowerCase()}>`, [
+    insertEl(scene, at, g),
+    moveEl(el, g, 1, undefined, 'you'), // index 1: after the derived shape
+  ]))
+  renderNodeShape(g)
+  ensureSceneStyleRules()
+  syncEdgeHits(scene)
+  state.selection = { kind: 'scene-node', node: g, scene, slide: slideOf(scene) }
+}
+
 /** toolbar "+ node": spawn a connected node to the east as ONE batch op */
 export function spawnConnectedNode(scene: SVGSVGElement, node: SVGGElement): void {
   const g = getNodeGeom(node)
@@ -1101,16 +1170,79 @@ export function openEdgeLabelEdit(scene: SVGSVGElement, edge: SVGGElement): void
   input.addEventListener('blur', commit)
 }
 
+/** In-place editor for a VERBATIM <text> element (imported art, free
+ * annotations) — the words in a lifted diagram's surroundings are content
+ * too. Empty commit keeps the element with empty text (the element may
+ * carry position/paint worth preserving). ONE op via setSvgTextOp. */
+export function openTextEdit(scene: SVGSVGElement, textEl: SVGTextElement): void {
+  closeLabelEdit?.()
+  const prev = textEl.textContent ?? ''
+
+  const input = document.createElement('input')
+  input.className = 'dia-label-input'
+  input.value = prev
+  input.style.color = getComputedStyle(textEl).fill
+
+  const place = (): void => {
+    const ctm = scene.getScreenCTM()
+    if (!ctm) return
+    const b = textEl.getBBox()
+    const c = new DOMPoint(b.x + b.width / 2, b.y + b.height / 2).matrixTransform(ctm)
+    const w = Math.max(90, b.width * pxScale(scene) + 24)
+    const fs = (parseFloat(getComputedStyle(textEl).fontSize) || 12) * pxScale(scene)
+    input.style.left = `${c.x - w / 2}px`
+    input.style.top = `${c.y - fs}px`
+    input.style.width = `${w}px`
+    input.style.height = `${fs * 2}px`
+    input.style.fontSize = `${fs}px`
+  }
+  place()
+  textEl.style.visibility = 'hidden'
+  document.body.appendChild(input)
+  input.focus()
+  input.select()
+
+  const ac = new AbortController()
+  window.addEventListener('scroll', place, { capture: true, signal: ac.signal })
+  window.addEventListener('resize', place, { signal: ac.signal })
+
+  let done = false
+  const close = (): void => {
+    if (done) return
+    done = true
+    ac.abort()
+    input.remove()
+    textEl.style.visibility = ''
+    if (!textEl.getAttribute('style')) textEl.removeAttribute('style')
+    closeLabelEdit = null
+  }
+  closeLabelEdit = close
+
+  const commit = (): void => {
+    if (done) return
+    const value = input.value
+    close()
+    if (value !== prev) state.apply(setSvgTextOp(textEl, value, 'SetText <text>'))
+  }
+
+  input.addEventListener('keydown', (ke) => {
+    ke.stopPropagation()
+    if (ke.key === 'Enter') commit()
+    else if (ke.key === 'Escape') close()
+  })
+  input.addEventListener('blur', commit)
+}
+
 /* ======================================================= scene-local ops */
 
 /** SetText for SVG <text> — mirrors ops.setText semantics with proper invert */
-function setSvgTextOp(el: SVGTextElement, text: string): Op {
+function setSvgTextOp(el: SVGTextElement, text: string, label = 'SetText dia-node-label'): Op {
   const prev = el.textContent ?? ''
   return {
-    label: 'SetText dia-node-label',
+    label,
     author: 'you',
     apply() { el.textContent = text },
-    invert() { return setSvgTextOp(el, prev) },
+    invert() { return setSvgTextOp(el, prev, label) },
   }
 }
 

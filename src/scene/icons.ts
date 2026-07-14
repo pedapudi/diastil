@@ -33,6 +33,11 @@ function pathEl(d: string, w = 1.3): SVGPathElement {
   return stroke(p, w)
 }
 
+function dashed<T extends SVGElement>(el: T): T {
+  el.setAttribute('stroke-dasharray', '2 1.6')
+  return el
+}
+
 export function shapeIcon(shape: NodeShape): SVGSVGElement {
   const s = svg()
   if (shape === 'rect' || shape === 'rounded' || shape === 'pill') {
@@ -70,7 +75,7 @@ export function widthIcon(name: string): SVGSVGElement {
   return s
 }
 
-export type MiscIcon = 'plus-node' | 'del' | 'front' | 'back' | 'anchors' | 'label'
+export type MiscIcon = 'plus-node' | 'del' | 'front' | 'back' | 'anchors' | 'label' | 'ungroup' | 'make-node'
 
 export function miscIcon(name: MiscIcon): SVGSVGElement {
   const s = svg()
@@ -96,6 +101,17 @@ export function miscIcon(name: MiscIcon): SVGSVGElement {
       // a connector with its annotation tag above the midpoint
       s.appendChild(pathEl('M1.5,11 H18.5'))
       s.appendChild(pathEl('M6,3 h8 v4.5 h-8 Z', 1.1))
+      break
+    case 'ungroup':
+      // a dashed container releasing its two pieces
+      s.appendChild(dashed(pathEl('M2,2 h16 v10 h-16 Z', 1)))
+      s.appendChild(pathEl('M5,5 h4 v4 h-4 Z', 1.3))
+      s.appendChild(pathEl('M11,5 h4 v4 h-4 Z', 1.3))
+      break
+    case 'make-node':
+      // freeform mark gaining a node box around it
+      s.appendChild(pathEl('M3,2.5 h14 a1.5,1.5 0 0 1 1.5,1.5 v6 a1.5,1.5 0 0 1 -1.5,1.5 h-14 a1.5,1.5 0 0 1 -1.5,-1.5 v-6 a1.5,1.5 0 0 1 1.5,-1.5 Z', 1.1))
+      s.appendChild(pathEl('M5,9 C7,4 9,10 11,5 S15,8 15.5,5.5', 1.3))
       break
     case 'anchors': {
       s.appendChild(pathEl('M5.5,4 h9 v6 h-9 Z', 1))

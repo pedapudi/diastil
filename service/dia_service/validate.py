@@ -206,6 +206,9 @@ def validate_html(html: str) -> dict:
                     v = node.attrs.get(g)
                     if v is not None and not _finite(v):
                         add("error", "scene/node-geometry", node.path(), f'{g}="{v}" is not a finite number')
+                rotate = node.attrs.get("data-rotate")
+                if rotate is not None and not _finite(rotate):
+                    add("error", "scene/node-rotate", node.path(), f'data-rotate="{rotate}" is not a finite number')
                 shape = node.attrs.get("data-shape")
                 if shape is not None and shape not in NODE_SHAPES:
                     add("error", "scene/node-shape", node.path(), f'unknown shape "{shape}"')

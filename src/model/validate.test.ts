@@ -181,3 +181,14 @@ describe('behavior rules', () => {
     expect(rules(r)).toContain('behavior/step')
   })
 })
+
+describe('scene/node-rotate', () => {
+  const scene = (d: Document) => d.querySelector<SVGSVGElement>('svg.dia-scene')!
+
+  it('non-numeric rotation is an error; numeric passes', () => {
+    const bad = check((d) => scene(d).querySelector('[data-dia-node]')!.setAttribute('data-rotate', 'lots'))
+    expect(rules(bad)).toContain('scene/node-rotate')
+    const ok = check((d) => scene(d).querySelector('[data-dia-node]')!.setAttribute('data-rotate', '-22.5'))
+    expect(rules(ok)).not.toContain('scene/node-rotate')
+  })
+})

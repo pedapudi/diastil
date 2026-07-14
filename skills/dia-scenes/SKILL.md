@@ -30,6 +30,7 @@ attributes on edge paths; they're derived artifacts.
 | `data-dia-node` | unique id within the scene | ids are what edges reference |
 | `data-shape` | `rect` `rounded` `pill` `ellipse` `diamond` `cylinder` `hex` `parallelogram` `triangle` `cloud` `note` `path` | default `rounded` |
 | `data-path` | SVG path data, 100×100-normalized | shape `path` only: freeform outline (ring, brace, star, blob), scaled into the node box on render |
+| `data-rotate` | degrees | optional; spins shape + label about the box center — geometry stays axis-aligned |
 | `data-x/y/w/h` | numbers in viewBox units | position + size; w/h default 120×40 |
 | `data-dia-edge` | `from->to` | both ends must name nodes in this scene |
 | `data-anchors` | two of `N S E W auto`, comma-separated | from-side, to-side; `auto` picks facing sides |
@@ -100,6 +101,14 @@ the op log, no inference:
   in the toolbar — strokes commit as token-styled `path.dia-draw` elements
   (one op each); Esc exits the tool
 - double-click a node → edit its label in place
+- double-click any verbatim `<text>` (imported art, annotations) → edit it
+  in place, same editor
+- free-element toolbar: `ungroup` unwraps a plain `<g>` to the scene
+  (refused when the group carries its own transform/style — unwrapping
+  would move pixels); `make node` promotes any free element to a scene
+  node at its bbox — the artwork moves inside the node group and stays
+  the visible pixels, while the invisible derived shape provides the hit
+  box, anchors, and geometry attributes
 - double-click empty scene space → create a node with the label editor open
 - box-select (marquee), group operations, align/distribute via the
   contextual toolbar; keyboard nudge (arrows, with modifiers for bigger

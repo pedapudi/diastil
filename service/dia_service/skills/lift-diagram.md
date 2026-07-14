@@ -56,8 +56,10 @@ no markdown fences, no commentary.
    maps to its bounding box (`x = cx-rx`, `y = cy-ry`, `w = 2rx`,
    `h = 2ry`); a diamond `<path>`/`<polygon>` maps to its bounding box.
    Resolve any `transform="translate(...)"` on the shape or its groups
-   into absolute coordinates. Do not tidy, grid-snap, or re-layout —
-   preserve visual positions exactly.
+   into absolute coordinates. A shape rotated about its own center
+   (`transform="rotate(θ cx cy)"`) becomes a node with `data-rotate="θ"`
+   and axis-aligned `data-x/y/w/h` from its UNROTATED box. Do not tidy,
+   grid-snap, or re-layout — preserve visual positions exactly.
 2. **Shapes → nodes.** Every box-like shape that acts as a diagram node
    becomes `g[data-dia-node]` with a stable, readable id derived from its
    label (`auth-service`, not `n17`), lowercase, hyphenated, deduplicated

@@ -38,10 +38,20 @@ export function getShape(node: SVGGElement): NodeShape {
 
 const RECT_SHAPES = new Set<NodeShape>(['rect', 'rounded', 'pill'])
 
+/** the node's rotation in degrees (data-rotate; 0 when absent/invalid) */
+export function getRotate(node: SVGGElement): number {
+  const v = parseFloat(node.getAttribute('data-rotate') ?? '')
+  return Number.isFinite(v) ? v : 0
+}
+
 /** (re)build the node's shape + center its label from geometry attributes */
 export function renderNodeShape(node: SVGGElement): void {
   const g = getNodeGeom(node)
   const shape = getShape(node)
+  // rotation spins the shape (and label) about the BOX center — geometry
+  // attributes stay axis-aligned, so move/resize/routing never re-derive it
+  const rot = getRotate(node)
+  const rotate = rot ? `rotate(${fmt(rot)} ${fmt(g.x + g.w / 2)} ${fmt(g.y + g.h / 2)})` : ''
   let el = node.querySelector<SVGGraphicsElement>('.dia-node-shape')
   const needTag = shape === 'ellipse' ? 'ellipse' : RECT_SHAPES.has(shape) ? 'rect' : 'path'
   if (!el || el.tagName !== needTag) {
@@ -54,9 +64,11 @@ export function renderNodeShape(node: SVGGElement): void {
     el.setAttribute('x', fmt(g.x)); el.setAttribute('y', fmt(g.y))
     el.setAttribute('width', fmt(g.w)); el.setAttribute('height', fmt(g.h))
     el.setAttribute('rx', shape === 'pill' ? fmt(g.h / 2) : shape === 'rounded' ? '6' : '0')
+    applyTransform(el, rotate)
   } else if (needTag === 'ellipse') {
     el.setAttribute('cx', fmt(g.x + g.w / 2)); el.setAttribute('cy', fmt(g.y + g.h / 2))
     el.setAttribute('rx', fmt(g.w / 2)); el.setAttribute('ry', fmt(g.h / 2))
+    applyTransform(el, rotate)
   } else if (shape === 'path') {
     // freeform outline in a 100×100-normalized space, scaled into the box.
     // vector-effect keeps stroke width constant under the scale transform.
@@ -64,11 +76,12 @@ export function renderNodeShape(node: SVGGElement): void {
     // scale needs more precision than fmt: a 2dp scale error is ×100 in
     // normalized units — enough to visibly shift an imported outline
     const prec = (n: number) => String(Math.round(n * 100000) / 100000)
+    // rotate FIRST so the box spins in place, then place/scale the outline
     el.setAttribute('transform',
-      `translate(${fmt(g.x)},${fmt(g.y)}) scale(${prec(g.w / 100)},${prec(g.h / 100)})`)
+      `${rotate ? rotate + ' ' : ''}translate(${fmt(g.x)},${fmt(g.y)}) scale(${prec(g.w / 100)},${prec(g.h / 100)})`)
     el.setAttribute('vector-effect', 'non-scaling-stroke')
   } else {
-    el.removeAttribute('transform')
+    applyTransform(el, rotate)
     el.setAttribute('d', shapePathD(shape, g))
   }
   const label = node.querySelector<SVGTextElement>('.dia-node-label')
@@ -77,7 +90,13 @@ export function renderNodeShape(node: SVGGElement): void {
     label.setAttribute('y', fmt(g.y + g.h / 2))
     label.setAttribute('text-anchor', 'middle')
     label.setAttribute('dominant-baseline', 'central')
+    applyTransform(label, rotate)
   }
+}
+
+function applyTransform(el: SVGElement, transform: string): void {
+  if (transform) el.setAttribute('transform', transform)
+  else el.removeAttribute('transform')
 }
 
 /** outline path for the parametric (non-rect, non-ellipse) shapes */

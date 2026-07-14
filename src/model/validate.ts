@@ -124,6 +124,9 @@ export function validateDocument(doc: Document): ProfileReport {
           if (v !== null && !Number.isFinite(Number(v)))
             add('error', 'scene/node-geometry', pathOf(node), `${g}="${v}" is not a finite number`)
         }
+        const rotate = node.getAttribute('data-rotate')
+        if (rotate !== null && !Number.isFinite(Number(rotate)))
+          add('error', 'scene/node-rotate', pathOf(node), `data-rotate="${rotate}" is not a finite number`)
         const shape = node.getAttribute('data-shape')
         if (shape !== null && !NODE_SHAPES.has(shape))
           add('error', 'scene/node-shape', pathOf(node), `unknown shape "${shape}"`)

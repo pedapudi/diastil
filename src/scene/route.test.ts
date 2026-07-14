@@ -163,3 +163,41 @@ describe('renderNodeShape', () => {
     }
   })
 })
+
+describe('data-rotate', () => {
+  const g: NodeGeom = { x: 10, y: 20, w: 120, h: 60 }
+
+  it('rotates shape and label about the box center', () => {
+    const scene = sceneEl()
+    const node = createNode(scene, 'r1', g, 'spin', 'rect')
+    node.setAttribute('data-rotate', '30')
+    renderNodeShape(node)
+    const expected = 'rotate(30 70 50)'
+    expect(node.querySelector('.dia-node-shape')!.getAttribute('transform')).toBe(expected)
+    expect(node.querySelector('.dia-node-label')!.getAttribute('transform')).toBe(expected)
+    scene.remove()
+  })
+
+  it('composes rotation BEFORE the path shape placement transform', () => {
+    const scene = sceneEl()
+    const node = createNode(scene, 'r2', g, '', 'path')
+    node.setAttribute('data-path', 'M0,0 L100,100')
+    node.setAttribute('data-rotate', '-15')
+    renderNodeShape(node)
+    const t = node.querySelector('.dia-node-shape')!.getAttribute('transform')!
+    expect(t.startsWith('rotate(-15 70 50) translate(')).toBe(true)
+    scene.remove()
+  })
+
+  it('clearing data-rotate removes the transform on non-path shapes', () => {
+    const scene = sceneEl()
+    const node = createNode(scene, 'r3', g, 'x', 'rect')
+    node.setAttribute('data-rotate', '45')
+    renderNodeShape(node)
+    node.removeAttribute('data-rotate')
+    renderNodeShape(node)
+    expect(node.querySelector('.dia-node-shape')!.hasAttribute('transform')).toBe(false)
+    expect(node.querySelector('.dia-node-label')!.hasAttribute('transform')).toBe(false)
+    scene.remove()
+  })
+})

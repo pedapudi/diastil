@@ -104,3 +104,31 @@ describe('parsePathData', () => {
     expect(cmds.map((c) => c.c).join('')).toBe('MLL')
   })
 })
+
+describe('rotation lift', () => {
+  it('a pure center rotation lifts with data-rotate', () => {
+    const svg = svgOf('<rect x="20" y="10" width="60" height="30" transform="rotate(25 50 25)"/>')
+    expect(liftSimpleSvg(svg)).toBe(1)
+    const node = svg.querySelector('g[data-dia-node]')!
+    expect(node.getAttribute('data-rotate')).toBe('25')
+    expect(node.getAttribute('data-x')).toBe('20')
+  })
+
+  it('rotation about a NON-center pivot is refused', () => {
+    const svg = svgOf('<rect x="20" y="10" width="60" height="30" transform="rotate(25 0 0)"/>')
+    expect(liftSimpleSvg(svg)).toBe(0)
+  })
+
+  it('matrix and translate transforms are refused', () => {
+    const svg = svgOf(
+      '<rect x="0" y="0" width="40" height="20" transform="matrix(0.9,0.43,-0.43,0.9,0,0)"/>' +
+      '<rect x="60" y="0" width="40" height="20" transform="translate(5,5)"/>',
+    )
+    expect(liftSimpleSvg(svg)).toBe(0)
+  })
+
+  it('transformed CONTAINERS still refuse descent', () => {
+    const svg = svgOf('<g transform="rotate(10 50 25)"><rect x="20" y="10" width="60" height="30"/></g>')
+    expect(liftSimpleSvg(svg)).toBe(0)
+  })
+})

@@ -27,8 +27,9 @@ const NON_RENDERED = new Set([
   'linearGradient', 'radialGradient', 'filter', 'metadata', 'title', 'desc',
 ])
 const SHAPE_TAGS = new Set(['rect', 'circle', 'ellipse', 'polygon', 'polyline', 'line', 'path'])
-/** attributes whose presence means regenerating the element loses paint */
-const BLOCKING_ATTRS = ['marker-start', 'marker-mid', 'marker-end', 'filter', 'clip-path', 'mask', 'transform']
+/** attributes whose presence means regenerating the element loses paint
+ * (transform is handled separately — a pure center rotation IS liftable) */
+const BLOCKING_ATTRS = ['marker-start', 'marker-mid', 'marker-end', 'filter', 'clip-path', 'mask']
 /** inline style props carried onto the node group verbatim (they inherit
  * into the derived shape; no theme rule overrides them) */
 const CARRY_PROPS = [
@@ -41,6 +42,8 @@ interface Lift {
   shape: NodeShape
   geom: NodeGeom
   path?: string
+  /** degrees, when the source shape carried a pure center rotation */
+  rotate?: number
 }
 
 /** literal color -> var(--dia-*) reference (or null); supplied by convert
@@ -68,6 +71,7 @@ export function liftSimpleSvg(svg: SVGSVGElement, tokenColor: TokenColor = () =>
     g.setAttribute('data-y', fmt(lift.geom.y))
     g.setAttribute('data-w', fmt(lift.geom.w))
     g.setAttribute('data-h', fmt(lift.geom.h))
+    if (lift.rotate) g.setAttribute('data-rotate', fmt(lift.rotate))
     g.setAttribute('style', nodeStyle(lift.el, tokenColor))
     lift.el.replaceWith(g)
     renderNodeShape(g)
@@ -81,9 +85,10 @@ function collectShapes(root: Element, out: Element[]): void {
   for (const child of root.children) {
     const tag = child.tagName
     if (NON_RENDERED.has(tag)) continue
-    if (child.hasAttribute('transform')) continue // geometry we won't resolve
+    // shape-level transforms go through analyze (a pure center rotation
+    // lifts); CONTAINER transforms would offset every descendant — refuse
     if (SHAPE_TAGS.has(tag)) out.push(child)
-    else if (tag === 'g') collectShapes(child, out)
+    else if (tag === 'g' && !child.hasAttribute('transform')) collectShapes(child, out)
   }
 }
 
@@ -91,6 +96,38 @@ function analyze(el: Element): Lift | null {
   for (const a of BLOCKING_ATTRS) if (el.getAttribute(a)) return null
   const style = (el as SVGElement).style
   if (style.clipPath || style.filter || style.markerEnd || style.markerStart || style.markerMid) return null
+  const lift = analyzeUntransformed(el)
+  if (!lift) return null
+  const transform = el.getAttribute('transform')
+  if (transform) {
+    const rot = parseCenterRotation(transform, lift.geom)
+    if (rot === null) return null // anything but a pure center rotation
+    if (rot !== 0) lift.rotate = rot
+  }
+  return lift
+}
+
+/** Accept ONLY the simple `rotate(θ)` / `rotate(θ cx cy)` transform forms,
+ * and only when the pivot is the shape's own bbox center (within 2% of its
+ * larger side) — that is exactly what data-rotate reproduces. A bare
+ * rotate(θ) pivots on the svg ORIGIN, so it only qualifies when the shape
+ * is centered there. Matrices and transform lists are refused. */
+function parseCenterRotation(transform: string, geom: NodeGeom): number | null {
+  const m = /^\s*rotate\(\s*(-?(?:\d+\.?\d*|\.\d+))(?:[\s,]+(-?(?:\d+\.?\d*|\.\d+))[\s,]+(-?(?:\d+\.?\d*|\.\d+)))?\s*\)\s*$/
+    .exec(transform)
+  if (!m) return null
+  const deg = parseFloat(m[1])
+  if (!Number.isFinite(deg)) return null
+  const cx = m[2] !== undefined ? parseFloat(m[2]) : 0
+  const cy = m[3] !== undefined ? parseFloat(m[3]) : 0
+  const tol = Math.max(geom.w, geom.h) * 0.02
+  const centerX = geom.x + geom.w / 2
+  const centerY = geom.y + geom.h / 2
+  if (Math.abs(cx - centerX) > tol || Math.abs(cy - centerY) > tol) return null
+  return deg % 360
+}
+
+function analyzeUntransformed(el: Element): Lift | null {
   const attr = (n: string, fallback = 0) => {
     const v = parseFloat(el.getAttribute(n) ?? '')
     return Number.isFinite(v) ? v : fallback
