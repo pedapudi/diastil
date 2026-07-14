@@ -84,13 +84,16 @@ export async function runPipeline(html: string, name: string): Promise<ImportRes
   const extraction = await extractSlides(execution)
   const conversions = convertSlides(extraction)
   const title = name.replace(/\.html?$/, '')
-  const deckHtml = assembleDeck(conversions.map((c) => c.html), extraction.tokens, title)
+  const originals = extraction.slides.map((s) => s.originalHtml)
+  // originals ride along (profile §8) exactly as they do on review accept —
+  // the headless deck must not be a lesser artifact than the reviewed one
+  const deckHtml = assembleDeck(conversions.map((c) => c.html), extraction.tokens, title, originals)
   const report = buildReport(extraction, name, conversions)
   appendProfileFindings(report, deckHtml)
   return {
     deckHtml,
     report,
-    originalSlides: extraction.slides.map((s) => s.originalHtml),
+    originalSlides: originals,
     cleanup: () => execution.iframe.remove(),
   }
 }
