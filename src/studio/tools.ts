@@ -101,6 +101,8 @@ export function mountTools(s: StudioSession, host: HTMLElement): void {
 export function disposeTools(): void {
   if (!ctx) return
   closePointEditor()
+  ctx.s.svg.classList.remove('dia-studio-drawing')
+  ctx.s.svg.style.removeProperty('cursor')
   ctx.ov.remove()
   ctx.offPointer()
   pen = { cmds: [], start: null }
@@ -113,6 +115,9 @@ export function setTool(name: ToolName): void {
   ctx.tool = name
   for (const [n, b] of ctx.buttons) b.classList.toggle('dia-st-on', n === name)
   ctx.s.svg.style.cursor = name === 'select' ? '' : name === 'text' ? 'text' : 'crosshair'
+  // a full-slide layer passes idle presses through to the slide's text —
+  // an active drawing tool claims the whole surface instead
+  ctx.s.svg.classList.toggle('dia-studio-drawing', name !== 'select')
   if (name !== 'select') { ctx.s.picked.clear(); refreshAll() }
   else refreshAll()
 }

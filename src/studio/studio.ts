@@ -43,9 +43,28 @@ export interface StudioSession {
   panY: number
   offBus: () => void
   offKey: () => void
+  /** a session mounted INSIDE slide focus — its lifecycle belongs there */
+  embedded?: boolean
 }
 
 let session: StudioSession | null = null
+
+/** focus registers its close here — a module cycle would be worse */
+export let closeSlideFocusHook: (() => void) | null = null
+export function registerSlideFocusClose(fn: () => void): void {
+  closeSlideFocusHook = fn
+}
+
+/** focus mounts the tool machinery on a slide's drawing layer without the
+ * reparent lifecycle — it still needs to BE the session so every tool,
+ * panel, and menu helper operates on it */
+export function adoptSession(s: StudioSession): void {
+  session = s
+}
+
+export function dropSession(s: StudioSession): void {
+  if (session === s) session = null
+}
 
 export function studioOpen(): boolean {
   return session !== null
@@ -69,6 +88,7 @@ export function isSceneArt(svg: SVGSVGElement): boolean {
 
 export function closeStudio(): void {
   if (!session) return
+  if (session.embedded) { closeSlideFocusHook?.(); return }
   const s = session
   session = null
   closeMenu()
@@ -88,6 +108,7 @@ export function openStudio(svg: SVGSVGElement): void {
   const deck = state.deck
   if (!deck || !canStudio(svg) || !svg.parentNode) return
   closeStudio()
+  closeSlideFocusHook?.() // never nest studios — one surface at a time
   ensureStudioStyle()
 
   const overlay = h('div', `dia-studio ${ARTIFACT}`)
@@ -397,6 +418,10 @@ const STUDIO_CSS = `
 }
 .dia-st-stagewrap.is-panning { cursor: grab; }
 .dia-st-stage { position: absolute; transform-origin: 0 0; }
+/* inside a focus stage, the drawing layer's press ownership follows the
+ * tool: select passes empty space through to the slide's text; an active
+ * drawing tool takes the whole surface */
+.dia-studio section.dia-slide svg.dia-scene-full.dia-studio-drawing { pointer-events: bounding-box !important; }
 .dia-st-stage > section.dia-slide {
   margin: 0 !important; width: 1280px;
   box-shadow: 0 0 0 1px var(--rule, #444), 0 18px 60px rgba(0,0,0,.35);
