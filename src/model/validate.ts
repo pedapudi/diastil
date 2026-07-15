@@ -34,7 +34,7 @@ const ANCHOR_SIDES = new Set(['N', 'S', 'E', 'W', 'auto'])
 /** persisted dialect data-dia-* vocabulary (profile §7) */
 const DIA_ATTRS = new Set([
   'data-dia-version', 'data-dia-node', 'data-dia-edge', 'data-dia-step',
-  'data-dia-emphasis', 'data-dia-island',
+  'data-dia-emphasis', 'data-dia-island', 'data-dia-transition',
 ])
 /** session-only attrs the serializer must strip (error in a saved doc) */
 const EDITOR_ONLY_ATTRS = new Set([
@@ -104,6 +104,10 @@ export function validateDocument(doc: Document): ProfileReport {
       const step = el.getAttribute('data-dia-step')
       if (step !== null && !/^[1-9]\d*$/.test(step))
         add('error', 'behavior/step', pathOf(el), `data-dia-step="${step}" is not a positive integer`)
+
+      const transition = el.getAttribute('data-dia-transition')
+      if (transition !== null && !/^(none|fade|slide|rise)$/.test(transition))
+        add('error', 'behavior/transition', pathOf(el), `data-dia-transition="${transition}" is not one of none · fade · slide · rise`)
 
       const style = el.getAttribute('style')
       if (style && /(#[0-9a-f]{3,8}\b|\brgba?\(|\bhsla?\()/i.test(style))

@@ -125,8 +125,8 @@ inside an island is validated.
 `data-dia-version` (html) · `data-dia-node`, `data-dia-edge`,
 `data-shape`, `data-path`, `data-rotate`, `data-x`, `data-y`, `data-w`,
 `data-h`, `data-anchors`, `data-route`, `data-label` (scene) ·
-`data-dia-step`, `data-dia-emphasis` (behavior) · `data-dia-island`
-(islands).
+`data-dia-step`, `data-dia-emphasis`, `data-dia-transition` (behavior) ·
+`data-dia-island` (islands).
 
 Session-only attributes (`data-dia-id`, `data-dia-selected`,
 `data-dia-current`, `data-dia-step-shown`, `contenteditable`,

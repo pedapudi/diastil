@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from 'vitest'
 import demoRaw from '../../examples/demo-deck.html?raw'
-import { validateDocument, type ProfileReport } from './validate'
+import { validateDeckHtml, validateDocument, type ProfileReport } from './validate'
 
 function check(mutate?: (doc: Document) => void): ProfileReport {
   const doc = new DOMParser().parseFromString(demoRaw, 'text/html')
@@ -190,5 +190,24 @@ describe('scene/node-rotate', () => {
     expect(rules(bad)).toContain('scene/node-rotate')
     const ok = check((d) => scene(d).querySelector('[data-dia-node]')!.setAttribute('data-rotate', '-22.5'))
     expect(rules(ok)).not.toContain('scene/node-rotate')
+  })
+})
+
+describe('behavior/transition', () => {
+  const deck = (attrs: string) => `<!doctype html>
+<html data-dia-version="1"><head><style id="dia-theme">:root{--dia-ink:#000}</style></head>
+<body><section class="dia-slide" ${attrs}><h1 class="dia-title">Hi</h1></section></body></html>`
+
+  it('accepts the four transition values and absence', () => {
+    for (const v of ['none', 'fade', 'slide', 'rise']) {
+      const r = validateDeckHtml(deck(`data-dia-transition="${v}"`))
+      expect(r.findings.filter((f) => f.rule === 'behavior/transition')).toEqual([])
+    }
+    expect(validateDeckHtml(deck('')).findings.filter((f) => f.rule === 'behavior/transition')).toEqual([])
+  })
+
+  it('rejects junk values', () => {
+    const r = validateDeckHtml(deck('data-dia-transition="spin"'))
+    expect(r.findings.some((f) => f.rule === 'behavior/transition' && f.level === 'error')).toBe(true)
   })
 })

@@ -23,7 +23,7 @@ ANCHOR_SIDES = {"N", "S", "E", "W", "auto"}
 
 DIA_ATTRS = {
     "data-dia-version", "data-dia-node", "data-dia-edge", "data-dia-step",
-    "data-dia-emphasis", "data-dia-island",
+    "data-dia-emphasis", "data-dia-island", "data-dia-transition",
 }
 EDITOR_ONLY_ATTRS = {
     "data-dia-id", "data-dia-selected", "data-dia-current", "data-dia-step-shown",
@@ -185,6 +185,10 @@ def validate_html(html: str) -> dict:
             step = el.attrs.get("data-dia-step")
             if step is not None and not re.fullmatch(r"[1-9]\d*", step):
                 add("error", "behavior/step", el.path(), f'data-dia-step="{step}" is not a positive integer')
+            transition = el.attrs.get("data-dia-transition")
+            if transition is not None and transition not in ("none", "fade", "slide", "rise"):
+                add("error", "behavior/transition", el.path(),
+                    f'data-dia-transition="{transition}" is not one of none - fade - slide - rise')
 
             style = el.attrs.get("style")
             if style and COLOR_LITERAL.search(style):

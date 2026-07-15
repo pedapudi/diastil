@@ -511,6 +511,36 @@ export function mountEditor(host: HTMLElement): void {
       })
       bgRow.append(swatch)
       inspectBody.append(bgRow)
+
+      // slide transition: how this slide ENTERS in present mode
+      const tRow = h('div', 'de-style-row')
+      tRow.append(h('span', 'de-style-k', 'enter'))
+      const tSeg = h('span', 'dn-seg')
+      const currentT = slide.getAttribute('data-dia-transition') ?? ''
+      for (const [labelText, value] of [
+        ['inherit', ''], ['none', 'none'], ['fade', 'fade'], ['slide', 'slide'], ['rise', 'rise'],
+      ] as const) {
+        const b = h('button', value === currentT ? 'dn-on' : '', labelText)
+        b.type = 'button'
+        b.title = value === '' ? 'no per-slide override' : `enter with ${labelText} in present mode`
+        b.addEventListener('click', () => {
+          state.apply(setAttr(slide, 'data-dia-transition', value || null))
+          renderInspect()
+        })
+        tSeg.append(b)
+      }
+      tRow.append(tSeg)
+      const allBtn = h('button', 'dn-btn de-trans-all', 'all slides')
+      allBtn.type = 'button'
+      allBtn.title = 'apply this slide’s transition to every slide (one undo step)'
+      allBtn.addEventListener('click', () => {
+        const v = slide.getAttribute('data-dia-transition')
+        state.apply(batchOps(`Transition ${v ?? 'inherit'} → all slides`, state.slides()
+          .map((sl) => setAttr(sl, 'data-dia-transition', v))))
+        renderInspect()
+      })
+      tRow.append(allBtn)
+      inspectBody.append(tRow)
     }
 
     // a selected svg (scene background click) gets CREATION tools here in
@@ -550,6 +580,24 @@ export function mountEditor(host: HTMLElement): void {
       )
       const list = el.closest('ul, ol') as HTMLElement | null
       if (list) inspectBody.append(listRow(list))
+
+      // build step: this element's reveal order in present mode
+      const stepRow = h('div', 'de-style-row')
+      stepRow.append(h('span', 'de-style-k', 'step'))
+      const stepSeg = h('span', 'dn-seg')
+      const currentStep = el.getAttribute('data-dia-step') ?? ''
+      for (const v of ['', '1', '2', '3', '4', '5', '6'] as const) {
+        const b = h('button', v === currentStep ? 'dn-on' : '', v === '' ? 'none' : v)
+        b.type = 'button'
+        b.title = v === '' ? 'always visible' : `revealed ${v === '1' ? 'first' : `at step ${v}`} in present mode`
+        b.addEventListener('click', () => {
+          state.apply(setAttr(el, 'data-dia-step', v || null))
+          renderInspect()
+        })
+        stepSeg.append(b)
+      }
+      stepRow.append(stepSeg)
+      inspectBody.append(stepRow)
 
       // write-target line: computed honestly from the bound token and the
       // number of elements sharing this role class across the deck

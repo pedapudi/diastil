@@ -34,6 +34,7 @@ manipulation can't be promised); **advisory** = in-dialect but degraded
 | `content/editor-artifact` | `data-dia-id`/`data-dia-selected`/`contenteditable` leaked into a saved file — re-save from diastil (a leak is a serializer bug worth reporting) |
 | `content/inline-color` (advisory) | prefer `var(--dia-…)` over literal colors |
 | `behavior/step` | `data-dia-step` must be a positive integer |
+| `behavior/transition` | `data-dia-transition` ∈ none · fade · slide · rise |
 | `scene/*` | unique node ids; finite `data-x/y/w/h`; shapes ∈ rect·rounded·pill·ellipse·diamond·cylinder·hex·parallelogram·triangle·cloud·note·path (shape `path` requires `data-path`); `data-rotate` finite when present; edges `a->b` with both endpoints existing; routes ∈ straight·ortho·curve; anchors ∈ N·S·E·W·auto |
 
 ## Islands exempt everything

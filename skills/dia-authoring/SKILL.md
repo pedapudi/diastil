@@ -106,7 +106,10 @@ self-contained.
 ## Behavior is data
 
 - `data-dia-step="1"` — build order (positive integers); the runtime
-  reveals stepped elements in order in present mode.
+  reveals stepped elements in order in present mode (a gentle fade-rise,
+  motion gated behind `prefers-reduced-motion`).
+- `data-dia-transition="fade|slide|rise|none"` — how a slide ENTERS in
+  present mode. Per-slide on `<section>`; deck default on `<html>`.
 - `data-dia-emphasis` — hover-linkage/highlight groups.
 - Diagrams: see `dia-scenes` for the `svg.dia-scene` vocabulary.
 
