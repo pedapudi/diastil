@@ -168,7 +168,10 @@ def _compose_message(req: ChatRequest) -> str:
     ctx = req.context or {}
     lines = ["<editor-context>"]
     lines.append(f"altitude: {ctx.get('altitude', 'stage')}")
-    lines.append(f"slide-index: {ctx.get('slideIndex', 0)}")
+    # ONE numbering for the whole conversation: slides are 1-based in the
+    # context, in targets ("slide 3"), and in scene ops (extra.slide) —
+    # mixed bases were a reliable off-by-one factory
+    lines.append(f"current-slide: {int(ctx.get('slideIndex', 0)) + 1} (slide numbers are 1-based everywhere)")
     selection = ctx.get("selectionHtml")
     if selection:
         lines.append("selection:")

@@ -15,7 +15,7 @@ import {
   highlightModeActive, installMarquee, renderHighlightBoxes, setHighlightMode,
   stampHighlights, type HighlightRegion,
 } from '../editor/highlights'
-import { focusedSlide } from '../studio/focus'
+import { focusedSlide, slidesInLogicalOrder } from '../studio/focus'
 import { compileOps, resolveTarget } from './compile'
 import { clearPreview, previewIsActive, startPreview } from './preview'
 import { renderMarkdown } from './markdown'
@@ -29,19 +29,6 @@ const HEALTH_MIN_INTERVAL = 30_000
  * ELEMENT, so reordering slides keeps highlights with their slide. */
 
 const slideHighlights = new WeakMap<HTMLElement, HighlightRegion[]>()
-
-/** slides in LOGICAL order: a focused slide reparents into the studio
- * overlay, which pushes it to the end of document order — every consumer
- * here (highlight layers, renders, neighbors, target resolution) must see
- * it back at its own index */
-function slidesInOrder(): HTMLElement[] {
-  const f = focusedSlide()
-  const all = state.slides()
-  if (!f) return all
-  const rest = all.filter((sl) => sl !== f)
-  rest.splice(Math.min(state.currentSlide, rest.length), 0, f)
-  return rest
-}
 
 function currentSlideEl(): HTMLElement | null {
   return focusedSlide() ?? state.slides()[state.currentSlide] ?? null
@@ -460,7 +447,7 @@ export function mountCopilot(host: HTMLElement): void {
     const deck = state.deck
     // the exact slide set the context chips display: neighbors + pins,
     // size-capped, in logical order — what you see is what it sees
-    const slides = slidesInOrder()
+    const slides = slidesInLogicalOrder()
     const cap = (el: HTMLElement | undefined): string | null => {
       if (!el) return null
       const html = el.outerHTML
@@ -557,7 +544,7 @@ export function mountCopilot(host: HTMLElement): void {
     if (!deck) return null
     for (const p of ops) {
       try {
-        const el = resolveTarget(p.target, deck.root, slidesInOrder(), state.currentSlide)
+        const el = resolveTarget(p.target, deck.root, slidesInLogicalOrder(), state.currentSlide)
         const slide = el?.closest<HTMLElement>('section.dia-slide')
         if (slide) return slide
       } catch { /* keep looking */ }

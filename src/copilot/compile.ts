@@ -5,6 +5,7 @@
 
 import type { NodeGeom, NodeShape, Op, ProposedOp } from '../types'
 import { state } from '../state'
+import { slidesInLogicalOrder } from '../studio/focus'
 import { batch } from '../model/ops'
 import {
   insertEl, moveEl, moveSceneNode, removeEl, setAttr, setInlineHtml,
@@ -111,10 +112,11 @@ function compileOne(p: ProposedOp): Op | null {
       if (p.value === undefined) return null
       const el = parseFragment(p.value)
       if (!el || !el.matches('section.dia-slide')) return null
-      const slides = state.slides()
+      const slides = slidesInLogicalOrder()
       const anchor = slides[0]?.parentElement
       if (!anchor) return null
-      const slideIndex = clampIndex(num(p.extra?.index), slides.length)
+      // extra.index speaks the model's ONE numbering: 1-based slide numbers
+      const slideIndex = clampIndex(num(p.extra?.index) - 1, slides.length)
       const domIndex = slides[slideIndex]
         ? [...anchor.children].indexOf(slides[slideIndex])
         : anchor.children.length
@@ -273,7 +275,7 @@ function retargetEdgeOp(scene: SVGSVGElement, edge: SVGGElement, value: string, 
 function findEl(target: string): HTMLElement | null {
   const root = state.deck?.root
   if (!root) return null
-  return resolveTarget(target, root, state.slides(), state.currentSlide)
+  return resolveTarget(target, root, slidesInLogicalOrder(), state.currentSlide)
 }
 
 /** friendly role names the model may use → dialect classes */
@@ -379,9 +381,11 @@ function textMatch(scope: ParentNode, needle: string): HTMLElement | null {
   return exact ?? prefix
 }
 
-function findScene(slideIndex: number): SVGSVGElement | null {
-  const slides = state.slides()
-  const slide = slides[Number.isFinite(slideIndex) ? slideIndex : state.currentSlide]
+/** extra.slide is 1-BASED — the model speaks one numbering everywhere
+ * (context, targets, scene ops); missing/invalid falls to the current */
+function findScene(slideNumber: number): SVGSVGElement | null {
+  const slides = slidesInLogicalOrder()
+  const slide = slides[Number.isFinite(slideNumber) ? slideNumber - 1 : state.currentSlide]
   return slide?.querySelector<SVGSVGElement>('svg.dia-scene') ?? null
 }
 

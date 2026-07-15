@@ -62,6 +62,18 @@ export function isolatedDrawing(): SVGSVGElement | null {
   return focus?.isolated?.svg ?? null
 }
 
+/** slides in LOGICAL order: a focused slide reparents into the studio
+ * overlay (last in document order), which breaks every index-based
+ * consumer — this puts it back at its own position */
+export function slidesInLogicalOrder(): HTMLElement[] {
+  const f = focus?.slide
+  const all = state.slides()
+  if (!f) return all
+  const rest = all.filter((sl) => sl !== f)
+  rest.splice(Math.min(state.currentSlide, rest.length), 0, f)
+  return rest
+}
+
 /** step from an isolated drawing back up to the whole slide */
 export function exitFocusIsolation(): void {
   focus?.exitIsolation()
