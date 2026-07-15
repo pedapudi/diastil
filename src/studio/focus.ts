@@ -55,7 +55,10 @@ export function closeSlideFocus(): void {
     disposePanels()
     dropSession(f.studio)
   }
-  f.home.parent.insertBefore(f.slide, f.home.next)
+  // a cross-session history restore can replace the document UNDER the
+  // focus — the recorded home then belongs to the old tree
+  const nextOk = f.home.next && f.home.next.parentNode === f.home.parent
+  try { f.home.parent.insertBefore(f.slide, nextOk ? f.home.next : null) } catch { /* document replaced */ }
   f.overlay.remove()
   f.offBus()
   f.offKey()

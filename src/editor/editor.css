@@ -208,7 +208,7 @@
 .de-tabs button.de-on { color: var(--accent); border-bottom-color: var(--accent); }
 .de-pane { display: none; flex: 1; min-height: 0; overflow-y: auto; }
 .de-pane.de-on { display: flex; flex-direction: column; }
-.de-pane-pad { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.de-pane-pad { padding: 12px; display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }
 .de-hint {
   font-family: var(--sans); font-size: calc(10.5px * var(--dt-font-scale, 1));
   color: var(--ink-faint); line-height: 1.6;
@@ -255,11 +255,13 @@
 .de-legend-foot { margin-top: 14px; color: var(--ink-faint); text-align: right; }
 
 /* ---------- slide structure tree (inspect pane) ---------- */
-.de-tree { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+/* the structure tree owns the REST of the rail — it grows to the bottom
+ * and scrolls internally instead of capping at an arbitrary height */
+.de-tree { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; flex: 1; min-height: 0; }
 .de-tree-list {
   display: flex; flex-direction: column;
   border-top: 1px solid var(--rule-soft); padding-top: 5px;
-  max-height: 340px; overflow-y: auto;
+  flex: 1; min-height: 120px; overflow-y: auto;
 }
 .de-tree-row {
   display: flex; align-items: baseline; gap: 7px;

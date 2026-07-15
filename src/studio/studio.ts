@@ -97,7 +97,8 @@ export function closeStudio(): void {
   disposePanels()
   s.svg.classList.remove('dia-studio-art')
   s.svg.style.removeProperty('transform')
-  s.home.parent.insertBefore(s.svg, s.home.next)
+  const nextOk = s.home.next && s.home.next.parentNode === s.home.parent
+  try { s.home.parent.insertBefore(s.svg, nextOk ? s.home.next : null) } catch { /* document replaced */ }
   s.overlay.remove()
   s.offBus()
   s.offKey()
