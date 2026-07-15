@@ -159,6 +159,9 @@ export function validateDocument(doc: Document): ProfileReport {
         const anchors = edge.getAttribute('data-anchors')
         if (anchors !== null && !anchors.split(',').every((s) => ANCHOR_SIDES.has(s.trim())))
           add('error', 'scene/edge-anchors', pathOf(edge), `data-anchors="${anchors}" — sides are N,S,E,W,auto`)
+        const via = edge.getAttribute('data-via')
+        if (via !== null && !/^\s*-?[\d.]+\s*,\s*-?[\d.]+\s*$/.test(via))
+          add('error', 'scene/edge-via', pathOf(edge), `data-via="${via}" is not an "x,y" waypoint`)
       }
     }
   }

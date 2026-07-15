@@ -241,6 +241,10 @@ def validate_html(html: str) -> dict:
                 if anchors is not None and not all(s.strip() in ANCHOR_SIDES for s in anchors.split(",")):
                     add("error", "scene/edge-anchors", edge.path(),
                         f'data-anchors="{anchors}" — sides are N,S,E,W,auto')
+                via = edge.attrs.get("data-via")
+                if via is not None and not re.fullmatch(r"\s*-?[\d.]+\s*,\s*-?[\d.]+\s*", via):
+                    add("error", "scene/edge-via", edge.path(),
+                        f'data-via="{via}" is not an "x,y" waypoint')
 
     return {
         "ok": not any(f["level"] == "error" for f in findings),

@@ -11,7 +11,7 @@ import { batch, insertEl, moveEl, moveSceneNode, removeEl, setAttr } from '../mo
 import { pxScale, showToast } from '../scene/overlay'
 import { openPointEditor, closePointEditor, canPointEdit } from '../scene/points'
 import { getNodeGeom, routeEdgesOf, setNodeGeom } from '../scene/route'
-import { insertEdgeFlow, insertShapeNode } from '../scene/interact'
+import { beginEdgeViaDrag, insertEdgeFlow, insertShapeNode } from '../scene/interact'
 import type { StudioSession } from './studio'
 import { isSceneArt } from './studio'
 import { refreshPanels } from './panels'
@@ -591,6 +591,13 @@ function topLevelOf(c: ToolCtx, target: EventTarget | null): SVGGraphicsElement 
 }
 
 function selectDown(c: ToolCtx, e: PointerEvent): void {
+  // grabbing a connector re-routes it — same middle-handle gesture as the
+  // canvas, available anywhere along the wire
+  const edgeEl = (e.target as Element | null)?.closest?.('[data-dia-edge]')
+  if (edgeEl instanceof SVGGElement && isSceneArt(c.s.svg)) {
+    beginEdgeViaDrag(c.s.svg, edgeEl, e)
+    return
+  }
   const hit = topLevelOf(c, e.target)
   if (!hit) return beginMarquee(c, e)
   e.preventDefault()

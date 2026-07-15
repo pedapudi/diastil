@@ -206,15 +206,34 @@ export function routeEdge(scene: SVGSVGElement, edge: SVGGElement): void {
   const p1 = anchorPoint(ga, sideA), p2 = anchorPoint(gb, sideB)
 
   const routeKind = (edge.getAttribute('data-route') as EdgeRoute) || 'ortho'
+  // data-via: ONE user-owned waypoint — the escape hatch when auto-routing
+  // displeases. The route threads through it; dragging the connector's
+  // middle handle writes it, dropping back near the direct line clears it.
+  const via = parseVia(edge.getAttribute('data-via'))
   let d: string
   let labelAt: Pt
   if (routeKind === 'straight') {
-    d = `M${fmt(p1.x)},${fmt(p1.y)} L${fmt(p2.x)},${fmt(p2.y)}`
-    labelAt = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 }
+    d = via
+      ? `M${fmt(p1.x)},${fmt(p1.y)} L${fmt(via.x)},${fmt(via.y)} L${fmt(p2.x)},${fmt(p2.y)}`
+      : `M${fmt(p1.x)},${fmt(p1.y)} L${fmt(p2.x)},${fmt(p2.y)}`
+    labelAt = via ?? { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 }
   } else if (routeKind === 'curve') {
-    const mx = (p1.x + p2.x) / 2
-    d = `M${fmt(p1.x)},${fmt(p1.y)} C${fmt(mx)},${fmt(p1.y)} ${fmt(mx)},${fmt(p2.y)} ${fmt(p2.x)},${fmt(p2.y)}`
-    labelAt = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 }
+    if (via) {
+      d = `M${fmt(p1.x)},${fmt(p1.y)} Q${fmt(via.x)},${fmt(via.y)} ${fmt(p2.x)},${fmt(p2.y)}`
+      labelAt = via
+    } else {
+      const mx = (p1.x + p2.x) / 2
+      d = `M${fmt(p1.x)},${fmt(p1.y)} C${fmt(mx)},${fmt(p1.y)} ${fmt(mx)},${fmt(p2.y)} ${fmt(p2.x)},${fmt(p2.y)}`
+      labelAt = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 }
+    }
+  } else if (via) {
+    // ortho THROUGH the waypoint: exit along the source side's axis,
+    // enter along the sink side's axis — predictable, user-steered
+    const mid1: Pt = sideA === 'E' || sideA === 'W' ? { x: via.x, y: p1.y } : { x: p1.x, y: via.y }
+    const mid2: Pt = sideB === 'E' || sideB === 'W' ? { x: via.x, y: p2.y } : { x: p2.x, y: via.y }
+    const pts = dedupePts([p1, mid1, via, mid2, p2])
+    d = polylineD(pts)
+    labelAt = via
   } else {
     const obstacles = nodesOf(scene)
       .filter((n) => n !== a && n !== b)
@@ -257,6 +276,25 @@ export function routeEdge(scene: SVGSVGElement, edge: SVGGElement): void {
  * path changes. */
 
 export interface Pt { x: number; y: number }
+
+/** "x,y" → point (null on anything malformed) */
+export function parseVia(raw: string | null): Pt | null {
+  if (!raw) return null
+  const m = /^\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*$/.exec(raw)
+  if (!m) return null
+  const x = Number(m[1])
+  const y = Number(m[2])
+  return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null
+}
+
+function dedupePts(pts: Pt[]): Pt[] {
+  const out: Pt[] = []
+  for (const p of pts) {
+    const last = out[out.length - 1]
+    if (!last || Math.abs(last.x - p.x) > 0.01 || Math.abs(last.y - p.y) > 0.01) out.push(p)
+  }
+  return out
+}
 
 const AVOID_MARGIN = 12
 const BEND_PENALTY = 40

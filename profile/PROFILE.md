@@ -136,7 +136,7 @@ inside an island is validated.
 
 `data-dia-version` (html) · `data-dia-node`, `data-dia-edge`,
 `data-shape`, `data-path`, `data-rotate`, `data-x`, `data-y`, `data-w`,
-`data-h`, `data-anchors`, `data-route`, `data-label` (scene) ·
+`data-h`, `data-anchors`, `data-route`, `data-via`, `data-label` (scene) ·
 `data-dia-step`, `data-dia-emphasis`, `data-dia-transition` (behavior) ·
 `data-dia-island` (islands) · `data-dia-tex` (math source, §2).
 

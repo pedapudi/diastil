@@ -26,6 +26,7 @@ svg.dia-scene g[data-dia-node] { cursor: grab; }
 .dia-overlay .dia-handle[data-dia-handle="nw"], .dia-overlay .dia-handle[data-dia-handle="se"] { cursor: nwse-resize; }
 .dia-overlay .dia-handle[data-dia-handle="ne"], .dia-overlay .dia-handle[data-dia-handle="sw"] { cursor: nesw-resize; }
 .dia-overlay .dia-anchor { fill: var(--accent) !important; stroke: none !important; pointer-events: all; cursor: crosshair; }
+.dia-overlay .dia-via-handle { fill: var(--accent) !important; stroke: var(--paper) !important; stroke-width: 1.4 !important; vector-effect: non-scaling-stroke; pointer-events: all; cursor: move; }
 .dia-overlay .dia-endpoint { fill: var(--paper) !important; stroke: var(--accent) !important; stroke-width: 1.2 !important; vector-effect: non-scaling-stroke; pointer-events: all; cursor: move; }
 .dia-overlay .dia-guide { stroke: var(--bad) !important; stroke-width: 1 !important; stroke-dasharray: 4 3; fill: none !important; vector-effect: non-scaling-stroke; }
 .dia-overlay .dia-guide-label { font-family: var(--mono) !important; fill: var(--bad) !important; }
@@ -130,6 +131,28 @@ export function drawEdgeSelection(scene: SVGSVGElement, edge: SVGGElement): void
       c.setAttribute('data-dia-endpoint', end)
       g.appendChild(c)
     }
+  }
+  // the RE-ROUTE handle: mid-path (or the current waypoint) — drag it to
+  // steer the connector, drop near the direct line to return to auto
+  if (src) {
+    const mid = edgeMidpoint(src)
+    if (mid) {
+      const hd = circle(mid.x, mid.y, 4.5 / pxScale(scene), 'dia-via-handle')
+      hd.setAttribute('data-dia-via-handle', '')
+      g.appendChild(hd)
+    }
+  }
+}
+
+/** a point halfway along the edge's rendered path */
+export function edgeMidpoint(pathEl: SVGPathElement): { x: number; y: number } | null {
+  try {
+    const len = pathEl.getTotalLength()
+    if (!Number.isFinite(len) || len === 0) return null
+    const p = pathEl.getPointAtLength(len / 2)
+    return { x: p.x, y: p.y }
+  } catch {
+    return null
   }
 }
 

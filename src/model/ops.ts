@@ -2,7 +2,7 @@
  * Each returns an Op with apply/invert; route through state.apply(op). */
 
 import type { NodeGeom, Op } from '../types'
-import { routeEdgesOf, setNodeGeom, getNodeGeom } from '../scene/route'
+import { routeAll, routeEdge, setNodeGeom, getNodeGeom } from '../scene/route'
 
 const author = (a?: 'you' | 'copilot') => a ?? 'you'
 
@@ -122,15 +122,32 @@ export function moveEl(el: Element, toParent: ParentNode, toIndex: number, label
   }
 }
 
-/** move a scene node and reroute its edges */
+/** move a scene node and reroute — ALL edges, not just its own: the moved
+ * node may now sit in some unrelated edge's path, which must divert */
 export function moveSceneNode(scene: SVGSVGElement, node: SVGGElement, geom: NodeGeom, by?: 'you' | 'copilot'): Op {
   const prev = getNodeGeom(node)
   const id = node.getAttribute('data-dia-node') ?? '?'
   return {
     label: `MoveNode ${id} → (${Math.round(geom.x)},${Math.round(geom.y)})`,
     author: author(by),
-    apply() { setNodeGeom(node, geom); routeEdgesOf(scene, id) },
+    apply() { setNodeGeom(node, geom); routeAll(scene) },
     invert() { return moveSceneNode(scene, node, prev, author(by)) },
+  }
+}
+
+/** set (or clear) an edge's user-owned waypoint and re-route it — the
+ * drag of a connector's middle handle, as ONE op */
+export function setEdgeVia(scene: SVGSVGElement, edge: SVGGElement, via: string | null, by?: 'you' | 'copilot'): Op {
+  const prev = edge.getAttribute('data-via')
+  const ref = edge.getAttribute('data-dia-edge') ?? '?'
+  return {
+    label: via ? `ReRoute ${ref} via (${via})` : `ReRoute ${ref} auto`,
+    author: author(by),
+    apply() {
+      via === null ? edge.removeAttribute('data-via') : edge.setAttribute('data-via', via)
+      routeEdge(scene, edge)
+    },
+    invert() { return setEdgeVia(scene, edge, prev, author(by)) },
   }
 }
 

@@ -40,6 +40,7 @@ const SECTIONS: Array<[string, Array<[string, string]>]> = [
     ['⇧ + resize', 'lock the aspect (true circles / squares)'],
     ['arrows', 'nudge 1px (⇧ = 10px)'],
     ['drag from an anchor dot', 'new edge — drop on a dot to pin the side it lands on'],
+    ['drag a connector’s middle dot', 're-route it by hand — drop near the direct line to go back to auto'],
     ['double-click node', 'edit its label'],
     ['double-click empty scene', 'create a node'],
     ['pen / line (toolbar)', 'draw — release commits, Esc exits the tool'],

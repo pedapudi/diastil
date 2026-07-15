@@ -5,7 +5,7 @@
 
 import type { AnchorSide, EdgeRoute, NodeGeom, NodeShape, Op, SlideEl } from '../types'
 import { state } from '../state'
-import { batch, insertEl, moveEl, moveSceneNode, removeEl, setAttr } from '../model/ops'
+import { batch, insertEl, moveEl, moveSceneNode, removeEl, setAttr, setEdgeVia } from '../model/ops'
 import {
   anchorPoint, createEdge, createNode, edgesOf, freshNodeId, getNodeGeom, getShape,
   nodesOf, parseEdgeRef, renderNodeShape, routeEdge, routeEdgesOf, setNodeGeom,
@@ -176,6 +176,10 @@ function onPointerDown(e: PointerEvent): void {
   if (endpoint && sel.kind === 'scene-edge') {
     e.preventDefault()
     beginRetarget(scene, sel.edge, endpoint.getAttribute('data-dia-endpoint') === 'from' ? 'from' : 'to', e)
+    return
+  }
+  if (target.closest('[data-dia-via-handle]') && sel.kind === 'scene-edge') {
+    beginEdgeViaDrag(scene, sel.edge, e)
     return
   }
 
@@ -943,6 +947,51 @@ function flushNudge(): void {
   setNodeGeom(node, start)
   routeEdgesOf(scene, idOf(node))
   state.apply(moveSceneNode(scene, node, final))
+}
+
+/* ========================================================== re-routing */
+
+function distToSegment(p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }): number {
+  const len2 = (b.x - a.x) ** 2 + (b.y - a.y) ** 2
+  if (len2 === 0) return Math.hypot(p.x - a.x, p.y - a.y)
+  let t = ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / len2
+  t = Math.max(0, Math.min(1, t))
+  return Math.hypot(p.x - (a.x + t * (b.x - a.x)), p.y - (a.y + t * (b.y - a.y)))
+}
+
+/** drag a connector's middle handle: the route follows the cursor live and
+ * commits as ONE setEdgeVia op; dropping back near the DIRECT line between
+ * the anchors clears the waypoint (auto-routing resumes). Exported — the
+ * studio's select tool grabs edges with the same gesture. */
+export function beginEdgeViaDrag(scene: SVGSVGElement, edge: SVGGElement, e: PointerEvent): void {
+  e.preventDefault()
+  e.stopPropagation()
+  const prev = edge.getAttribute('data-via')
+  let last: { x: number; y: number } | null = null
+  const move = (ev: PointerEvent): void => {
+    const p = toScene(scene, ev.clientX, ev.clientY)
+    last = p
+    edge.setAttribute('data-via', `${Math.round(p.x * 100) / 100},${Math.round(p.y * 100) / 100}`)
+    routeEdge(scene, edge)
+    if (state.selection.kind === 'scene-edge' && state.selection.edge === edge) drawEdgeSelection(scene, edge)
+  }
+  const up = (): void => {
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', up)
+    // restore, decide, commit — undo captures the true previous value
+    prev === null ? edge.removeAttribute('data-via') : edge.setAttribute('data-via', prev)
+    routeEdge(scene, edge)
+    if (!last) return
+    const ends = edgeEndpoints(scene, edge)
+    const nearDirect = ends && distToSegment(last, ends.p1, ends.p2) < 10
+    const value = nearDirect ? null : `${Math.round(last.x * 100) / 100},${Math.round(last.y * 100) / 100}`
+    if (value === prev) return
+    state.apply(setEdgeVia(scene, edge, value))
+    syncEdgeHits(scene)
+    if (state.selection.kind === 'scene-edge' && state.selection.edge === edge) drawEdgeSelection(scene, edge)
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up)
 }
 
 /* =============================================================== delete */

@@ -211,3 +211,23 @@ describe('behavior/transition', () => {
     expect(r.findings.some((f) => f.rule === 'behavior/transition' && f.level === 'error')).toBe(true)
   })
 })
+
+
+/* data-via: an edge's user-owned waypoint must be an "x,y" pair */
+describe('scene edge via', () => {
+  const deck = (via: string) => `<!doctype html><html data-dia-version="1"><head>
+    <style id="dia-theme">:root { --dia-paper: #fff; }</style></head><body>
+    <section class="dia-slide"><svg class="dia-scene" viewBox="0 0 100 100">
+      <g data-dia-node="a" data-x="0" data-y="0" data-w="10" data-h="10"></g>
+      <g data-dia-node="b" data-x="50" data-y="50" data-w="10" data-h="10"></g>
+      <g data-dia-edge="a->b" ${via}></g>
+    </svg></section><script id="dia-runtime"></script></body></html>`
+  it('accepts an x,y waypoint', () => {
+    const r = validateDeckHtml(deck('data-via="120.5,64"'))
+    expect(r.findings.filter((f) => f.rule === 'scene/edge-via')).toEqual([])
+  })
+  it('rejects a malformed waypoint', () => {
+    const r = validateDeckHtml(deck('data-via="northwest"'))
+    expect(r.findings.some((f) => f.rule === 'scene/edge-via' && f.level === 'error')).toBe(true)
+  })
+})
