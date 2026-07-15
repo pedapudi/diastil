@@ -1,20 +1,30 @@
-/* Right-click context menu: the verbs that fit what's under the pointer.
- * Everything here routes through EXISTING actions (ops, studio, textedit,
- * compare) — the menu is a faster path, never a second implementation.
- * Chrome-token styling; clamped inside the viewport; Esc / click-away /
- * scroll dismisses. */
+/* Right-click context menu: the verbs that fit what's under the pointer
+ * AND where you are. Three environments share one builder — the deck
+ * table, a slide in the studio, and an isolated drawing — and each shows
+ * only the verbs that make sense there (no 'delete slide' under a focused
+ * slide, no deck chrome over an isolated drawing). Everything routes
+ * through EXISTING actions (ops, studio, textedit, compare) — the menu is
+ * a faster path, never a second implementation. */
 
 import { state } from '../state'
 import { insertEl, removeEl } from '../model/ops'
-import { canStudio, openStudio } from '../studio/studio'
+import { canStudio, isSceneArt, openStudio, studioSession, type StudioSession } from '../studio/studio'
 import { newDrawingOnSlide } from '../studio/svgimport'
+import {
+  deletePicked, duplicatePicked, enterGroup, groupPicked, hitOf, isNodeEl,
+  isPlainGroup, pick, refreshAll, reorderPicked, ungroupPicked,
+} from '../studio/tools'
 import { insertTextOnSlide, startEdit } from './textedit'
 import { openCompare } from './compare'
 import { assignFreshIds } from './slides'
-import { deleteSceneSelection, insertShapeNode } from '../scene/interact'
+import {
+  deleteSceneSelection, insertShapeNode,
+  openEdgeLabelEdit, openLabelEdit, openSvgTextEdit,
+} from '../scene/interact'
+import { canPointEdit, openPointEditor } from '../scene/points'
 import { openMenu, SEP, type Entry } from './menu'
 import { openStoryboard } from './storyboard'
-import { openSlideFocus } from '../studio/focus'
+import { closeSlideFocus, exitFocusIsolation, focusedSlide, isolatedDrawing, openSlideFocus } from '../studio/focus'
 
 export function installContextMenu(host: HTMLElement): void {
   host.addEventListener('contextmenu', (e) => {
@@ -27,11 +37,21 @@ export function installContextMenu(host: HTMLElement): void {
   })
 }
 
+/** environment × target: the deck table, a slide in the studio, or the
+ * studio's bound drawing surface each get their own verb set */
 function entriesFor(target: Element, slide: HTMLElement): Entry[] {
-  const items: Entry[] = []
-  const deck = state.deck
+  if (focusedSlide() === slide) {
+    const s = studioSession()
+    if (s && s.svg.contains(target)) return drawingEntries(target, s)
+    return focusEntries(target, slide)
+  }
+  return deckEntries(target, slide)
+}
 
-  // ---- what was clicked ----
+/* ---------- verbs for the thing under the pointer (shared) ---------- */
+
+function targetEntries(target: Element, slide: HTMLElement, svgVerb: string): Entry[] {
+  const items: Entry[] = []
   const math = target.closest<HTMLElement>('.dia-math')
   const svg = target.closest('svg') as SVGSVGElement | null
   const island = target.closest<HTMLElement>('[data-dia-island]')
@@ -46,7 +66,7 @@ function entriesFor(target: Element, slide: HTMLElement): Entry[] {
       SEP,
     )
   } else if (svg && !island) {
-    if (canStudio(svg)) items.push({ label: 'open drawing in studio', run: () => openStudio(svg) })
+    if (canStudio(svg)) items.push({ label: svgVerb, run: () => openStudio(svg) })
     if (svg.classList.contains('dia-scene')) {
       items.push({ label: 'insert node', run: () => insertShapeNode(svg, 'node') })
       const sel = state.selection
@@ -66,8 +86,15 @@ function entriesFor(target: Element, slide: HTMLElement): Entry[] {
       SEP,
     )
   }
+  return items
+}
 
-  // ---- the slide itself ----
+/* ---------- environment: the deck table ---------- */
+
+function deckEntries(target: Element, slide: HTMLElement): Entry[] {
+  const items = targetEntries(target, slide, 'open drawing in studio')
+  const deck = state.deck
+
   items.push(
     { label: '+ text', run: () => insertTextOnSlide(slide) },
     { label: '+ drawing', run: () => newDrawingOnSlide(slide) },
@@ -87,6 +114,88 @@ function entriesFor(target: Element, slide: HTMLElement): Entry[] {
   }
   return items
 }
+
+/* ---------- environment: a slide in the studio ---------- */
+
+function focusEntries(target: Element, slide: HTMLElement): Entry[] {
+  const items: Entry[] = []
+  // over a dimmed slide (a drawing is isolated) only navigation applies
+  if (!isolatedDrawing()) {
+    items.push(...targetEntries(target, slide, 'step into drawing'))
+    items.push(
+      { label: '+ text', run: () => insertTextOnSlide(slide) },
+      { label: '+ drawing', run: () => newDrawingOnSlide(slide) },
+      SEP,
+    )
+  }
+  items.push(...navEntries())
+  return items
+}
+
+/* ---------- environment: the studio's bound drawing surface ---------- */
+
+function drawingEntries(target: Element, s: StudioSession): Entry[] {
+  const items: Entry[] = []
+  // right-click acts on the element under the pointer — it joins the
+  // selection first, exactly like a left click would
+  const hit = hitOf(target)
+  if (hit && !s.picked.has(hit)) pick(hit, false)
+  const picked = [...s.picked]
+  const solo = picked.length === 1 ? picked[0] : null
+
+  // words, wherever they live
+  const edgeEl = target.closest('[data-dia-edge]')
+  if (edgeEl instanceof SVGGElement && isSceneArt(s.svg)) {
+    items.push({ label: 'edit label', run: () => openEdgeLabelEdit(s.svg, edgeEl) })
+  } else if (solo && isNodeEl(solo) && isSceneArt(s.svg)) {
+    items.push({ label: 'edit label', run: () => openLabelEdit(s.svg, solo) })
+  } else if (solo instanceof SVGTextElement) {
+    items.push({
+      label: 'edit words',
+      run: () => openSvgTextEdit(s.svg, solo, () => {
+        if (!solo.isConnected) s.picked.delete(solo)
+        refreshAll()
+      }),
+    })
+  }
+  if (solo instanceof SVGPathElement && canPointEdit(solo)) {
+    items.push({ label: 'edit points', run: () => openPointEditor({ kind: 'free', scene: s.svg, el: solo }) })
+  }
+
+  if (picked.length > 0) {
+    items.push(
+      { label: picked.length > 1 ? `duplicate ${picked.length} elements` : 'duplicate', run: () => duplicatePicked() },
+    )
+    if (picked.length >= 2 && !picked.some(isNodeEl)) {
+      items.push({ label: 'group', run: () => groupPicked() })
+    }
+    if (solo && isPlainGroup(solo)) {
+      items.push(
+        { label: 'enter group', run: () => enterGroup(solo) },
+        { label: 'ungroup', run: () => ungroupPicked() },
+      )
+    }
+    items.push(
+      { label: 'bring to front', run: () => reorderPicked(true) },
+      { label: 'send to back', run: () => reorderPicked(false) },
+      SEP,
+      { label: picked.length > 1 ? `delete ${picked.length} elements` : 'delete', run: () => deletePicked(), danger: true },
+      SEP,
+    )
+  }
+  items.push(...navEntries())
+  return items
+}
+
+/** the way back up the ladder — mirrors the header crumbs and esc */
+function navEntries(): Entry[] {
+  const items: Entry[] = []
+  if (isolatedDrawing()) items.push({ label: 'back to slide', run: () => exitFocusIsolation() })
+  items.push({ label: 'back to deck', run: () => closeSlideFocus() })
+  return items
+}
+
+/* ---------- shared ---------- */
 
 function remove(el: Element): void {
   state.apply(removeEl(el))

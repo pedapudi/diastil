@@ -20,6 +20,7 @@ import { mountPanels, disposePanels } from './panels'
 import { openImportDialog } from './svgimport'
 import { ensureSceneStyleRules, insertShapeNode } from '../scene/interact'
 import { setToolbarSuppressed } from '../scene/toolbar'
+import { menuIsOpen } from '../editor/menu'
 import { insertTextOnSlide } from '../editor/textedit'
 import { assignFreshIds } from '../editor/slides'
 
@@ -53,6 +54,16 @@ export function slideFocusOpen(): boolean {
 /** the slide currently visiting the focus stage, if any */
 export function focusedSlide(): HTMLElement | null {
   return focus?.slide ?? null
+}
+
+/** the drawing currently isolated inside the focus, if any */
+export function isolatedDrawing(): SVGSVGElement | null {
+  return focus?.isolated?.svg ?? null
+}
+
+/** step from an isolated drawing back up to the whole slide */
+export function exitFocusIsolation(): void {
+  focus?.exitIsolation()
 }
 
 /** THE studio entry: focus the drawing's slide and isolate the drawing.
@@ -397,6 +408,8 @@ export function openSlideFocus(slide: HTMLElement): void {
   }
   const onKey = (e: KeyboardEvent): void => {
     if (isTyping(e)) return
+    // an open context menu owns esc — closing it must not also back out
+    if (e.key === 'Escape' && menuIsOpen()) return
     if (e.key === 'Escape') {
       e.stopPropagation()
       e.preventDefault()
