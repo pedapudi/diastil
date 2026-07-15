@@ -15,6 +15,12 @@ const SAMPLE_W = 384
 const SAMPLE_H = 216
 /** per-channel delta below this is "the same pixel" (AA / hinting slack) */
 const CHANNEL_TOLERANCE = 40
+/* the composite's INK masks use a much tighter threshold: subtle surfaces
+ * (a card panel a few shades off the background) must count as ink in BOTH
+ * rasters or in NEITHER — a 40/channel cliff made a repaired card read as
+ * pure extra ink whenever the original's surface sat just under it while
+ * the candidate's sat just over, grading objective improvements DOWN */
+const INK_TOLERANCE = 16
 const RASTER_TIMEOUT_MS = 3000
 
 /** slides scoring below this are offered an automatic service repair round */
@@ -105,6 +111,37 @@ function layoutSize(el: Element, rect: DOMRect): { w: number; h: number } {
     return { w: o.offsetWidth, h: o.offsetHeight }
   }
   return { w: rect.width, h: rect.height }
+}
+
+/** Close-up of a fraction-coordinate region, rendered at enough resolution
+ * for a vision model to READ it (a highlighted chart in a 768px full-slide
+ * render is a few dozen pixels; a crop at ≥512px shows its axis labels).
+ * The whole element is rasterized at the scale that makes the crop sharp,
+ * capped so pathological slivers don't demand gigapixel canvases. */
+export async function rasterizeCropDataUrl(
+  el: Element, region: { x: number; y: number; w: number; h: number }, minW = 512,
+): Promise<string | null> {
+  if (region.w <= 0.01 || region.h <= 0.01) return null
+  const rect = el.getBoundingClientRect()
+  if (rect.width < 1 || rect.height < 1) return null
+  const layout = layoutSize(el, rect)
+  const fullW = Math.min(2048, Math.max(Math.round(minW / region.w), Math.round(layout.w)))
+  const fullH = Math.max(1, Math.round((layout.h / layout.w) * fullW))
+  const canvas = await rasterizeToCanvas(el, fullW, fullH)
+  if (!canvas) return null
+  const cw = Math.max(1, Math.round(region.w * fullW))
+  const ch = Math.max(1, Math.round(region.h * fullH))
+  const crop = document.createElement('canvas')
+  crop.width = cw
+  crop.height = ch
+  const ctx = crop.getContext('2d')
+  if (!ctx) return null
+  try {
+    ctx.drawImage(canvas, Math.round(region.x * fullW), Math.round(region.y * fullH), cw, ch, 0, 0, cw, ch)
+    return crop.toDataURL('image/png')
+  } catch {
+    return null
+  }
 }
 
 /** VLM-legible raster: PNG data URL at up to VLM_W wide, aspect preserved.
@@ -223,9 +260,9 @@ function inkMask(img: ImageData, w: number, h: number, bg: [number, number, numb
     for (let x = 0; x < w; x++) {
       const i = (y * img.width + x) * 4
       if (
-        Math.abs(img.data[i] - bg[0]) > CHANNEL_TOLERANCE ||
-        Math.abs(img.data[i + 1] - bg[1]) > CHANNEL_TOLERANCE ||
-        Math.abs(img.data[i + 2] - bg[2]) > CHANNEL_TOLERANCE
+        Math.abs(img.data[i] - bg[0]) > INK_TOLERANCE ||
+        Math.abs(img.data[i + 1] - bg[1]) > INK_TOLERANCE ||
+        Math.abs(img.data[i + 2] - bg[2]) > INK_TOLERANCE
       ) mask[y * w + x] = 1
     }
   }
@@ -621,9 +658,9 @@ function rowProfile(img: ImageData): Float32Array {
     for (let x = 0; x < img.width; x++) {
       const i = (y * img.width + x) * 4
       if (
-        Math.abs(img.data[i] - bgR) > CHANNEL_TOLERANCE ||
-        Math.abs(img.data[i + 1] - bgG) > CHANNEL_TOLERANCE ||
-        Math.abs(img.data[i + 2] - bgB) > CHANNEL_TOLERANCE
+        Math.abs(img.data[i] - bgR) > INK_TOLERANCE ||
+        Math.abs(img.data[i + 1] - bgG) > INK_TOLERANCE ||
+        Math.abs(img.data[i + 2] - bgB) > INK_TOLERANCE
       ) n++
     }
     prof[y] = n
@@ -687,10 +724,55 @@ export function settleAnimations(el: Element): void {
   } catch { /* getAnimations unavailable — nothing to settle */ }
 }
 
+/* Custom bullets, numbering, and decorations live in ::before/::after
+ * pseudo-elements — sources set `list-style: none` and draw "▸" markers in
+ * CSS. Pseudo content does not survive cloning, so converted lists showed
+ * NAKED lines. Materialize each rendered, string-valued pseudo-element as a
+ * real span carrying its paint; counters/attr() are skipped (they need the
+ * cascade), and the UA's default list markers need nothing — they render
+ * from the <ul>/<ol> structure the conversion preserves. */
+export function inlinePseudoContent(liveRoot: HTMLElement, clone: HTMLElement): void {
+  const win = liveRoot.ownerDocument.defaultView
+  if (!win) return
+  const live = [liveRoot, ...liveRoot.querySelectorAll('*')]
+  const out = [clone, ...clone.querySelectorAll('*')]
+  for (let i = 0; i < live.length && i < out.length; i++) {
+    if (live[i].closest('svg')) continue // svg has no pseudo content to carry
+    for (const which of ['::before', '::after'] as const) {
+      const cs = win.getComputedStyle(live[i], which)
+      const content = cs.content
+      if (!content || content === 'none' || content === 'normal') continue
+      const m = /^"([^"]*)"$/.exec(content) ?? /^'([^']*)'$/.exec(content)
+      if (!m || m[1] === '') continue
+      if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0) continue
+      const span = liveRoot.ownerDocument.createElement('span')
+      span.textContent = m[1]
+      const style: string[] = [`color: ${cs.color}`]
+      if (cs.fontWeight !== '400') style.push(`font-weight: ${cs.fontWeight}`)
+      if (parseFloat(cs.fontSize) > 0) style.push(`font-size: ${cs.fontSize}`)
+      if (parseFloat(cs.marginRight) > 0) style.push(`margin-right: ${cs.marginRight}`)
+      if (parseFloat(cs.marginLeft) > 0) style.push(`margin-left: ${cs.marginLeft}`)
+      if (cs.position === 'absolute') {
+        // hanging markers keep their offset relative to the (positioned) item
+        style.push('position: absolute', `left: ${cs.left}`, `top: ${cs.top}`)
+      }
+      span.setAttribute('style', style.join('; '))
+      if (which === '::before') out[i].insertBefore(span, out[i].firstChild)
+      else out[i].appendChild(span)
+    }
+  }
+}
+
 function cloneWithComputedStyles(el: Element, win: Window): Element {
   const clone = el.cloneNode(true) as Element
   const srcWalk = collectElements(el)
   const cloneWalk = collectElements(clone)
+  // pseudo-element content (custom bullets, numbering) does not survive
+  // cloning; materialize it BEFORE style inlining so both the original's
+  // live markers and the conversion's materialized spans rasterize alike
+  if (el instanceof HTMLElement && clone instanceof HTMLElement) {
+    try { inlinePseudoContent(el, clone) } catch { /* measurement still valid without */ }
+  }
   for (let i = 0; i < srcWalk.length && i < cloneWalk.length; i++) {
     const src = srcWalk[i]
     const dst = cloneWalk[i]

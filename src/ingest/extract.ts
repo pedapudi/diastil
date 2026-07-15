@@ -91,7 +91,7 @@ export interface Extraction {
 /* Detection lives in the extractor plugin registry (extractors/); re-exported
  * here so extraction consumers keep one import surface. */
 import { findSlideRoots } from './extractors/index'
-import { settleAnimations } from './fidelity'
+import { inlinePseudoContent, settleAnimations } from './fidelity'
 import { DeckNavigator } from './navigate'
 export { findSlideRoots }
 
@@ -404,6 +404,7 @@ function cleanSubtree(root: HTMLElement): string {
   return clone.outerHTML
 }
 
+
 /* svg paint carried by the SOURCE's stylesheets vanishes when conversion
  * strips that css — a diagram whose strokes came from `.x path { stroke }`
  * rules renders invisible (or default-black). Inline the computed paint
@@ -543,6 +544,7 @@ function inlineExternalDefs(liveRoot: HTMLElement, clone: HTMLElement): void {
 function snapshotClone(root: HTMLElement): HTMLElement {
   const clone = root.cloneNode(true) as HTMLElement
   inlineSvgPaint(root, clone)
+  inlinePseudoContent(root, clone)
   inlineExternalDefs(root, clone)
   const liveCanvases = root.querySelectorAll('canvas')
   const cloneCanvases = clone.querySelectorAll('canvas')

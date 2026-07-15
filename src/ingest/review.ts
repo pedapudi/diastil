@@ -12,11 +12,11 @@ import { service } from '../service/client'
 import type { ExecuteResult } from './execute'
 import { EXEC_W, EXEC_H, shimFrameHistory } from './execute'
 import type { Extraction } from './extract'
-import { findSlideRoots, forceVisible } from './extract'
+import { findSlideRoots, forceVisible, STAMP } from './extract'
 import { DeckNavigator } from './navigate'
 import {
-  scoreSlideFidelityDetailed, rasterizeRegion, rasterizeToDataUrl, diffHeatmapDataUrl,
-  REPAIR_THRESHOLD, type SlideDiff,
+  scoreSlideFidelityDetailed, rasterizeRegion, rasterizeToDataUrl, rasterizeCropDataUrl,
+  diffHeatmapDataUrl, REPAIR_THRESHOLD, type SlideDiff,
 } from './fidelity'
 import {
   describeHighlights, installMarquee, renderHighlightBoxes, stampHighlights,
@@ -736,14 +736,19 @@ class ReviewController {
       let png = this.origRoots[index] ? await rasterizeToDataUrl(this.origRoots[index]) : null
       const hl = this.highlights[index]
       if (png && hl) png = await stampHighlights(png, hl.original)
-      const feedback = [this.feedbackFor(index), this.highlightNotes(index)].filter(Boolean).join('\n')
+      const crops = await this.highlightCrops(index, 'original')
+      const cropNote = crops.length > 0
+        ? `the ${crops.length} additional attached image(s) after the slide render are CLOSE-UP crops of the highlighted regions — read them for the detail.`
+        : ''
+      const feedback = [this.feedbackFor(index), this.highlightNotes(index), this.highlightImplementation(index), cropNote]
+        .filter(Boolean).join('\n')
       this.logModel(index, 'user', 'retranslate: full model re-translation of this slide')
       this.logDetail(index, `sent → translate-slide${png ? ' · 1 image (original render)' : ''}`,
         `source slide html (${slide.sourceHtml.length} chars)${feedback ? `\n\nreviewer feedback:\n${feedback}` : ''}\n\n${slide.sourceHtml}`,
         { images: png ? [png] : [], mono: true })
       const result = await service.translateSlide(
         slide.sourceHtml, tokensToCss(this.input.extraction.tokens),
-        png ? [png] : [], feedback)
+        [...(png ? [png] : []), ...crops], feedback)
       if (result.thinking) this.logDetail(index, 'model thinking', result.thinking)
       this.logDetail(index, 'received → translated slide html', result.output, { mono: true })
       this.conversions[index] = revalidateSlide(slide, index, result.output)
@@ -867,9 +872,16 @@ class ReviewController {
     let improved = false
     const feedback = [this.feedbackFor(i), note, this.highlightNotes(i)].filter(Boolean).join('\n')
     try {
-      const mismatch = this.describeMismatch(i)
+      let mismatch = this.describeMismatch(i)
       const images = await this.repairImages(i)
-      this.logDetail(i, `sent → repair-fidelity${images.length ? ` · ${images.length} images (original · candidate · diff)` : ''}`,
+      const crops = await this.highlightCrops(i)
+      const impl = this.highlightImplementation(i)
+      if (impl) mismatch += `\n\n${impl}`
+      if (crops.length > 0 && images.length > 0) {
+        images.push(...crops)
+        mismatch += `\nthe last ${crops.length} attached image(s) are CLOSE-UP crops of the reviewer-highlighted regions (original-pane crops first, then converted-pane) — read them, they carry the detail the full renders cannot.`
+      }
+      this.logDetail(i, `sent → repair-fidelity${images.length ? ` · ${images.length} images (original · candidate · diff${crops.length ? ' · highlight crops' : ''})` : ''}`,
         `${mismatch}${feedback ? `\n\nreviewer feedback:\n${feedback}` : ''}`,
         { images })
       const result = await service.repairFidelity(
@@ -1034,6 +1046,82 @@ class ReviewController {
       describeHighlights(hl.original, 'the ORIGINAL slide'),
       describeHighlights(hl.converted, 'the CONVERTED candidate'),
     ].filter(Boolean).join('\n')
+  }
+
+  /** close-up crops of the highlighted regions, sharp enough for the model
+   * to READ — the full-slide render shows WHERE, these show WHAT */
+  private async highlightCrops(i: number, which: 'both' | 'original' = 'both'): Promise<string[]> {
+    const hl = this.highlights[i]
+    if (!hl) return []
+    const crops: string[] = []
+    const orig = this.origRoots[i]
+    if (hl.original.length > 0 && orig) {
+      await this.showOriginal(i)
+      const unforce = !this.oneAtATime() ? forceVisible(orig) : null
+      try {
+        for (const r of hl.original.slice(0, 2)) {
+          const png = await rasterizeCropDataUrl(orig, r)
+          if (png) crops.push(png)
+        }
+      } finally {
+        unforce?.()
+      }
+    }
+    const conv = this.convRoots()[i]
+    if (which === 'both' && conv) {
+      for (const r of hl.converted.slice(0, 2)) {
+        const png = await rasterizeCropDataUrl(conv, r)
+        if (png) crops.push(png)
+      }
+    }
+    return crops
+  }
+
+  /** The SOURCE IMPLEMENTATION under the original-pane highlights: stamped
+   * elements whose measured boxes sit in the region, tightest markup first.
+   * The model is asked to IDENTIFY the visual and reproduce it — geometry
+   * hit-testing hands it the exact html responsible, not a guess. */
+  private highlightImplementation(i: number): string {
+    const hl = this.highlights[i]
+    if (!hl || hl.original.length === 0) return ''
+    const slide = this.input.extraction.slides[i]
+    const doc = new DOMParser().parseFromString(slide.html, 'text/html')
+    const out: string[] = []
+    for (const r of hl.original.slice(0, 2)) {
+      const R = {
+        x: slide.rect.x + r.x * slide.rect.w, y: slide.rect.y + r.y * slide.rect.h,
+        w: r.w * slide.rect.w, h: r.h * slide.rect.h,
+      }
+      const hits: Array<{ el: Element; area: number }> = []
+      for (const el of doc.querySelectorAll(`[${STAMP}]`)) {
+        const smp = slide.samples[Number(el.getAttribute(STAMP))]
+        if (!smp || smp.w < 2 || smp.h < 2) continue
+        const ox = Math.max(0, Math.min(smp.x + smp.w, R.x + R.w) - Math.max(smp.x, R.x))
+        const oy = Math.max(0, Math.min(smp.y + smp.h, R.y + R.h) - Math.max(smp.y, R.y))
+        const overlap = ox * oy
+        if (overlap / (smp.w * smp.h) >= 0.55 || overlap / (R.w * R.h) >= 0.6) {
+          hits.push({ el, area: smp.w * smp.h })
+        }
+      }
+      hits.sort((a, b) => a.area - b.area)
+      const chosen: Element[] = []
+      for (const hit of hits) {
+        if (chosen.some((c) => hit.el.contains(c))) continue // tightest markup wins
+        chosen.push(hit.el)
+        if (chosen.length >= 3) break
+      }
+      if (chosen.length === 0) continue
+      const html = chosen
+        .map((el) => (el.outerHTML.length > 1500 ? `${el.outerHTML.slice(0, 1500)}<!-- …truncated -->` : el.outerHTML))
+        .join('\n')
+      out.push(
+        `source implementation under the highlighted region ` +
+        `(x=${r.x.toFixed(2)} y=${r.y.toFixed(2)} w=${r.w.toFixed(2)} h=${r.h.toFixed(2)}):\n${html}`)
+    }
+    if (out.length === 0) return ''
+    return out.join('\n\n') +
+      '\nIdentify what this implementation renders (chart, card, diagram, list, decoration…) ' +
+      'and reproduce that visual faithfully in the dialect — do not approximate it away.'
   }
 
   private renderModelLog(): void {

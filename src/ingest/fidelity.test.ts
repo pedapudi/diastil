@@ -213,3 +213,38 @@ describe('visual-consistency ranking', () => {
     expect(diffBitmaps(orig, shifted2).score - diffBitmaps(orig, half).score).toBeGreaterThan(0.2)
   })
 })
+
+describe('subtle surfaces (cards) are graded symmetrically', () => {
+  const bg: [number, number, number, number] = [20, 22, 28, 255]
+  /** a card: subtle surface fill (delta ~24/channel) + text-ish ink on top */
+  function card(img: ImageData, x0: number, y0: number): void {
+    for (let y = y0; y < y0 + 40; y++) for (let x = x0; x < x0 + 70; x++) {
+      const i = (y * img.width + x) * 4
+      img.data[i] = 44; img.data[i + 1] = 46; img.data[i + 2] = 54
+    }
+    for (let y = y0 + 8; y < y0 + 12; y++) for (let x = x0 + 8; x < x0 + 60; x++) {
+      const i = (y * img.width + x) * 4
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = 240
+    }
+  }
+
+  it('adding the missing card IMPROVES the score — never lowers it', () => {
+    const original = bitmap(200, 200, bg)
+    card(original, 20, 30)
+    card(original, 20, 100)
+    const withCards = bitmap(200, 200, bg)
+    card(withCards, 20, 30)
+    card(withCards, 20, 100)
+    const missingOne = bitmap(200, 200, bg)
+    card(missingOne, 20, 30)
+    // the second card's TEXT is there but its surface panel is missing
+    for (let y = 108; y < 112; y++) for (let x = 28; x < 80; x++) {
+      const i = (y * 200 + x) * 4
+      missingOne.data[i] = missingOne.data[i + 1] = missingOne.data[i + 2] = 240
+    }
+    const sWith = diffBitmaps(original, withCards).score
+    const sMissing = diffBitmaps(original, missingOne).score
+    expect(sWith).toBeGreaterThan(sMissing)
+    expect(sWith).toBeGreaterThanOrEqual(0.95)
+  })
+})

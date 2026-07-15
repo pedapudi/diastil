@@ -107,8 +107,8 @@ describe('corpus fixtures', () => {
 /** per-deck fidelity floors — the ratchet's teeth. Raise them as conversion
  * improves; lowering one is a reviewed decision with a reason in the diff. */
 const FIDELITY_FLOORS: Record<string, { min: number; mean: number }> = {
-  ambit: { min: 0.44, mean: 0.6 },  // captured 0.45–0.79, mean 0.637
-  demo: { min: 0.5, mean: 0.7 },    // captured 0.54–0.99, mean 0.749
+  ambit: { min: 0.46, mean: 0.62 }, // captured min 0.48, mean 0.644
+  demo: { min: 0.52, mean: 0.75 },  // captured min 0.55, mean 0.791
   steps: { min: 0.85, mean: 0.9 },  // captured 0.88/0.97
 }
 
