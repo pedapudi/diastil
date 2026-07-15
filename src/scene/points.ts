@@ -89,6 +89,34 @@ export function openPointEditor(target: PointTarget): boolean {
 
 /* ---------- geometry: path data <-> scene coordinates ---------- */
 
+/** a free element's local→scene matrix. Path data lives in the element's
+ * LOCAL space, but moves/scales/rotations write a transform onto the
+ * element — handles render at the overlay root in SCENE space, so every
+ * read maps through this matrix and every write through its inverse.
+ * Without it, editing a moved path shows handles at the pre-move
+ * geometry. Null = identity (or CTMs unavailable: detached / non-browser). */
+function localToScene(target: PointTarget): DOMMatrix | null {
+  if (target.kind !== 'free') return null
+  const sceneCtm = target.scene.getScreenCTM?.()
+  const elCtm = target.el.getScreenCTM?.()
+  if (!sceneCtm || !elCtm) return null
+  const m = sceneCtm.inverse().multiply(elCtm)
+  return m.isIdentity ? null : m
+}
+
+/** serialize commands as the target's OWN path data (local coordinates) */
+function serializeLocal(target: PointTarget, cmds: Cmd[]): string {
+  const m = localToScene(target)
+  if (!m) return serialize(cmds)
+  const inv = m.inverse()
+  const local = cmds.map((cmd) => ({ c: cmd.c, args: [...cmd.args] }))
+  for (const cmd of local) mapArgs(cmd, (x, y) => {
+    const p = new DOMPoint(x, y).matrixTransform(inv)
+    return [p.x, p.y]
+  })
+  return serialize(local)
+}
+
 /** parse the target's outline as ABSOLUTE commands in SCENE coordinates.
  * H/V collapse to L (same pixels, uniform two-coordinate handles). */
 function readCmds(target: PointTarget): Cmd[] | null {
@@ -114,13 +142,22 @@ function readCmds(target: PointTarget): Cmd[] | null {
     // data-path lives in a 100×100-normalized space — map into the node box
     const g = getNodeGeom(target.node)
     for (const cmd of out) mapArgs(cmd, (px, py) => [g.x + (px / 100) * g.w, g.y + (py / 100) * g.h])
+  } else {
+    // a moved/scaled/rotated free path: its d is local, handles are scene
+    const m = localToScene(target)
+    if (m) {
+      for (const cmd of out) mapArgs(cmd, (x, y) => {
+        const p = new DOMPoint(x, y).matrixTransform(m)
+        return [p.x, p.y]
+      })
+    }
   }
   return out
 }
 
 function writeCmds(target: PointTarget, cmds: Cmd[]): void {
   if (target.kind === 'free') {
-    state.apply(setAttr(target.el, 'd', serialize(cmds)))
+    state.apply(setAttr(target.el, 'd', serializeLocal(target, cmds)))
     return
   }
   const g = getNodeGeom(target.node)
@@ -264,8 +301,13 @@ function beginDrag(e: PointerEvent, handle: Handle): void {
     const cmd = s.cmds[handle.cmd]
     cmd.args[handle.arg] = p.x
     cmd.args[handle.arg + 1] = p.y
-    // live preview on the rendered element; the op lands on release
-    liveTarget?.setAttribute('d', serialize(s.cmds))
+    // live preview on the rendered element; the op lands on release.
+    // free targets write their OWN d — local coordinates, through the
+    // inverse of any transform they carry; a node's rendered shape is
+    // already in scene coordinates
+    liveTarget?.setAttribute('d', s.target.kind === 'free'
+      ? serializeLocal(s.target, s.cmds)
+      : serialize(s.cmds))
     renderHandles(s)
   }
   const up = (): void => {

@@ -19,6 +19,7 @@
   color: var(--ink-soft);
   padding: 3px 11px;
   cursor: pointer;
+  white-space: nowrap; /* a label never wraps inside its button — the ROW wraps */
 }
 .dn-btn:hover { background: var(--rule-soft); color: var(--ink); }
 .dn-btn.dn-btn-accent { border-color: var(--accent); color: var(--accent); }
@@ -31,6 +32,7 @@
   font-family: var(--sans); font-size: calc(11px * var(--dt-font-scale, 1));
   border: 0; background: transparent; color: var(--ink-soft);
   padding: 4px 12px; cursor: pointer;
+  white-space: nowrap;
 }
 .dn-seg button.dn-on { background: var(--accent); color: var(--paper); }
 

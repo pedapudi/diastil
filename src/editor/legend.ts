@@ -28,6 +28,12 @@ const SECTIONS: Array<[string, Array<[string, string]>]> = [
     ['double-click', 'edit text in place'],
     ['Enter · Esc', 'commit · cancel the edit'],
   ]],
+  ['blocks', [
+    ['drag', 'move a text block, figure, image, or island'],
+    ['⇧-drag on a drawing', 'move the FIGURE the svg lives in (a plain drag edits inside it)'],
+    ['drag image corner', 'resize (aspect held; ⇧ frees the height)'],
+    ['Delete / Backspace', 'delete the selected element'],
+  ]],
   ['diagram', [
     ['drag', 'move a node or any svg element — edges reroute live'],
     ['⇧ + resize', 'lock the aspect (true circles / squares)'],

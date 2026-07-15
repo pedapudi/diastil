@@ -30,6 +30,8 @@ import { openCompare } from './compare'
 import { bootFromCli, openDeck, saveDeck, presentDeck } from './slides'
 import { canStudio, openStudio } from '../studio/studio'
 import { newDrawingOnSlide } from '../studio/svgimport'
+import { applyTex, insertMathOnSlide, mathOf, renderTex } from './math'
+import { attachPickerProxy } from './colorwell'
 
 /* styles that must live inside the deck shadow root; serialization strips
  * style.dia-editor-artifact (slides.ts removes them around serializeDeck) */
@@ -490,7 +492,14 @@ export function mountEditor(host: HTMLElement): void {
         bd.type = 'button'
         bd.title = 'add freeform svg artwork and open it in the studio'
         bd.addEventListener('click', () => newDrawingOnSlide(slide))
-        segEl.append(b, bd)
+        const bm = h('button', '', '+ math')
+        bm.type = 'button'
+        bm.title = 'add a LaTeX formula — rendered to native MathML, source kept on the element'
+        bm.addEventListener('click', () => {
+          const el = insertMathOnSlide(slide)
+          if (el) state.selection = { kind: 'element', el, slide }
+        })
+        segEl.append(b, bd, bm)
         rowEl.append(segEl)
         inspectBody.append(rowEl)
       }
@@ -499,7 +508,7 @@ export function mountEditor(host: HTMLElement): void {
       const bgRow = styleSeg('bg', slide, 'background', [
         ['auto', ''], ['paper', 'var(--dia-paper)'], ['rule', 'var(--dia-rule)'], ['accent', 'var(--dia-accent)'],
       ])
-      const swatch = document.createElement('input')
+      const swatch = attachPickerProxy(document.createElement('input'))
       swatch.type = 'color'
       swatch.className = 'de-tok-swatch'
       swatch.title = 'custom background color (this slide only)'
@@ -569,6 +578,32 @@ export function mountEditor(host: HTMLElement): void {
     }
 
     if (sel.kind === 'element') {
+      // math: the TeX source is the element's real editing surface
+      const mathEl = mathOf(el)
+      if (mathEl) {
+        const wrap = h('div', 'de-math-edit')
+        const ta = document.createElement('textarea')
+        ta.className = 'de-math-tex'
+        ta.spellcheck = false
+        ta.rows = 3
+        ta.value = mathEl.getAttribute('data-dia-tex') ?? ''
+        const err = h('div', 'de-hint de-math-err')
+        const row = h('div', 'de-style-row')
+        row.append(h('span', 'de-style-k', 'latex'))
+        const apply = h('button', 'dn-btn', 'render')
+        apply.type = 'button'
+        apply.title = 'render the LaTeX to MathML (one undo step; source stays on the element)'
+        apply.addEventListener('click', () => {
+          const probe = renderTex(ta.value)
+          if ('error' in probe) { err.textContent = probe.error; return }
+          err.textContent = ''
+          applyTex(mathEl, ta.value)
+        })
+        row.append(apply)
+        wrap.append(row, ta, err)
+        inspectBody.append(wrap)
+      }
+
       const matches = matchScaleTokens(el)
       const chips = h('div', 'de-chips')
       if (matches.length > 0) {
@@ -876,7 +911,7 @@ export function mountEditor(host: HTMLElement): void {
     row.append(seg)
     // free color well: preview while dragging, ONE op on release — the same
     // contract as the per-slide background and the token swatches
-    const well = document.createElement('input')
+    const well = attachPickerProxy(document.createElement('input'))
     well.type = 'color'
     well.className = 'de-tok-swatch'
     well.title = 'custom color (this element only)'
@@ -1016,7 +1051,7 @@ export function mountEditor(host: HTMLElement): void {
     }
 
     if (isColorValue(value)) {
-      const swatch = document.createElement('input')
+      const swatch = attachPickerProxy(document.createElement('input'))
       swatch.type = 'color'
       swatch.className = 'de-tok-swatch'
       swatch.dataset.token = name

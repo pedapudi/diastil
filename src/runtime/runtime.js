@@ -21,6 +21,10 @@
   var style = document.createElement('style');
   style.id = 'dia-runtime-style';
   style.textContent =
+    /* the page behind the deck wears the deck's paper — otherwise every
+     * entrance animation (opacity 0 start) and letterbox strip flashes
+     * the browser's white */
+    'html, body { margin: 0; background: var(--dia-paper, #111); }' +
     '@media (prefers-reduced-motion: no-preference) {' +
     'section.dia-slide[data-dia-anim="fade"] { animation: diaFade .3s ease both; }' +
     'section.dia-slide[data-dia-anim="slide"] { animation: diaSlide .36s cubic-bezier(.2,.7,.2,1) both; }' +
@@ -83,13 +87,23 @@
     var s = slides[current];
     if (!s) return;
     var scale = Math.min(innerWidth / s.offsetWidth, innerHeight / s.offsetHeight);
+    // center the letterbox: the fitted slide floats mid-screen instead of
+    // hugging top-left with a bare strip on the other side
+    var tx = Math.max(0, (innerWidth - s.offsetWidth * scale) / 2);
+    var ty = Math.max(0, (innerHeight - s.offsetHeight * scale) / 2);
     slides.forEach(function (sl) {
       sl.style.transformOrigin = 'top left';
-      sl.style.setProperty('--dia-fit', 'scale(' + scale + ')');
+      sl.style.setProperty('--dia-fit', 'translate(' + tx + 'px, ' + ty + 'px) scale(' + scale + ')');
       sl.style.transform = 'var(--dia-fit)';
     });
     document.body.style.overflow = 'hidden';
     document.body.style.margin = '0';
+    // the strip color must match even for decks whose theme paints slides
+    // directly (no --dia-paper token)
+    var bg = getComputedStyle(s).backgroundColor;
+    if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
+      document.body.style.background = bg;
+    }
   }
 
   addEventListener('keydown', function (e) {

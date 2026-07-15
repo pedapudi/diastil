@@ -41,6 +41,18 @@ Text roles (`dia-title`, `dia-kicker`, `dia-body`, `dia-caption`,
 theme rules; unknown classes are permitted (they are deck-owned styling
 hooks) and are not flagged.
 
+### Math
+
+Formulas are native MathML — no runtime, no fonts to ship. An element
+classed `dia-math` carries its LaTeX source in `data-dia-tex` (§7) and
+its rendered `<math>` markup as content; the two move together in one
+edit. Any agent can retypeset the formula from the source; a deck with
+hand-authored MathML and no source is also valid.
+
+```html
+<div class="dia-math" data-dia-tex="E = mc^2"><math>…</math></div>
+```
+
 ## 3. Scenes (diagrams)
 
 A scene is `<svg class="dia-scene" viewBox="…">` containing node and edge
@@ -126,7 +138,7 @@ inside an island is validated.
 `data-shape`, `data-path`, `data-rotate`, `data-x`, `data-y`, `data-w`,
 `data-h`, `data-anchors`, `data-route`, `data-label` (scene) ·
 `data-dia-step`, `data-dia-emphasis`, `data-dia-transition` (behavior) ·
-`data-dia-island` (islands).
+`data-dia-island` (islands) · `data-dia-tex` (math source, §2).
 
 Session-only attributes (`data-dia-id`, `data-dia-selected`,
 `data-dia-current`, `data-dia-step-shown`, `contenteditable`,

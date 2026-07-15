@@ -9,6 +9,7 @@ import { batch, insertEl, moveEl, removeEl, setAttr, setStyleProp, setText } fro
 import type { StudioSession } from './studio'
 import { h } from './studio'
 import { pick, pickables, refreshAll } from './tools'
+import { attachPickerProxy } from '../editor/colorwell'
 
 /** deck color roles offered as swatches, in signal order */
 const TOKEN_INKS: Array<[string, string]> = [
@@ -100,7 +101,7 @@ function colorRow(s: StudioSession, label: string, prop: 'fill' | 'stroke', els:
     row.append(b)
   }
 
-  const well = document.createElement('input')
+  const well = attachPickerProxy(document.createElement('input'))
   well.type = 'color'
   well.className = 'dia-st-swatch'
   well.title = `custom ${label} color`

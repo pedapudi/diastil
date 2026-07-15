@@ -18,6 +18,7 @@ import {
   showToast, syncEdgeHits,
 } from './overlay'
 import { attachToolbar, setToolbarSuppressed } from './toolbar'
+import { BLOCK_SEL } from '../editor/elemdrag'
 import './scene.css'
 
 const NS = 'http://www.w3.org/2000/svg'
@@ -134,8 +135,14 @@ function onPointerDown(e: PointerEvent): void {
   if (e.button !== 0) return
   const target = e.target as Element | null
   if (!(target instanceof Element)) return
+  // artwork visiting the studio is the studio's alone — deck-level scene
+  // handling here would thrash the selection under the modal
+  if (target.closest('.dia-studio')) return
   const scene = sceneFor(target)
   if (!scene) return
+  // ⇧ escalates the grab PAST the svg to its containing block (a figure
+  // that is all svg is otherwise unmovable) — elemdrag takes this press
+  if (e.shiftKey && scene.parentElement?.closest(BLOCK_SEL)) return
   flushNudge()
   flushFreeNudge()
   const sel = state.selection
@@ -209,6 +216,7 @@ function freeTargetOf(scene: SVGSVGElement, target: Element): SVGGraphicsElement
 function onDblClick(e: MouseEvent): void {
   const target = e.target as Element | null
   if (!(target instanceof Element)) return
+  if (target.closest('.dia-studio')) return
   if (target.closest('[data-dia-handle],[data-dia-anchor],[data-dia-endpoint]')) return
   // verbatim <text> anywhere on an editable svg surface (dia-scene or plain
   // imported svg) edits in place — labels inside node/edge groups keep their

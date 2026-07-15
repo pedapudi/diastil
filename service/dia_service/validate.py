@@ -24,6 +24,7 @@ ANCHOR_SIDES = {"N", "S", "E", "W", "auto"}
 DIA_ATTRS = {
     "data-dia-version", "data-dia-node", "data-dia-edge", "data-dia-step",
     "data-dia-emphasis", "data-dia-island", "data-dia-transition",
+    "data-dia-tex",  # LaTeX source of a .dia-math element; content is MathML
 }
 EDITOR_ONLY_ATTRS = {
     "data-dia-id", "data-dia-selected", "data-dia-current", "data-dia-step-shown",

@@ -35,6 +35,7 @@ const ANCHOR_SIDES = new Set(['N', 'S', 'E', 'W', 'auto'])
 const DIA_ATTRS = new Set([
   'data-dia-version', 'data-dia-node', 'data-dia-edge', 'data-dia-step',
   'data-dia-emphasis', 'data-dia-island', 'data-dia-transition',
+  'data-dia-tex', // LaTeX source of a .dia-math element; content is MathML
 ])
 /** session-only attrs the serializer must strip (error in a saved doc) */
 const EDITOR_ONLY_ATTRS = new Set([

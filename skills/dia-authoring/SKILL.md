@@ -91,6 +91,21 @@ detection ladder, richest form wins:
 Import applies the same ladder automatically: uniform css-drawn bullets
 collapse to the glyph token; icon/variant markers become slots.
 
+## Math
+
+Formulas are native MathML with the LaTeX source preserved on the
+element — browsers typeset MathML without any runtime, and the source
+keeps the formula editable as text:
+
+```html
+<div class="dia-math" data-dia-tex="\frac{a+b}{c}"><math>…</math></div>
+```
+
+Author the `data-dia-tex` and let a converter (temml, latexmlmath, or
+the diastil editor's math row) produce the `<math>` content; keep the
+two in sync — an agent editing the formula should edit the TeX and
+re-render. Hand-authored MathML without a source is also valid.
+
 ## Media
 
 Images carry crop and focal point as style, so photosetting is attribute

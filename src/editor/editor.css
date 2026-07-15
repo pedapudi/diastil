@@ -298,12 +298,24 @@
 }
 
 .de-style-row { display: flex; align-items: center; gap: 8px; }
+/* the label column scales WITH the type preset — a fixed pixel width lets
+ * scaled-up labels ("insert", "canvas") run into their controls */
 .de-style-row .de-style-k {
-  width: 34px; flex: none;
+  width: calc(48px * var(--dt-font-scale, 1)); flex: none;
   font-family: var(--sans); font-size: calc(10.5px * var(--dt-font-scale, 1));
   color: var(--ink-soft);
 }
 .de-style-row .dn-seg { flex-wrap: wrap; }
+/* math editing: the TeX source is data, so it sets in mono */
+.de-math-edit { display: flex; flex-direction: column; gap: 6px; }
+.de-math-tex {
+  width: 100%; resize: vertical; box-sizing: border-box;
+  font-family: var(--mono); font-size: calc(11px * var(--dt-font-scale, 1));
+  background: var(--paper); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: 4px; padding: 6px 8px;
+}
+.de-math-err { color: var(--bad, #c33); min-height: 0; }
+
 .de-tok-row { display: flex; align-items: center; gap: 8px; }
 .de-tok-row .de-tok-name {
   flex: 1; min-width: 0;
@@ -312,7 +324,7 @@
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .de-tok-row input[type="text"] {
-  width: 118px; flex: none;
+  width: calc(118px * var(--dt-font-scale, 1)); flex: none;
   font-family: var(--mono); font-size: calc(10.5px * var(--dt-font-scale, 1));
   background: var(--paper); color: var(--ink);
   border: 1px solid var(--rule); border-radius: 4px;
@@ -324,7 +336,7 @@
   background: var(--paper); cursor: pointer;
 }
 .de-tok-num {
-  width: 58px; flex: none;
+  width: calc(58px * var(--dt-font-scale, 1)); flex: none;
   font-family: var(--mono); font-size: calc(10.5px * var(--dt-font-scale, 1));
   background: var(--paper); color: var(--ink);
   border: 1px solid var(--rule); border-radius: 4px;
@@ -348,6 +360,6 @@
 }
 .de-tok-del:hover { color: var(--bad, #c33); }
 .de-tok-add { border-top: 1px solid var(--rule-soft); padding-top: 9px; margin-top: 4px; }
-.de-tok-add .de-tok-newname { width: 74px !important; flex: none; }
+.de-tok-add .de-tok-newname { width: calc(74px * var(--dt-font-scale, 1)) !important; flex: none; }
 .de-tok-add input[type="text"] { width: auto; flex: 1; min-width: 0; }
 .de-tok-add .dn-btn { flex: none; }

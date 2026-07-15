@@ -15,8 +15,9 @@ const DRAG_MIN = 3
 const CORNER_PX = 16
 
 /** blocks that move as a unit; the INNERMOST match under the pointer wins,
- * except inside an island, where the island root is the unit */
-const BLOCK_SEL = [
+ * except inside an island, where the island root is the unit.
+ * Exported: the scene machinery yields ⇧-presses to these (see below). */
+export const BLOCK_SEL = [
   '.dia-figure', '.dia-title', '.dia-kicker', '.dia-body', '.dia-caption',
   '.dia-footnote', 'blockquote', 'pre', 'ul', 'ol', 'table', 'dl',
 ].join(', ')
@@ -49,7 +50,10 @@ function onPointerDown(e: PointerEvent): void {
   if (e.button !== 0 || isEditingText()) return
   const target = e.composedPath()[0]
   if (!(target instanceof Element)) return
-  if (target.closest('svg')) return // every svg surface is the scene layer's
+  // every svg surface belongs to the scene layer — EXCEPT under ⇧, which
+  // escalates the grab to the containing block: a figure that is all svg
+  // has no other surface to move it by (interact.ts yields the same press)
+  if (target.closest('svg') && !e.shiftKey) return
   const slide = target.closest<HTMLElement>('section.dia-slide')
   if (!slide) return
 
