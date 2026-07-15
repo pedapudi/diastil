@@ -39,7 +39,9 @@ section.dia-slide {
 .dia-kicker { font-family: var(--dia-face-label); font-size: var(--dia-scale-1);
   letter-spacing: .14em; text-transform: uppercase; color: var(--dia-ink-faint);
   margin-bottom: 16px; }
-.dia-kicker::before { content: '∿ '; color: var(--dia-accent); letter-spacing: 0; }
+.dia-kicker::before { content: ''; display: inline-block; width: 11px; height: 7px;
+  border: 1.4px solid var(--dia-accent); border-radius: 1.5px;
+  margin-right: 8px; vertical-align: 6%; }
 .dia-title { font-family: var(--dia-face-display); font-size: var(--dia-scale-5);
   line-height: 1.25; font-weight: 700; margin: 0 0 14px; letter-spacing: -0.01em; }
 .dia-title em { color: var(--dia-accent); font-style: normal; }
@@ -99,16 +101,27 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
 .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
 .tight li { margin-bottom: 7px; }
 .sub { font-size: var(--dia-scale-2); color: var(--dia-ink-soft); margin: -6px 0 18px; }
+.formula { font-family: var(--dia-face-label); font-size: var(--dia-scale-1);
+  line-height: 1.85; color: var(--dia-ink-soft); border: 1px solid var(--dia-rule);
+  border-radius: 5px; padding: 12px 16px; white-space: pre; overflow: hidden; }
+.formula b { color: var(--dia-ink); font-weight: 700; }
+.formula em { color: var(--dia-accent); font-style: normal; }
 </style>
 </head>
 <body>
 <section class="dia-slide dia-cover">
+  <svg viewBox="0 0 140 26" role="img" aria-label="diastil mark — slides distilled to one file" style="width: 120px; height: 24px; margin-bottom: 18px; overflow: visible;">
+    <path d="M4,5 L72,9" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.6; stroke-linecap: round; opacity: .55;"></path>
+    <path d="M4,13 L80,13" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.6; stroke-linecap: round; opacity: .8;"></path>
+    <path d="M4,21 L72,17" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.6; stroke-linecap: round; opacity: .55;"></path>
+    <circle cx="98" cy="13" r="4.5" style="fill: var(--dia-accent);"></circle>
+  </svg>
   <div class="dia-kicker">a field guide · 01</div>
   <h1 class="dia-title dia-cover-title"><span class="wordmark">diastil</span><span class="respreview"><span>research</span><span>preview</span></span><br>decks that edit like <em>documents</em> and draw like <em>canvases</em>.</h1>
   <div class="dia-body lede">The saved file is the format: one self-contained HTML page that
   presents itself, restyles from tokens, and stays editable by you, a text editor,
   or any coding agent. No build step. No private data model. No lock-in.</div>
-  <div class="dia-caption foot"><span>01 / 12</span><span class="wordmark">diastil</span></div>
+  <div class="dia-caption foot"><span>01 / 14</span><span class="wordmark">diastil</span></div>
 </section>
 
 <section class="dia-slide">
@@ -133,7 +146,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
       <code>validate.py</code> behind <code>dia validate</code> — identical rule ids,
       exit 1 on any error. The contract gate for humans and agents alike.</p></div>
   </div>
-  <div class="dia-caption foot"><span>02 / 12</span><span class="wordmark">diastil</span></div>
+  <div class="dia-caption foot"><span>02 / 14</span><span class="wordmark">diastil</span></div>
 </section>
 
 <section class="dia-slide">
@@ -179,31 +192,54 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
       <figcaption class="dia-caption">this diagram is a scene — the edges routed themselves</figcaption>
     </figure>
   </div>
-  <div class="dia-caption foot"><span>03 / 12</span><span class="wordmark">diastil</span></div>
+  <div class="dia-caption foot"><span>03 / 14</span><span class="wordmark">diastil</span></div>
 </section>
 
 <section class="dia-slide">
-  <div class="dia-kicker">implementation · the op log · 04</div>
-  <h2 class="dia-title">Every edit is an <em>op</em>: apply, invert, replay.</h2>
+  <div class="dia-kicker">implementation · editor architecture · 04</div>
+  <h2 class="dia-title">A state hub, an op log, and <em>one law</em>: everything mutates through ops.</h2>
+  <figure class="dia-figure" style="margin: 0 0 12px; width: 100%;">
+    <svg class="dia-scene" viewBox="0 0 900 240" role="img" aria-label="editor architecture"><defs><marker id="dia-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"></path></marker></defs>
+      <g data-dia-node="shell" data-shape="rounded" data-x="20" data-y="20" data-w="150" data-h="44"><rect class="dia-node-shape" x="20" y="20" width="150" height="44" rx="6"></rect>
+        <text class="dia-node-label" x="95" y="42" text-anchor="middle" dominant-baseline="central">shell · rail · minimap</text>
+      </g>
+      <g data-dia-node="scenes" data-shape="rounded" data-x="20" data-y="98" data-w="150" data-h="44"><rect class="dia-node-shape" x="20" y="98" width="150" height="44" rx="6"></rect>
+        <text class="dia-node-label" x="95" y="120" text-anchor="middle" dominant-baseline="central">scene runtime</text>
+      </g>
+      <g data-dia-node="copilot" data-shape="rounded" data-x="20" data-y="176" data-w="150" data-h="44"><rect class="dia-node-shape" x="20" y="176" width="150" height="44" rx="6"></rect>
+        <text class="dia-node-label" x="95" y="198" text-anchor="middle" dominant-baseline="central">copilot rail</text>
+      </g>
+      <g data-dia-node="state" data-shape="rounded" data-x="280" data-y="92" data-w="170" data-h="56" data-dia-emphasis=""><rect class="dia-node-shape" x="280" y="92" width="170" height="56" rx="6"></rect>
+        <text class="dia-node-label" x="365" y="120" text-anchor="middle" dominant-baseline="central">state · bus · op log</text>
+      </g>
+      <g data-dia-node="deck" data-shape="note" data-x="560" data-y="92" data-w="160" data-h="56"><path class="dia-node-shape" d="M560,92 L706,92 L720,106 L720,148 L560,148 Z M706,92 L706,106 L720,106"></path>
+        <text class="dia-node-label" x="640" y="120" text-anchor="middle" dominant-baseline="central">deck DOM · shadow root</text>
+      </g>
+      <g data-dia-node="service" data-shape="cylinder" data-x="300" data-y="180" data-w="130" data-h="52"><path class="dia-node-shape" d="M300,187.8 A65,7.8 0 0 1 430,187.8 V224.2 A65,7.8 0 0 1 300,224.2 Z M300,187.8 A65,7.8 0 0 0 430,187.8"></path>
+        <text class="dia-node-label" x="365" y="206" text-anchor="middle" dominant-baseline="central">dia service :8317</text>
+      </g>
+      <g data-dia-node="file" data-shape="note" data-x="770" data-y="96" data-w="110" data-h="48"><path class="dia-node-shape" d="M770,96 L866,96 L880,110 L880,144 L770,144 Z M866,96 L866,110 L880,110"></path>
+        <text class="dia-node-label" x="825" y="120" text-anchor="middle" dominant-baseline="central">.html file</text>
+      </g>
+      <g data-dia-edge="shell-&gt;state" data-anchors="E,W" data-route="ortho" data-label="ops"><path class="dia-edge-path" d="M170,42 H182 V120 H280" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="186" y="114" text-anchor="middle">ops</text></g>
+      <g data-dia-edge="scenes-&gt;state" data-anchors="E,W" data-route="ortho" data-label="ops"><path class="dia-edge-path" d="M170,120 H280" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="225" y="114" text-anchor="middle">ops</text></g>
+      <g data-dia-edge="copilot-&gt;state" data-anchors="E,W" data-route="ortho" data-label="proposals"><path class="dia-edge-path" d="M170,198 H182 V120 H280" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="186" y="114" text-anchor="middle">proposals</text></g>
+      <g data-dia-edge="state-&gt;deck" data-anchors="E,W" data-route="straight" data-label="apply · invert"><path class="dia-edge-path" d="M450,120 L560,120" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="505" y="114" text-anchor="middle">apply · invert</text></g>
+      <g data-dia-edge="copilot-&gt;service" data-anchors="S,W" data-route="ortho" data-label="chat · skills"><path class="dia-edge-path" d="M95,220 V232 H288 V206 H300" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="204.5" y="226" text-anchor="middle">chat · skills</text></g>
+      <g data-dia-edge="deck-&gt;file" data-anchors="E,W" data-route="straight" data-label="byte-stable"><path class="dia-edge-path" d="M720,120 L770,120" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="745" y="114" text-anchor="middle">byte-stable</text></g>
+    </svg>
+  </figure>
   <div class="grid2">
-    <div class="panel"><div class="panel-k">the shape</div>
-      <p>An op is <code>{ label, author, apply(), invert() }</code> — a closure over live
-      elements that captures its previous state at creation. Gestures batch:
-      a whole drag, a whole proposal, is ONE undo step.</p></div>
-    <div class="panel"><div class="panel-k">byte-stable round-trip</div>
-      <p>A deck saved by diastil re-parses and re-serializes to <em>identical bytes</em> —
-      held by tests as a hard guarantee. Text-editor diffs stay clean; the CLI's
-      disk-watch can prove "editor is clean" by equality.</p></div>
-    <div class="panel"><div class="panel-k">authorship</div>
-      <p>Ops carry <code>author: you | copilot</code>. Agent changes read honestly in the
-      log, and a rejected proposal never touches it — previews apply
-      <em>outside</em> the log and revert by running inverts in reverse.</p></div>
-    <div class="panel"><div class="panel-k">editor artifacts</div>
-      <p>Selection rings, highlight layers, preview badges are
-      <code>.dia-editor-artifact</code> nodes — serialization strips them, so chrome
-      can never leak into the saved file.</p></div>
+    <div class="panel"><div class="panel-k">ops</div>
+      <p>An op is <code>{ label, author, apply(), invert() }</code> — a closure over live elements,
+      previous state captured at creation. Gestures batch to ONE undo step;
+      authorship (<code>you | copilot</code>) reads honestly in the log.</p></div>
+    <div class="panel"><div class="panel-k">isolation &amp; round-trip</div>
+      <p>The deck lives in a shadow root — chrome styles can't leak in, deck tokens can't leak out.
+      Editor artifacts strip on save; a saved deck re-serializes to <em>identical bytes</em>,
+      so text-editor diffs stay clean.</p></div>
   </div>
-  <div class="dia-caption foot"><span>04 / 12</span><span class="wordmark">diastil</span></div>
+  <div class="dia-caption foot"><span>04 / 14</span><span class="wordmark">diastil</span></div>
 </section>
 
 <section class="dia-slide">
@@ -211,7 +247,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
   <h2 class="dia-title">Scenes: author intent, <em>derive geometry</em>.</h2>
   <div class="dia-columns">
     <div class="dia-body">
-      <ul class="glyphs" style="--dia-marker: '∿'; list-style: none; padding-left: 0;">
+      <ul class="glyphs" style="--dia-marker: '▸'; list-style: none; padding-left: 0;">
         <li>Nodes are <code>data-x/y/w/h</code> + a shape; labels center themselves;
             edge paths are <em>derived artifacts</em> — never hand-written.</li>
         <li>Orthogonal routing is A* over node rects inflated 12px, bend-penalized,
@@ -244,7 +280,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
       <figcaption class="dia-caption">cloud · diamond · cylinder · freeform path — revealed in steps</figcaption>
     </figure>
   </div>
-  <div class="dia-caption foot"><span>05 / 12</span><span class="wordmark">diastil</span></div>
+  <div class="dia-caption foot"><span>05 / 14</span><span class="wordmark">diastil</span></div>
 </section>
 
 <section class="dia-slide">
@@ -288,64 +324,173 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
     fixed-or-elastic spacing; faces, weights, colors bind to tokens; delays become steps;
     exact shapes lift deterministically into scenes.</p>
   </div>
-  <div class="dia-caption foot"><span>06 / 12</span><span class="wordmark">diastil</span></div>
+  <div class="dia-caption foot"><span>06 / 14</span><span class="wordmark">diastil</span></div>
 </section>
 
 <section class="dia-slide">
-  <div class="dia-kicker">implementation · fidelity · 07</div>
-  <h2 class="dia-title">Fidelity is a <em>measured composite</em>, not a vibe.</h2>
-  <p class="sub dia-body">Both renders rasterize through the same foreignObject pipeline at 384×216; ink masks binarize at a tight threshold. Four axes:</p>
-  <div class="grid4">
-    <div class="panel"><div class="panel-k">displacement</div>
-      <p>Symmetric truncated <strong>chamfer distance</strong> between ink masks (3-4 distance
-      transform) — drift costs in proportion, saturating at 4% of height.</p></div>
-    <div class="panel"><div class="panel-k">layout</div>
-      <p>Continuous <strong>Dice overlap</strong> of ink mass on a 16×9 grid — is the
-      composition the same, at the scale a human judges first.</p></div>
-    <div class="panel"><div class="panel-k">appearance</div>
-      <p>Mean color difference at blur radii 1/3/8px over the union mask — fine scale
-      keeps rewrites expensive, coarse scales tolerate displacement.</p></div>
-    <div class="panel"><div class="panel-k">completeness</div>
-      <p>Fraction of original ink <strong>cells</strong> still covered nearby, raised to the
-      1.5 power as a multiplier — dropping content can never win.</p></div>
+  <div class="dia-kicker">implementation · the loss function · 07</div>
+  <h2 class="dia-title">The score: four axes, one <em>ungameable</em> multiplier.</h2>
+  <div class="dia-columns" style="grid-template-columns: 1.15fr 1fr;">
+    <div class="dia-body">
+      <div class="formula"><b>score</b> = (0.35·<em>D</em> + 0.30·<em>L</em> + 0.35·<em>A</em>) × <em>C</em>^1.5
+
+<em>D</em> displacement  1 − mean min(chamfer(a↔b), τ)/τ     τ = 4% ht
+<em>L</em> layout        2·Σ min(Aᶜ,Bᶜ) / Σ (Aᶜ+Bᶜ)          16×9 ink cells
+<em>A</em> appearance    Σᵣ wᵣ·(1 − |Δcolor|ᵣ)               blur r ∈ {1,3,8}px
+<em>C</em> completeness  covered cells / inked cells         neighbor-tolerant</div>
+      <p class="dia-caption" style="margin-top: 10px;">both renders rasterize through the same
+      foreignObject pipeline at 384×216; ink masks binarize at ±16/channel against each
+      raster's own estimated background. <strong>C multiplies</strong>, so deleting content can
+      never be traded against polishing what remains.</p>
+      <p class="dia-caption">a binary pixel match is a step function of displacement — text nudged
+      2px by font metrics scored ~0; the distance transform grades drift in proportion.
+      separately, <strong>confidence</strong> = preserved text chars / total (text is sacred).
+      score &lt; <strong>0.8</strong> → repair rounds.</p>
+    </div>
+    <figure class="dia-figure" style="width: 100%; margin: 0;">
+      <svg viewBox="0 0 430 300" role="img" aria-label="anatomy of the loss" style="width: 100%; font-family: var(--dia-face-label); font-size: 10px;">
+        <text x="10" y="14" style="fill: var(--dia-ink-soft); letter-spacing: .1em;">ORIGINAL</text>
+        <rect x="10" y="20" width="185" height="104" rx="3" style="fill: none; stroke: var(--dia-rule); stroke-width: 1;"></rect>
+        <rect x="26" y="36" width="72" height="13" style="fill: var(--dia-ink-soft);"></rect>
+        <rect x="26" y="60" width="120" height="9" style="fill: var(--dia-ink-soft); opacity: .75;"></rect>
+        <rect x="26" y="78" width="120" height="9" style="fill: var(--dia-ink-soft); opacity: .75;"></rect>
+        <rect x="26" y="100" width="52" height="12" style="fill: var(--dia-accent); opacity: .85;"></rect>
+
+        <text x="235" y="14" style="fill: var(--dia-ink-soft); letter-spacing: .1em;">CANDIDATE</text>
+        <rect x="235" y="20" width="185" height="104" rx="3" style="fill: none; stroke: var(--dia-rule); stroke-width: 1;"></rect>
+        <rect x="259" y="41" width="72" height="13" style="fill: var(--dia-ink-soft);"></rect>
+        <rect x="251" y="36" width="72" height="13" style="fill: none; stroke: var(--dia-ink-faint); stroke-width: 1; stroke-dasharray: 3 3;"></rect>
+        <text x="337" y="50" style="fill: var(--dia-accent);">D drift</text>
+        <rect x="251" y="60" width="120" height="9" style="fill: var(--dia-ink-soft); opacity: .75;"></rect>
+        <rect x="251" y="78" width="120" height="9" style="fill: none; stroke: var(--dia-ink-faint); stroke-width: 1; stroke-dasharray: 3 3;"></rect>
+        <text x="377" y="86" style="fill: var(--dia-ink-faint);">C lost</text>
+        <rect x="251" y="100" width="52" height="12" style="fill: var(--dia-ink-faint);"></rect>
+        <text x="309" y="110" style="fill: var(--dia-ink-faint);">A recolored</text>
+
+        <text x="10" y="152" style="fill: var(--dia-ink-soft); letter-spacing: .1em;">L · INK MASS ON A 16×9 GRID</text>
+        <g style="stroke: var(--dia-rule); stroke-width: .5;">
+          <path d="M10,160 h185 M10,182 h185 M10,204 h185 M10,226 h185 M10,248 h185"></path>
+          <path d="M10,160 v88 M47,160 v88 M84,160 v88 M121,160 v88 M158,160 v88 M195,160 v88"></path>
+        </g>
+        <rect x="10" y="160" width="37" height="22" style="fill: var(--dia-ink-soft); opacity: .5;"></rect>
+        <rect x="47" y="160" width="37" height="22" style="fill: var(--dia-ink-soft); opacity: .3;"></rect>
+        <rect x="10" y="182" width="37" height="22" style="fill: var(--dia-ink-soft); opacity: .35;"></rect>
+        <rect x="84" y="204" width="37" height="22" style="fill: var(--dia-accent); opacity: .45;"></rect>
+        <rect x="121" y="204" width="37" height="22" style="fill: var(--dia-ink-soft); opacity: .3;"></rect>
+
+        <text x="235" y="152" style="fill: var(--dia-ink-soft); letter-spacing: .1em;">A · THREE BLUR SCALES</text>
+        <circle cx="265" cy="205" r="10" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.3;"></circle>
+        <circle cx="315" cy="205" r="20" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.3; opacity: .65;"></circle>
+        <circle cx="383" cy="205" r="32" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.3; opacity: .4;"></circle>
+        <text x="258" y="250" style="fill: var(--dia-ink-faint);">r=1</text>
+        <text x="308" y="250" style="fill: var(--dia-ink-faint);">r=3</text>
+        <text x="376" y="250" style="fill: var(--dia-ink-faint);">r=8</text>
+        <text x="235" y="280" style="fill: var(--dia-ink-faint);">fine keeps rewrites expensive · coarse forgives drift</text>
+      </svg>
+      <figcaption class="dia-caption">the anatomy: drift is graded (D), lost regions multiply (C),
+      composition is mass on a grid (L), color at three scales (A)</figcaption>
+    </figure>
   </div>
-  <div class="dia-body" style="margin-top: 14px;">
-    <p class="dia-caption">the explanation layer stays pixel-level: diff heatmaps, clustered mismatch
-    regions hit-tested against the samples ("contains: the title"), and vertical-drift detection.</p>
-  </div>
-  <div class="dia-caption foot"><span>07 / 12</span><span class="wordmark">diastil</span></div>
+  <div class="dia-caption foot"><span>07 / 14</span><span class="wordmark">diastil</span></div>
 </section>
 
 <section class="dia-slide">
-  <div class="dia-kicker">implementation · the loop · 08</div>
-  <h2 class="dia-title">Repair is model-assisted, <em>measurement-governed</em>.</h2>
-  <div class="grid2">
-    <div class="panel"><div class="panel-k">keep-best, gated</div>
-      <p>Under-threshold slides get repair rounds (cap 3). A candidate that re-measures
-      lower — or that <em>deletes source text</em> — is rejected outright. Every candidate
-      stays selectable in a versions row; the human outranks the metric.</p></div>
-    <div class="panel"><div class="panel-k">the prompt is the evaluation</div>
-      <p>The model receives the axis scores ("this is an APPEARANCE problem"), named
-      regions, measured element deltas ("title: 64px vs 39px"), close-up crops of the
-      worst region, and what its last rejected attempt did wrong.</p></div>
-    <div class="panel"><div class="panel-k">the corpus ratchet</div>
-      <p>Golden decks are captured with per-slide fidelity pinned in fixtures;
-      <code>FIDELITY_FLOORS</code> fails the suite if a change re-captures lower.
-      Tuning happens against pinned numbers, never live hand-measurement.</p></div>
-    <div class="panel"><div class="panel-k">untrusted output, everywhere</div>
-      <p>Model replies are recovered (fence-stripping, root-element extraction, op
-      coercion), corrected (one round, shown its own bad reply), or refused with
-      a reason — malformed output can never take the editor down.</p></div>
+  <div class="dia-kicker">implementation · repair control flow · 08</div>
+  <h2 class="dia-title">Repair: a <em>measurement-governed</em> loop.</h2>
+  <figure class="dia-figure" style="margin: 0 0 10px; width: 100%;">
+    <svg class="dia-scene" viewBox="0 0 900 270" role="img" aria-label="the repair loop"><defs><marker id="dia-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"></path></marker></defs>
+      <g data-dia-node="measure" data-shape="rounded" data-x="10" data-y="40" data-w="110" data-h="48"><rect class="dia-node-shape" x="10" y="40" width="110" height="48" rx="6"></rect>
+        <text class="dia-node-label" x="65" y="64" text-anchor="middle" dominant-baseline="central">measure</text>
+      </g>
+      <g data-dia-node="gate" data-shape="diamond" data-x="170" data-y="30" data-w="100" data-h="68"><path class="dia-node-shape" d="M220,30 L270,64 L220,98 L170,64 Z"></path>
+        <text class="dia-node-label" x="220" y="64" text-anchor="middle" dominant-baseline="central">≥ 0.8 ?</text>
+      </g>
+      <g data-dia-node="accepted" data-shape="note" data-x="185" data-y="180" data-w="90" data-h="44" data-dia-emphasis=""><path class="dia-node-shape" d="M185,180 L261.8,180 L275,193.2 L275,224 L185,224 Z M261.8,180 L261.8,193.2 L275,193.2"></path>
+        <text class="dia-node-label" x="230" y="202" text-anchor="middle" dominant-baseline="central">accepted</text>
+      </g>
+      <g data-dia-node="evidence" data-shape="rounded" data-x="330" data-y="34" data-w="150" data-h="60"><rect class="dia-node-shape" x="330" y="34" width="150" height="60" rx="6"></rect>
+        <text class="dia-node-label" x="405" y="64" text-anchor="middle" dominant-baseline="central">build evidence</text>
+      </g>
+      <g data-dia-node="model" data-shape="cloud" data-x="540" data-y="30" data-w="120" data-h="66"><path class="dia-node-shape" d="M566.4,86.1 C546,86.1 540,70.92 549.6,63 C540,49.8 559.2,43.2 576,45.84 C583.2,35.28 614.4,35.28 624,44.52 C644.4,40.56 660,51.12 652.8,63 C660,72.9 651.6,86.1 633.6,86.1 Z"></path>
+        <text class="dia-node-label" x="600" y="63" text-anchor="middle" dominant-baseline="central">repair skill</text>
+      </g>
+      <g data-dia-node="remeasure" data-shape="rounded" data-x="720" data-y="34" data-w="160" data-h="60"><rect class="dia-node-shape" x="720" y="34" width="160" height="60" rx="6"></rect>
+        <text class="dia-node-label" x="800" y="64" text-anchor="middle" dominant-baseline="central">revalidate · re-measure</text>
+      </g>
+      <g data-dia-node="verdict" data-shape="diamond" data-x="730" data-y="160" data-w="140" data-h="80"><path class="dia-node-shape" d="M800,160 L870,200 L800,240 L730,200 Z"></path>
+        <text class="dia-node-label" x="800" y="200" text-anchor="middle" dominant-baseline="central">better ∧ text kept?</text>
+      </g>
+      <g data-dia-node="keep" data-shape="note" data-x="530" data-y="180" data-w="120" data-h="44" data-dia-emphasis=""><path class="dia-node-shape" d="M530,180 L636.8,180 L650,193.2 L650,224 L530,224 Z M636.8,180 L636.8,193.2 L650,193.2"></path>
+        <text class="dia-node-label" x="590" y="202" text-anchor="middle" dominant-baseline="central">new candidate</text>
+      </g>
+      <g data-dia-node="reject" data-shape="rounded" data-x="330" data-y="176" data-w="150" data-h="52"><rect class="dia-node-shape" x="330" y="176" width="150" height="52" rx="6"></rect>
+        <text class="dia-node-label" x="405" y="202" text-anchor="middle" dominant-baseline="central">reject · remember why</text>
+      </g>
+      <g data-dia-edge="measure-&gt;gate" data-anchors="E,W" data-route="straight"><path class="dia-edge-path" d="M120,64 L170,64" fill="none" marker-end="url(#dia-arrow)"></path></g>
+      <g data-dia-edge="gate-&gt;accepted" data-anchors="S,N" data-route="straight" data-label="yes"><path class="dia-edge-path" d="M220,98 L230,180" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="225" y="133" text-anchor="middle">yes</text></g>
+      <g data-dia-edge="gate-&gt;evidence" data-anchors="E,W" data-route="straight" data-label="no"><path class="dia-edge-path" d="M270,64 L330,64" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="300" y="58" text-anchor="middle">no</text></g>
+      <g data-dia-edge="evidence-&gt;model" data-anchors="E,W" data-route="straight"><path class="dia-edge-path" d="M480,64 L540,63" fill="none" marker-end="url(#dia-arrow)"></path></g>
+      <g data-dia-edge="model-&gt;remeasure" data-anchors="E,W" data-route="straight" data-label="html"><path class="dia-edge-path" d="M660,63 L720,64" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="690" y="57.5" text-anchor="middle">html</text></g>
+      <g data-dia-edge="remeasure-&gt;verdict" data-anchors="S,N" data-route="straight"><path class="dia-edge-path" d="M800,94 L800,160" fill="none" marker-end="url(#dia-arrow)"></path></g>
+      <g data-dia-edge="verdict-&gt;keep" data-anchors="W,E" data-route="straight" data-label="yes"><path class="dia-edge-path" d="M730,200 L650,202" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="690" y="195" text-anchor="middle">yes</text></g>
+      <g data-dia-edge="verdict-&gt;reject" data-anchors="S,S" data-route="ortho" data-label="no"><path class="dia-edge-path" d="M800,240 V252 H405 V228" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="596.5" y="246" text-anchor="middle">no</text></g>
+      <g data-dia-edge="reject-&gt;evidence" data-anchors="N,S" data-route="ortho" data-label="≤ 3 rounds"><path class="dia-edge-path" d="M405,176 V94" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="405" y="129" text-anchor="middle">≤ 3 rounds</text></g>
+    </svg>
+  </figure>
+  <div class="dia-body">
+    <p class="dia-caption"><strong>evidence</strong> = axis verdict ("this is an APPEARANCE problem — do not move content")
+    · mismatch regions hit-tested against samples ("contains: the title") · measured deltas ("title: 64px vs 39px")
+    · close-up crop pairs of the worst region · what the last rejected attempt did wrong.
+    A repair that deletes source text is rejected <strong>outright</strong>; every candidate stays selectable — the human outranks the metric.</p>
   </div>
-  <div class="dia-caption foot"><span>08 / 12</span><span class="wordmark">diastil</span></div>
+  <div class="dia-caption foot"><span>08 / 14</span><span class="wordmark">diastil</span></div>
 </section>
 
 <section class="dia-slide">
-  <div class="dia-kicker">implementation · agents · 09</div>
+  <div class="dia-kicker">implementation · holding the line · 09</div>
+  <h2 class="dia-title">The ratchet, and untrusted output <em>everywhere</em>.</h2>
+  <div class="dia-columns">
+    <div class="dia-body">
+      <div class="panel"><div class="panel-k">the corpus ratchet</div>
+        <p>Golden decks are captured with per-slide fidelity (and its axes) pinned
+        in fixtures; <code>FIDELITY_FLOORS</code> fails the suite if a change
+        re-captures lower. Tuning happens against pinned numbers — the ratchet has
+        already caught two real regressions.</p></div>
+      <div class="panel" style="margin-top: 12px;"><div class="panel-k">malformed output has a defined fate</div>
+        <p>Every model reply is <strong>recovered</strong> (fence-stripping, root
+        extraction, op coercion), <strong>corrected</strong> (one round, shown its own
+        bad reply), or <strong>refused</strong> with a reason. A crash never reaches
+        the editor; <code>dia eval</code> measures the prompts themselves.</p></div>
+    </div>
+    <figure class="dia-figure" style="width: 100%; margin: 0;">
+      <svg viewBox="0 0 430 210" role="img" aria-label="the ratchet" style="width: 100%; font-family: var(--dia-face-label); font-size: 10px;">
+        <text x="10" y="14" style="fill: var(--dia-ink-soft); letter-spacing: .1em;">DECK MEAN FIDELITY, PER CAPTURE</text>
+        <path d="M10,168 H420" style="stroke: var(--dia-rule); stroke-width: 1;"></path>
+        <path d="M10,140 H120 M120,124 H230 M230,118 H340 M340,104 H420" style="stroke: var(--dia-ink-faint); stroke-width: 1; stroke-dasharray: 3 3; fill: none;"></path>
+        <text x="14" y="135" style="fill: var(--dia-ink-faint);">floor — only moves up</text>
+        <polyline points="40,128 150,112 260,106 370,92" style="fill: none; stroke: var(--dia-accent); stroke-width: 2.2;"></polyline>
+        <circle cx="40" cy="128" r="3.4" style="fill: var(--dia-accent);"></circle>
+        <circle cx="150" cy="112" r="3.4" style="fill: var(--dia-accent);"></circle>
+        <circle cx="260" cy="106" r="3.4" style="fill: var(--dia-accent);"></circle>
+        <circle cx="370" cy="92" r="4.5" style="fill: var(--dia-accent);"></circle>
+        <text x="200" y="60" style="fill: var(--dia-ink-soft);">✕ re-capture below the floor</text>
+        <text x="215" y="74" style="fill: var(--dia-ink-soft);">fails the suite</text>
+        <path d="M208,80 L196,148" style="stroke: var(--dia-ink-faint); stroke-width: 1; stroke-dasharray: 2 3;"></path>
+        <text x="190" y="160" style="fill: var(--dia-ink-soft); font-size: 12px;">✕</text>
+        <text x="10" y="196" style="fill: var(--dia-ink-faint);">captures are deliberate: the fixture diff is the review artifact</text>
+      </svg>
+      <figcaption class="dia-caption">good = above the floor; the floor never returns</figcaption>
+    </figure>
+  </div>
+  <div class="dia-caption foot"><span>09 / 14</span><span class="wordmark">diastil</span></div>
+</section>
+
+<section class="dia-slide">
+  <div class="dia-kicker">implementation · agents · 10</div>
   <h2 class="dia-title">The copilot <em>proposes</em>; you preview; the log records.</h2>
   <div class="dia-columns">
     <div class="dia-body">
-      <ul class="glyphs" style="--dia-marker: '∿'; list-style: none; padding-left: 0;">
+      <ul class="glyphs" style="--dia-marker: '▸'; list-style: none; padding-left: 0;">
         <li>One law: the model <strong>never edits directly</strong>. It emits typed ops through
             a tool call; the editor compiles them against the live DOM.</li>
         <li>Proposals <strong>preview on the slide</strong> the moment they arrive — dashed
@@ -370,11 +515,11 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
         <code>dia validate</code> as the acceptance test for all of them.</p></div>
     </div>
   </div>
-  <div class="dia-caption foot"><span>09 / 12</span><span class="wordmark">diastil</span></div>
+  <div class="dia-caption foot"><span>10 / 14</span><span class="wordmark">diastil</span></div>
 </section>
 
 <section class="dia-slide">
-  <div class="dia-kicker">how to use it · 10</div>
+  <div class="dia-kicker">how to use it · 11</div>
   <h2 class="dia-title">Five commands.</h2>
   <div class="dia-columns">
     <div class="dia-body">
@@ -395,11 +540,11 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
       beyond Python. Headless? every command takes <code>--no-open</code>.</p>
     </div>
   </div>
-  <div class="dia-caption foot"><span>10 / 12</span><span class="wordmark">diastil</span></div>
+  <div class="dia-caption foot"><span>11 / 14</span><span class="wordmark">diastil</span></div>
 </section>
 
 <section class="dia-slide">
-  <div class="dia-kicker">the numbers · 11</div>
+  <div class="dia-kicker">the numbers · 12</div>
   <h2 class="dia-title">Held by tests, not intentions.</h2>
   <div class="grid4">
     <div class="panel"><div class="panel-k">suite</div>
@@ -411,15 +556,32 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
     <div class="panel"><div class="panel-k">profile</div>
       <p>One contract (<code>PROFILE.md</code>), two implementations in lockstep,
       identical rule ids — the editor and the CLI can never disagree.</p></div>
-    <div class="panel"><div class="panel-k">evals</div>
-      <p><code>dia eval</code> scores the model skills against golden cases —
-      prompt and endpoint changes are measured, like everything else.</p></div>
+    <div class="panel"><div class="panel-k">honesty</div>
+      <p>Forced renders are flagged, looping animations noted, islands counted —
+      every loss is visible in the report, never silent.</p></div>
   </div>
-  <div class="dia-caption foot"><span>11 / 12</span><span class="wordmark">diastil</span></div>
+  <div class="dia-caption foot"><span>12 / 14</span><span class="wordmark">diastil</span></div>
+</section>
+
+<section class="dia-slide">
+  <div class="dia-kicker">grammar tour · 13</div>
+  <h2 class="dia-title">Everything on these slides is <em>the dialect</em>.</h2>
+  <div class="grid2">
+    <div class="panel"><div class="panel-k">on this deck</div>
+      <p>Slide-glyph kickers · accent runs in titles ·
+      a glyph-token list (<code>--dia-marker: '▸'</code>) · numbered chip markers ·
+      four scenes with self-routed edges · build steps on slides 05–06 ·
+      pinned footers via elastic margins.</p></div>
+    <div class="panel"><div class="panel-k">restyle it yourself</div>
+      <p>Open this file in diastil and switch the theme — every color, face, and
+      size on all fourteen slides reads a token. Or edit it in any text editor;
+      <code>dia validate</code> will keep you honest.</p></div>
+  </div>
+  <div class="dia-caption foot"><span>13 / 14</span><span class="wordmark">diastil</span></div>
 </section>
 
 <section class="dia-slide dia-cover">
-  <div class="dia-kicker">the thesis · 12</div>
+  <div class="dia-kicker">the thesis · 14</div>
   <h2 class="dia-title" style="max-width: 30ch;">Plain files. Measured conversion.<br>
   <span class="u">Promote only what the pixels prove.</span></h2>
   <div class="dia-body lede">
@@ -428,7 +590,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
     document path imports anything — a deck you make today opens in twenty years.</p>
   </div>
   <div class="dia-caption foot">
-    <span>12 / 12 · written, validated, and screenshotted by an agent, using the skills dia ships</span>
+    <span>14 / 14 · written, validated, and screenshotted by an agent, using the skills dia ships</span>
     <span class="wordmark">diastil</span>
   </div>
 </section>
