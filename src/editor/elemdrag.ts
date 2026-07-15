@@ -19,8 +19,40 @@ const CORNER_PX = 16
  * Exported: the scene machinery yields ⇧-presses to these (see below). */
 export const BLOCK_SEL = [
   '.dia-figure', '.dia-title', '.dia-kicker', '.dia-body', '.dia-caption',
-  '.dia-footnote', 'blockquote', 'pre', 'ul', 'ol', 'table', 'dl',
+  '.dia-footnote', 'blockquote', 'pre', 'ul', 'ol', 'table', 'dl', 'figure',
 ].join(', ')
+
+/* what counts as a movable block is a STRUCTURAL rule, not an allow-list —
+ * the same rule for every element, so dragging never works on one block
+ * and dies on its neighbor */
+const BLOCK_TAGS = new Set([
+  'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'PRE', 'UL', 'OL',
+  'TABLE', 'DL', 'FIGURE', 'VIDEO',
+])
+
+/** the movable unit under a pointer target: the island root when inside
+ * one (coarse-move contract, profile §6); else the INNERMOST element that
+ * is a block — a dia-* role, math, a block tag, or any non-inline element
+ * sitting directly on the slide (custom-class panels, wrappers) */
+export function movableBlockFor(target: Element, slide: HTMLElement): HTMLElement | null {
+  const island = target.closest<HTMLElement>('[data-dia-island]')
+  if (island && island !== slide && slide.contains(island)) return island
+  let el: Element | null = target
+  while (el && el !== slide) {
+    if (el instanceof HTMLElement && !el.classList.contains('dia-editor-artifact')) {
+      const math = el.closest<HTMLElement>('.dia-math')
+      if (math && slide.contains(math)) return math // formulas move whole
+      const isBlockLike = getComputedStyle(el).display !== 'inline'
+      // list markers are decoration riding a list item, never a unit
+      const hasRole = !el.classList.contains('dia-marker') &&
+        [...el.classList].some((c) => c.startsWith('dia-'))
+      if (isBlockLike && (hasRole || BLOCK_TAGS.has(el.tagName))) return el
+      if (isBlockLike && el.parentElement === slide) return el
+    }
+    el = el.parentElement
+  }
+  return null
+}
 
 let wired = false
 
@@ -125,10 +157,8 @@ function onPointerDown(e: PointerEvent): void {
     return
   }
 
-  // otherwise the draggable block: the island root when inside one (islands
-  // move coarsely as a whole), else the innermost role/structure block
-  const island = target.closest<HTMLElement>('[data-dia-island]')
-  const block = island ?? target.closest<HTMLElement>(BLOCK_SEL)
+  // otherwise the draggable block, by the one structural rule
+  const block = movableBlockFor(target, slide)
   if (!block || block === slide || !slide.contains(block)) return
   // no preventDefault here: a plain click must stay a click (selection),
   // and a dblclick must still reach the text editor — the drag engages
