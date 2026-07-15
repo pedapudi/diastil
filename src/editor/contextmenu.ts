@@ -15,6 +15,7 @@ import { assignFreshIds } from './slides'
 import { deleteSceneSelection, insertShapeNode } from '../scene/interact'
 import { openMenu, SEP, type Entry } from './menu'
 import { openStoryboard } from './storyboard'
+import { openSlideFocus } from '../studio/focus'
 
 export function installContextMenu(host: HTMLElement, actions: { insertDiagram(slide: HTMLElement): void }): void {
   host.addEventListener('contextmenu', (e) => {
@@ -74,6 +75,7 @@ function entriesFor(target: Element, slide: HTMLElement, actions: { insertDiagra
     { label: '+ drawing', run: () => newDrawingOnSlide(slide) },
     { label: '+ diagram layer', run: () => actions.insertDiagram(slide) },
     SEP,
+    { label: 'focus slide…', run: () => openSlideFocus(slide) },
     { label: 'storyboard…', run: () => openStoryboard(slide) },
     { label: 'duplicate slide', run: () => duplicateSlide(slide) },
   )

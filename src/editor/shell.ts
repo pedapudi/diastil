@@ -27,6 +27,7 @@ import { legendOpen, toggleLegend, closeLegend } from './legend'
 import { installTextEditing, insertTextOnSlide } from './textedit'
 import { installContextMenu } from './contextmenu'
 import { toggleStoryboard } from './storyboard'
+import { openSlideFocus } from '../studio/focus'
 import { buildSlideTree } from './tree'
 import { openCompare } from './compare'
 import { bootFromCli, openDeck, saveDeck, presentDeck } from './slides'
@@ -588,7 +589,11 @@ export function mountEditor(host: HTMLElement): void {
       sbBtn.type = 'button'
       sbBtn.title = 'arrange the slide’s reveal moments on a board — preview each moment live'
       sbBtn.addEventListener('click', () => toggleStoryboard(slide))
-      sbRow.append(sbBtn)
+      const focusBtn = h('button', 'dn-btn', 'focus')
+      focusBtn.type = 'button'
+      focusBtn.title = 'open this slide alone on a large zoomable stage — every editing gesture works there'
+      focusBtn.addEventListener('click', () => openSlideFocus(slide))
+      sbRow.append(sbBtn, focusBtn)
       inspectBody.append(sbRow)
     }
 

@@ -17,11 +17,13 @@ a direct-manipulation editor on top: typesetting, photosetting, and
 first-class diagramming, with an inference copilot that emits the same
 typed edit operations a human does.
 
-**Status: implemented through M6** — document core, editor (table/stage
-+ minimap per [design/DECISION.md](design/DECISION.md)), scene layer
-with obstacle-avoiding edge routing, verified ingest with a
-pixel-fidelity loop, copilot + inference service, and the `dia` CLI.
-Architecture: [PLAN.md](PLAN.md). Dialect contract:
+What's inside: the document core (ops, byte-stable round-trip, two
+validators in lockstep), a direct-manipulation editor (table + minimap,
+scene layer with obstacle-avoiding edge routing, svg studio, storyboard,
+native MathML math), verified ingest (a pixel-fidelity metric gates
+every conversion and repair), a local inference service with copilot,
+CLI, and MCP surfaces, and a corpus ratchet that keeps import quality
+from regressing. Architecture: [PLAN.md](PLAN.md). Dialect contract:
 [profile/PROFILE.md](profile/PROFILE.md).
 
 ## Getting started

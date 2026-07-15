@@ -321,7 +321,7 @@ function isTyping(e: KeyboardEvent): boolean {
 
 /* ---------- studio chrome css (artifact style inside the shadow root) ---------- */
 
-function ensureStudioStyle(): void {
+export function ensureStudioStyle(): void {
   const root = state.deck?.root
   if (!root || root.getElementById('dia-studio-style')) return
   const style = document.createElement('style')
@@ -397,6 +397,10 @@ const STUDIO_CSS = `
 }
 .dia-st-stagewrap.is-panning { cursor: grab; }
 .dia-st-stage { position: absolute; transform-origin: 0 0; }
+.dia-st-stage > section.dia-slide {
+  margin: 0 !important; width: 1280px;
+  box-shadow: 0 0 0 1px var(--rule, #444), 0 18px 60px rgba(0,0,0,.35);
+}
 .dia-st-stage > svg.dia-studio-art {
   display: block;
   background: var(--dia-paper, transparent);
@@ -462,9 +466,9 @@ input[type='range'].dia-st-range { flex: 1; accent-color: var(--accent); }
 /* overlay artifacts inside the artwork svg */
 svg.dia-studio-art .dia-st-ov { pointer-events: none; }
 svg.dia-studio-art .dia-st-ov * { vector-effect: non-scaling-stroke; }
-svg.dia-studio-art .dia-st-selbox { fill: none; stroke: var(--accent, #59c2ff); stroke-width: 1; stroke-dasharray: 4 3; }
-svg.dia-studio-art .dia-st-handle { fill: var(--paper, #fff); stroke: var(--accent, #59c2ff); stroke-width: 1.2; pointer-events: auto; }
+svg.dia-studio-art .dia-st-selbox { fill: none !important; stroke: var(--accent, #59c2ff) !important; stroke-width: 1 !important; stroke-dasharray: 4 3; }
+svg.dia-studio-art .dia-st-handle { fill: var(--paper, #fff) !important; stroke: var(--accent, #59c2ff) !important; stroke-width: 1.2 !important; pointer-events: auto; }
 svg.dia-studio-art .dia-st-rot { cursor: grab; }
-svg.dia-studio-art .dia-st-marquee { fill: color-mix(in srgb, var(--accent) 14%, transparent); stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 3; }
-svg.dia-studio-art .dia-st-draft { fill: none; stroke: var(--accent); stroke-width: 1.2; stroke-dasharray: 5 3; }
+svg.dia-studio-art .dia-st-marquee { fill: color-mix(in srgb, var(--accent) 14%, transparent) !important; stroke: var(--accent) !important; stroke-width: 1 !important; stroke-dasharray: 3 3; }
+svg.dia-studio-art .dia-st-draft { fill: none !important; stroke: var(--accent) !important; stroke-width: 1.2 !important; stroke-dasharray: 5 3; }
 `

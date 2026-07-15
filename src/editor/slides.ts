@@ -10,6 +10,7 @@ import { loadDeck } from '../model/parse'
 import { serializeDeck } from '../model/serialize'
 import { clearPreview } from '../copilot/preview'
 import { closeStudio } from '../studio/studio'
+import { closeSlideFocus } from '../studio/focus'
 import { startImport } from '../ingest/pipeline'
 import { SERVICE_BASE } from '../service/client'
 import { setImportReport } from './table'
@@ -166,9 +167,10 @@ function serializeClean(deck: Deck): string {
   // a staged copilot preview is NOT part of the document — a save or
   // present must never serialize one
   clearPreview('saving the deck')
-  // an open studio holds the artwork inside its overlay — return it home
-  // first, or the serialization would miss it
+  // an open studio or slide focus holds content inside its overlay —
+  // return it home first, or the serialization would miss it
   closeStudio()
+  closeSlideFocus()
   const root = deck.root
   const artifacts = [...root.querySelectorAll<HTMLStyleElement>('style.dia-editor-artifact')]
     .map((el) => ({ el, next: el.nextSibling, parent: el.parentNode }))

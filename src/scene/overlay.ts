@@ -10,26 +10,32 @@ const NS = 'http://www.w3.org/2000/svg'
 const ARTIFACT = 'dia-editor-artifact'
 
 /* styles that must live inside the deck shadow root (stripped on save) */
+/* Editor overlay visuals live INSIDE the deck's shadow root, where the
+ * deck's OWN stylesheet also applies. An imported deck styling its chart
+ * rects (by id, or !important) out-specifies these classes — the
+ * selection box then renders with the deck's fill (svg's default is
+ * black: a solid bar over the selected element). Presentation here is
+ * !important: overlay chrome must be immune to document styles. */
 const SHADOW_CSS = `
 svg.dia-scene { touch-action: none; }
 svg.dia-scene g[data-dia-node] { cursor: grab; }
-.dia-edge-hit { fill: none; stroke: transparent; stroke-width: 12; pointer-events: stroke; cursor: pointer; }
+.dia-edge-hit { fill: none !important; stroke: transparent !important; stroke-width: 12 !important; pointer-events: stroke; cursor: pointer; }
 .dia-overlay { pointer-events: none; }
-.dia-overlay .dia-sel-shape { fill: none; stroke: var(--accent); stroke-width: 1.6; vector-effect: non-scaling-stroke; }
-.dia-overlay .dia-handle { fill: var(--paper); stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: all; }
+.dia-overlay .dia-sel-shape { fill: none !important; stroke: var(--accent) !important; stroke-width: 1.6 !important; vector-effect: non-scaling-stroke; }
+.dia-overlay .dia-handle { fill: var(--paper) !important; stroke: var(--accent) !important; stroke-width: 1 !important; vector-effect: non-scaling-stroke; pointer-events: all; }
 .dia-overlay .dia-handle[data-dia-handle="nw"], .dia-overlay .dia-handle[data-dia-handle="se"] { cursor: nwse-resize; }
 .dia-overlay .dia-handle[data-dia-handle="ne"], .dia-overlay .dia-handle[data-dia-handle="sw"] { cursor: nesw-resize; }
-.dia-overlay .dia-anchor { fill: var(--accent); stroke: none; pointer-events: all; cursor: crosshair; }
-.dia-overlay .dia-endpoint { fill: var(--paper); stroke: var(--accent); stroke-width: 1.2; vector-effect: non-scaling-stroke; pointer-events: all; cursor: move; }
-.dia-overlay .dia-guide { stroke: var(--bad); stroke-width: 1; stroke-dasharray: 4 3; fill: none; vector-effect: non-scaling-stroke; }
-.dia-overlay .dia-guide-label { font-family: var(--mono); fill: var(--bad); }
-.dia-overlay .dia-temp-edge { stroke: var(--accent); stroke-width: 1.4; stroke-dasharray: 5 4; fill: none; vector-effect: non-scaling-stroke; }
-.dia-overlay .dia-candidate { fill: none; stroke: var(--accent); stroke-width: 1.4; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.dia-overlay .dia-anchor { fill: var(--accent) !important; stroke: none !important; pointer-events: all; cursor: crosshair; }
+.dia-overlay .dia-endpoint { fill: var(--paper) !important; stroke: var(--accent) !important; stroke-width: 1.2 !important; vector-effect: non-scaling-stroke; pointer-events: all; cursor: move; }
+.dia-overlay .dia-guide { stroke: var(--bad) !important; stroke-width: 1 !important; stroke-dasharray: 4 3; fill: none !important; vector-effect: non-scaling-stroke; }
+.dia-overlay .dia-guide-label { font-family: var(--mono) !important; fill: var(--bad) !important; }
+.dia-overlay .dia-temp-edge { stroke: var(--accent) !important; stroke-width: 1.4 !important; stroke-dasharray: 5 4; fill: none !important; vector-effect: non-scaling-stroke; }
+.dia-overlay .dia-candidate { fill: none !important; stroke: var(--accent) !important; stroke-width: 1.4 !important; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
 .dia-points { pointer-events: none; }
-.dia-points .dia-points-trace { fill: none; stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.7; vector-effect: non-scaling-stroke; }
-.dia-points .dia-points-arm { fill: none; stroke: var(--accent); stroke-width: 0.8; opacity: 0.55; vector-effect: non-scaling-stroke; }
-.dia-points .dia-point { fill: var(--paper); stroke: var(--accent); stroke-width: 1.2; vector-effect: non-scaling-stroke; pointer-events: all; cursor: move; }
-.dia-points .dia-point.is-control { fill: var(--accent); stroke: var(--paper); }
+.dia-points .dia-points-trace { fill: none !important; stroke: var(--accent) !important; stroke-width: 1 !important; stroke-dasharray: 3 3; opacity: 0.7 !important; vector-effect: non-scaling-stroke; }
+.dia-points .dia-points-arm { fill: none !important; stroke: var(--accent) !important; stroke-width: 0.8 !important; opacity: 0.55 !important; vector-effect: non-scaling-stroke; }
+.dia-points .dia-point { fill: var(--paper) !important; stroke: var(--accent) !important; stroke-width: 1.2 !important; vector-effect: non-scaling-stroke; pointer-events: all; cursor: move; }
+.dia-points .dia-point.is-control { fill: var(--accent) !important; stroke: var(--paper) !important; }
 `
 
 export function ensureEditorStyles(root: ShadowRoot): void {
