@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en" data-dia-version="1">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>what is diastil</title>
+<style id="dia-theme">
+:root {
+  --dia-paper: #faf7f0;
+  --dia-ink: #1d2733;
+  --dia-ink-soft: #4a5563;
+  --dia-accent: #b4552d;
+  --dia-rule: #ddd6c8;
+  --dia-face-display: Charter, Georgia, "Times New Roman", serif;
+  --dia-face-body: Georgia, "Times New Roman", serif;
+  --dia-face-label: ui-monospace, "SF Mono", Menlo, monospace;
+  --dia-scale-1: 12px;
+  --dia-scale-2: 15px;
+  --dia-scale-3: 18px;
+  --dia-scale-4: 22px;
+  --dia-scale-5: 30px;
+  --dia-scale-6: 40px;
+  --dia-scale-7: 54px;
+  --dia-gap: 26px;
+  --dia-pad: 56px;
+}
+section.dia-slide {
+  aspect-ratio: 16 / 9;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: var(--dia-paper);
+  color: var(--dia-ink);
+  padding: var(--dia-pad);
+  font-family: var(--dia-face-body);
+  display: flex;
+  flex-direction: column;
+}
+.dia-kicker { font-family: var(--dia-face-label); font-size: var(--dia-scale-1);
+  letter-spacing: .16em; text-transform: uppercase; color: var(--dia-accent);
+  margin-bottom: 14px; }
+.dia-title { font-family: var(--dia-face-display); font-size: var(--dia-scale-5);
+  line-height: 1.12; font-weight: 700; margin: 0 0 16px; letter-spacing: -0.01em; }
+.dia-title em { color: var(--dia-accent); font-style: normal; }
+.dia-cover-title { font-size: var(--dia-scale-7); max-width: 18ch; }
+.dia-body { font-size: var(--dia-scale-2); line-height: 1.62; color: var(--dia-ink-soft); }
+.dia-body p { margin: 0 0 11px; }
+.dia-body strong { color: var(--dia-ink); font-weight: 700; }
+.dia-body code, .dia-caption code {
+  font-family: var(--dia-face-label); font-size: 0.92em;
+  color: var(--dia-ink); background: rgba(180, 85, 45, 0.07);
+  border: 1px solid var(--dia-rule); border-radius: 4px; padding: 0 5px;
+}
+.dia-caption { font-family: var(--dia-face-label); font-size: var(--dia-scale-1);
+  color: var(--dia-ink-soft); }
+.dia-columns { display: grid; grid-template-columns: 1.05fr 1fr; gap: var(--dia-gap); }
+.dia-stack { display: flex; flex-direction: column; gap: calc(var(--dia-gap) / 2); }
+.dia-figure { align-self: center; }
+.dia-cover > .dia-kicker { margin-top: auto; } /* covers center between top and footer */
+li::before { content: var(--dia-marker, none); color: var(--dia-marker-ink, var(--dia-accent)); margin-right: 0.55em; }
+li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: auto 1fr; column-gap: 0.6em; align-items: start; }
+.dia-marker { color: var(--dia-marker-ink, var(--dia-accent)); }
+.dia-marker > svg, .dia-marker > img { width: 1.1em; height: 1.1em; display: block; margin-top: 0.2em; }
+.dia-marker.dia-marker-chip { display: inline-grid; place-items: center; width: 1.6em; height: 1.6em;
+  border-radius: 999px; background: var(--dia-accent); color: var(--dia-paper);
+  font-family: var(--dia-face-label); font-size: 0.7em; margin-top: 0.25em; }
+.dia-body ul, .dia-body ol { margin: 0; padding-left: 1.1em; }
+.dia-body li { margin-bottom: 10px; line-height: 1.5; }
+.dia-scene { width: 100%; }
+.dia-scene .dia-node-shape { fill: var(--dia-node-fill, var(--dia-paper)); stroke: var(--dia-node-stroke, var(--dia-ink)); stroke-width: var(--dia-node-stroke-w, 1.3); }
+.dia-scene .dia-node-label { font: 13px var(--dia-face-label); fill: var(--dia-node-ink, var(--dia-ink)); }
+.dia-scene .dia-edge-path { stroke: var(--dia-edge-stroke, var(--dia-ink)); stroke-width: var(--dia-edge-w, 1.2); fill: none; color: var(--dia-edge-stroke, var(--dia-ink)); }
+.dia-scene .dia-edge-label { font: 11px var(--dia-face-label); fill: var(--dia-edge-ink, var(--dia-ink-soft)); }
+.dia-scene [data-dia-emphasis] .dia-node-shape { stroke: var(--dia-accent); stroke-width: 2.2; }
+.dia-draw { fill: none; stroke: var(--dia-ink); stroke-linecap: round; stroke-linejoin: round; }
+/* deck-owned styling hooks (extra classes are allowed by the profile) */
+.foot { display: flex; justify-content: space-between; align-items: baseline;
+  border-top: 1px solid var(--dia-rule); padding-top: 14px; margin-top: auto; }
+.lede { font-size: var(--dia-scale-3); line-height: 1.55; max-width: 46ch; }
+.wordmark { font-family: var(--dia-face-label); font-weight: 700; letter-spacing: -0.02em; }
+.hairline { border: 0; border-top: 1px solid var(--dia-rule); margin: 18px 0; }
+.glyphs li { position: relative; padding-left: 1.35em; }
+.glyphs li::before { position: absolute; left: 0; }
+.respreview { display: inline-flex; flex-direction: column; justify-content: center;
+  vertical-align: middle; font: 0.32em/1.3 var(--dia-face-label);
+  text-transform: uppercase; letter-spacing: 0.12em; font-weight: 400;
+  color: var(--dia-ink-soft); border-left: 1.5px solid var(--dia-rule);
+  padding-left: 0.8em; margin-left: 0.7em; }
+.respreview span { display: block; white-space: nowrap; }
+</style>
+</head>
+<body>
+<section class="dia-slide dia-cover">
+  <div class="dia-kicker">a field guide · 01</div>
+  <h1 class="dia-title dia-cover-title"><span class="wordmark">diastil</span><span class="respreview"><span>research</span><span>preview</span></span><br>decks that edit like <em>documents</em> and draw like <em>canvases</em></h1>
+  <div class="dia-body lede">A presentation tool where the saved file <em>is</em> the format:
+  one self-contained HTML page that presents itself, restyles from a handful of
+  tokens, and stays editable by you, a text editor, or any coding agent.</div>
+  <div class="dia-caption foot">
+    <span>this deck is written in the dialect it describes</span>
+    <span>github.com/pedapudi/diastil</span>
+  </div>
+</section>
+
+<section class="dia-slide">
+  <div class="dia-kicker">what it is · 02</div>
+  <h2 class="dia-title">The saved file is <em>plain HTML</em></h2>
+  <div class="dia-columns">
+    <div class="dia-body">
+      <p>A deck is a <strong>closed profile of HTML</strong> — a small grammar of
+      roles, tokens, and attributes that a validator can hold forever.</p>
+      <ul class="glyphs" style="--dia-marker: '▸'; list-style: none; padding-left: 0;">
+        <li>Open it anywhere; it presents itself. No app required to read it.</li>
+        <li>Every style reads a token, so one edit restyles the whole deck.</li>
+        <li>Any agent or editor can keep working on it — there is no private format,
+            no build step, no lock-in.</li>
+      </ul>
+    </div>
+    <div class="dia-body">
+      <p><strong>The grammar in one breath:</strong></p>
+      <p><code>section.dia-slide</code> per slide · text roles
+      <code>dia-kicker</code> / <code>dia-title</code> / <code>dia-body</code> /
+      <code>dia-caption</code> · layout <code>dia-columns</code> /
+      <code>dia-stack</code> / <code>dia-figure</code> · diagrams as
+      <code>svg.dia-scene</code> · behavior as <code>data-dia-*</code> attributes ·
+      the unconvertible preserved verbatim in <strong>islands</strong>.</p>
+      <p class="dia-caption">the bullets on the left are one declaration:
+      <code>--dia-marker: '▸'</code> — they retint with the theme</p>
+    </div>
+  </div>
+</section>
+
+<section class="dia-slide">
+  <div class="dia-kicker">what it does · 03</div>
+  <h2 class="dia-title">One file, <em>four surfaces</em></h2>
+  <div class="dia-columns">
+    <div class="dia-body">
+      <ul>
+        <li><span class="dia-marker dia-marker-chip">1</span><span><strong>Edit</strong> —
+            a WYSIWYG editor: click text to type, drag elements and diagram nodes,
+            restyle by role and token, undo everything.</span></li>
+        <li><span class="dia-marker dia-marker-chip">2</span><span><strong>Present</strong> —
+            the deck runs itself in any browser: arrows navigate,
+            <code>data-dia-step</code> reveals in order.</span></li>
+        <li><span class="dia-marker dia-marker-chip">3</span><span><strong>Import</strong> —
+            foreign decks (reveal, Marp, bespoke JS) convert through a reviewed,
+            measured pipeline.</span></li>
+        <li><span class="dia-marker dia-marker-chip">4</span><span><strong>Agents</strong> —
+            a copilot that proposes changes you preview and accept; skills, an
+            AGENTS.md manual, and an MCP server for every coding tool.</span></li>
+      </ul>
+    </div>
+    <figure class="dia-figure">
+      <svg class="dia-scene" viewBox="0 0 360 260" role="img" aria-label="the deck file at the center of four surfaces"><defs><marker id="dia-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"></path></marker></defs>
+        <g data-dia-node="deck" data-shape="note" data-x="120" data-y="102" data-w="120" data-h="52" data-dia-emphasis=""><path class="dia-node-shape" d="M120,102 L226,102 L240,116 L240,154 L120,154 Z M226,102 L226,116 L240,116"></path>
+          <text class="dia-node-label" x="180" y="128" text-anchor="middle" dominant-baseline="central">deck.html</text>
+        </g>
+        <g data-dia-node="editor" data-shape="rounded" data-x="20" data-y="14" data-w="110" data-h="40"><rect class="dia-node-shape" x="20" y="14" width="110" height="40" rx="6"></rect>
+          <text class="dia-node-label" x="75" y="34" text-anchor="middle" dominant-baseline="central">editor</text>
+        </g>
+        <g data-dia-node="present" data-shape="rounded" data-x="230" data-y="14" data-w="110" data-h="40"><rect class="dia-node-shape" x="230" y="14" width="110" height="40" rx="6"></rect>
+          <text class="dia-node-label" x="285" y="34" text-anchor="middle" dominant-baseline="central">present</text>
+        </g>
+        <g data-dia-node="import" data-shape="rounded" data-x="20" data-y="204" data-w="110" data-h="40"><rect class="dia-node-shape" x="20" y="204" width="110" height="40" rx="6"></rect>
+          <text class="dia-node-label" x="75" y="224" text-anchor="middle" dominant-baseline="central">import</text>
+        </g>
+        <g data-dia-node="agents" data-shape="rounded" data-x="230" data-y="204" data-w="110" data-h="40"><rect class="dia-node-shape" x="230" y="204" width="110" height="40" rx="6"></rect>
+          <text class="dia-node-label" x="285" y="224" text-anchor="middle" dominant-baseline="central">agents</text>
+        </g>
+        <g data-dia-edge="editor-&gt;deck" data-anchors="S,W" data-route="ortho"><path class="dia-edge-path" d="M75,54 V66 H108 V128 H120" fill="none" marker-end="url(#dia-arrow)"></path></g>
+        <g data-dia-edge="deck-&gt;present" data-anchors="E,S" data-route="ortho"><path class="dia-edge-path" d="M240,128 H285 V54" fill="none" marker-end="url(#dia-arrow)"></path></g>
+        <g data-dia-edge="import-&gt;deck" data-anchors="E,S" data-route="ortho"><path class="dia-edge-path" d="M130,224 H142 V166 H180 V154" fill="none" marker-end="url(#dia-arrow)"></path></g>
+        <g data-dia-edge="agents-&gt;deck" data-anchors="W,S" data-route="ortho"><path class="dia-edge-path" d="M230,224 H218 V166 H180 V154" fill="none" marker-end="url(#dia-arrow)"></path></g>
+      </svg>
+      <figcaption class="dia-caption">a scene: nodes and self-routing edges, drawn by the runtime</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="dia-slide">
+  <div class="dia-kicker">how it works · import · 04</div>
+  <h2 class="dia-title">Foreign decks convert through a <em>measured</em> pipeline</h2>
+  <figure class="dia-figure" style="margin: 0; width: 100%;">
+    <svg class="dia-scene" viewBox="0 0 900 150" role="img" aria-label="the import pipeline"><defs><marker id="dia-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"></path></marker></defs>
+      <g data-dia-node="original" data-shape="note" data-x="10" data-y="50" data-w="130" data-h="48"><path class="dia-node-shape" d="M10,50 L126,50 L140,64 L140,98 L10,98 Z M126,50 L126,64 L140,64"></path>
+        <text class="dia-node-label" x="75" y="74" text-anchor="middle" dominant-baseline="central">original.html</text>
+      </g>
+      <g data-dia-node="execute" data-shape="rounded" data-x="200" data-y="50" data-w="110" data-h="48"><rect class="dia-node-shape" x="200" y="50" width="110" height="48" rx="6"></rect>
+        <text class="dia-node-label" x="255" y="74" text-anchor="middle" dominant-baseline="central">execute</text>
+      </g>
+      <g data-dia-node="extract" data-shape="rounded" data-x="370" data-y="50" data-w="110" data-h="48"><rect class="dia-node-shape" x="370" y="50" width="110" height="48" rx="6"></rect>
+        <text class="dia-node-label" x="425" y="74" text-anchor="middle" dominant-baseline="central">extract</text>
+      </g>
+      <g data-dia-node="convert" data-shape="rounded" data-x="540" data-y="50" data-w="110" data-h="48"><rect class="dia-node-shape" x="540" y="50" width="110" height="48" rx="6"></rect>
+        <text class="dia-node-label" x="595" y="74" text-anchor="middle" dominant-baseline="central">convert</text>
+      </g>
+      <g data-dia-node="review" data-shape="diamond" data-x="700" data-y="38" data-w="88" data-h="72"><path class="dia-node-shape" d="M744,38 L788,74 L744,110 L700,74 Z"></path>
+        <text class="dia-node-label" x="744" y="74" text-anchor="middle" dominant-baseline="central">review</text>
+      </g>
+      <g data-dia-node="deck" data-shape="note" data-x="810" data-y="50" data-w="80" data-h="48" data-dia-emphasis=""><path class="dia-node-shape" d="M810,50 L876,50 L890,64 L890,98 L810,98 Z M876,50 L876,64 L890,64"></path>
+        <text class="dia-node-label" x="850" y="74" text-anchor="middle" dominant-baseline="central">deck</text>
+      </g>
+      <g data-dia-edge="original-&gt;execute" data-anchors="E,W" data-route="straight" data-label="sandboxed"><path class="dia-edge-path" d="M140,74 L200,74" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="170" y="68" text-anchor="middle">sandboxed</text></g>
+      <g data-dia-edge="execute-&gt;extract" data-anchors="E,W" data-route="straight" data-label="activated"><path class="dia-edge-path" d="M310,74 L370,74" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="340" y="68" text-anchor="middle">activated</text></g>
+      <g data-dia-edge="extract-&gt;convert" data-anchors="E,W" data-route="straight" data-label="measured"><path class="dia-edge-path" d="M480,74 L540,74" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="510" y="68" text-anchor="middle">measured</text></g>
+      <g data-dia-edge="convert-&gt;review" data-anchors="E,W" data-route="straight"><path class="dia-edge-path" d="M650,74 L700,74" fill="none" marker-end="url(#dia-arrow)"></path></g>
+      <g data-dia-edge="review-&gt;deck" data-anchors="E,W" data-route="straight" data-label="verified"><path class="dia-edge-path" d="M788,74 L810,74" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="799" y="68" text-anchor="middle">verified</text></g>
+    </svg>
+  </figure>
+  <div class="dia-body" style="max-width: 62ch;">
+    <p data-dia-step="1">The original <strong>executes</strong> in a sandbox — its own scripts run,
+    fonts load, every slide is sampled in its <strong>activated</strong> state.</p>
+    <p data-dia-step="2">Conversion carries what was <strong>measured</strong>: positions become
+    spacing, colors and faces bind to tokens, animations become build steps,
+    custom bullets become marker tokens.</p>
+    <p data-dia-step="3">The review proves fidelity per slide with a visual-consistency score —
+    and anything the dialect can't express is preserved <strong>verbatim</strong>, never approximated.</p>
+  </div>
+  <div class="dia-caption">press → in present mode: these three points reveal as build steps</div>
+</section>
+
+<section class="dia-slide">
+  <div class="dia-kicker">how it works · verification · 05</div>
+  <h2 class="dia-title">Conversion is <em>verified</em>, not trusted</h2>
+  <div class="dia-columns">
+    <div class="dia-body">
+      <p>Every imported slide is rendered side by side with its original and
+      <strong>scored</strong> on four named axes:</p>
+      <ul>
+        <li><span class="dia-marker dia-marker-chip">D</span><span><strong>displacement</strong> —
+            how far content moved (graded, not a cliff)</span></li>
+        <li><span class="dia-marker dia-marker-chip">L</span><span><strong>layout</strong> —
+            does the composition hold</span></li>
+        <li><span class="dia-marker dia-marker-chip">A</span><span><strong>appearance</strong> —
+            colors, typography, surfaces</span></li>
+        <li><span class="dia-marker dia-marker-chip">C</span><span><strong>completeness</strong> —
+            dropping content can never win the score</span></li>
+      </ul>
+    </div>
+    <div class="dia-body">
+      <p>The score is a <strong>ratchet</strong>: golden decks live in a corpus with
+      pinned per-slide baselines, and any change that lowers one fails the
+      test suite until a human decides otherwise.</p>
+      <p>Repairs are model-assisted but <strong>measured</strong> — a repair that
+      scores lower, or deletes source text, is rejected automatically. Every
+      candidate stays selectable; the human outranks the metric.</p>
+      <p class="dia-caption">the original of every imported slide ships inside the
+      deck — comparison works forever, no source file required</p>
+    </div>
+  </div>
+</section>
+
+<section class="dia-slide">
+  <div class="dia-kicker">how it works · diagrams · 06</div>
+  <h2 class="dia-title">Scenes: <em>semantics in, geometry out</em></h2>
+  <div class="dia-columns">
+    <div class="dia-body">
+      <p>A diagram is an <code>svg.dia-scene</code>: nodes carry
+      <code>data-x/y/w/h</code> and a shape; edges name their endpoints.
+      <strong>You author intent; the runtime computes geometry</strong> — move a
+      node and its edges reroute around obstacles.</p>
+      <p>Twelve shapes plus freeform <code>path</code> outlines with rotation;
+      point-edit any path; draw freehand; promote imported art into nodes.
+      What the vocabulary can't hold stays verbatim and stays editable.</p>
+    </div>
+    <figure class="dia-figure">
+      <svg class="dia-scene" viewBox="0 0 360 240" role="img" aria-label="shape vocabulary"><defs><marker id="dia-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"></path></marker></defs>
+        <g data-dia-node="idea" data-shape="cloud" data-x="16" data-y="16" data-w="120" data-h="58" data-dia-step="1"><path class="dia-node-shape" d="M42.4,65.3 C22,65.3 16,51.96 25.6,45 C16,33.4 35.2,27.6 52,29.92 C59.2,20.64 90.4,20.64 100,28.76 C120.4,25.28 136,34.56 128.8,45 C136,53.7 127.6,65.3 109.6,65.3 Z"></path>
+          <text class="dia-node-label" x="76" y="45" text-anchor="middle" dominant-baseline="central">idea</text>
+        </g>
+        <g data-dia-node="decide" data-shape="diamond" data-x="210" data-y="14" data-w="110" data-h="64" data-dia-step="2"><path class="dia-node-shape" d="M265,14 L320,46 L265,78 L210,46 Z"></path>
+          <text class="dia-node-label" x="265" y="46" text-anchor="middle" dominant-baseline="central">decide</text>
+        </g>
+        <g data-dia-node="store" data-shape="cylinder" data-x="24" data-y="150" data-w="104" data-h="64" data-dia-step="3"><path class="dia-node-shape" d="M24,159.6 A52,9.6 0 0 1 128,159.6 V204.4 A52,9.6 0 0 1 24,204.4 Z M24,159.6 A52,9.6 0 0 0 128,159.6"></path>
+          <text class="dia-node-label" x="76" y="182" text-anchor="middle" dominant-baseline="central">store</text>
+        </g>
+        <g data-dia-node="ship" data-shape="path" data-x="222" data-y="158" data-w="112" data-h="52" data-dia-step="3" data-path="M0,32 L58,32 L58,8 L100,50 L58,92 L58,68 L0,68 Z"><path class="dia-node-shape" d="M0,32 L58,32 L58,8 L100,50 L58,92 L58,68 L0,68 Z" transform="translate(222,158) scale(1.12,0.52)" vector-effect="non-scaling-stroke"></path>
+          <text class="dia-node-label" x="278" y="184" text-anchor="middle" dominant-baseline="central">ship</text>
+        </g>
+        <g data-dia-edge="idea-&gt;decide" data-anchors="E,W" data-route="curve" data-dia-step="2"><path class="dia-edge-path" d="M136,45 C173,45 173,46 210,46" fill="none" marker-end="url(#dia-arrow)"></path></g>
+        <g data-dia-edge="decide-&gt;store" data-anchors="S,E" data-route="ortho" data-label="keep" data-dia-step="3"><path class="dia-edge-path" d="M265,78 V90 H140 V182 H128" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="156.5" y="84" text-anchor="middle">keep</text></g>
+        <g data-dia-edge="decide-&gt;ship" data-anchors="S,N" data-route="ortho" data-label="go" data-dia-step="3"><path class="dia-edge-path" d="M265,78 V146 H278 V158" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="265" y="118.5" text-anchor="middle">go</text></g>
+      </svg>
+      <figcaption class="dia-caption">cloud · diamond · cylinder · freeform path — revealed in steps</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="dia-slide">
+  <div class="dia-kicker">how to use it · 07</div>
+  <h2 class="dia-title">For hands <em>and for agents</em></h2>
+  <div class="dia-columns">
+    <div class="dia-body">
+      <p><strong>From a terminal:</strong></p>
+      <ol>
+        <li><code>dia new talk.html</code> — a profile-valid starting deck</li>
+        <li><code>dia talk.html</code> — the editor, ⌘S writes back</li>
+        <li><code>dia ingest foreign.html</code> — convert through review</li>
+        <li><code>dia validate talk.html</code> — the contract gate</li>
+        <li><code>dia present talk.html</code> — it runs itself</li>
+      </ol>
+    </div>
+    <div class="dia-body">
+      <p><strong>From a coding agent:</strong></p>
+      <ul class="glyphs" style="--dia-marker: '→'; list-style: none; padding-left: 0;">
+        <li>Claude Code: <code>/plugin marketplace add pedapudi/diastil</code></li>
+        <li>Codex, opencode, Antigravity, Cursor:
+            <code>dia agents-md &gt;&gt; AGENTS.md</code></li>
+        <li>no shell? <code>dia mcp</code> — the same operations as MCP tools</li>
+        <li>the validator is the real interface: an agent that satisfies
+            <code>dia validate</code> has produced a working deck</li>
+      </ul>
+    </div>
+  </div>
+  <div class="dia-caption foot">
+    <span>skills/ ships the deep manuals: authoring · scenes · validate · import · cli</span>
+    <span class="wordmark">dia</span>
+  </div>
+</section>
+
+<section class="dia-slide dia-cover">
+  <div class="dia-kicker">the invariants · 08</div>
+  <h2 class="dia-title" style="max-width: 24ch;">Plain files. <em>Verified</em> conversion. No lock-in.</h2>
+  <div class="dia-body lede">
+    <p>The editor is complete without a model. The saved deck is plain HTML.
+    Conversion is proven with pixels, never assumed. And nothing in the
+    document path imports anything — a deck you make today opens in twenty years.</p>
+  </div>
+  <div class="dia-caption foot">
+    <span>written, validated, and screenshotted by an agent — using the skills it ships</span>
+    <span>diastil · v1</span>
+  </div>
+</section>
+<script id="dia-runtime">
+/* dia runtime v1 — embedded in every saved deck.
+ * Present-mode navigation + build steps. No dependencies, no network.
+ * In the editor this script is inert (the editor strips/reinjects on save). */
+(function () {
+  'use strict';
+  if (window.__diaRuntime) return;
+  window.__diaRuntime = 1;
+
+  var slides = Array.prototype.slice.call(
+    document.querySelectorAll('section.dia-slide')
+  );
+  if (!slides.length) return;
+
+  var current = 0;
+
+  function fromHash() {
+    var m = /^#(\d+)$/.exec(location.hash);
+    if (m) current = Math.min(slides.length - 1, Math.max(0, +m[1] - 1));
+  }
+
+  function steps(slide) {
+    return Array.prototype.slice.call(slide.querySelectorAll('[data-dia-step]'))
+      .sort(function (a, b) { return (+a.getAttribute('data-dia-step')) - (+b.getAttribute('data-dia-step')); });
+  }
+
+  function show(i) {
+    current = Math.min(slides.length - 1, Math.max(0, i));
+    slides.forEach(function (s, j) { s.style.display = j === current ? '' : 'none'; });
+    steps(slides[current]).forEach(function (el) { el.style.visibility = 'hidden'; el.removeAttribute('data-dia-step-shown'); });
+    if (location.hash !== '#' + (current + 1)) history.replaceState(null, '', '#' + (current + 1));
+  }
+
+  function advance(dir) {
+    var pend = steps(slides[current]).filter(function (el) { return !el.hasAttribute('data-dia-step-shown'); });
+    if (dir > 0 && pend.length) {
+      pend[0].style.visibility = '';
+      pend[0].setAttribute('data-dia-step-shown', '1');
+      return;
+    }
+    show(current + dir);
+  }
+
+  function fit() {
+    var s = slides[current];
+    if (!s) return;
+    var scale = Math.min(innerWidth / s.offsetWidth, innerHeight / s.offsetHeight);
+    slides.forEach(function (sl) {
+      sl.style.transformOrigin = 'top left';
+      sl.style.transform = 'scale(' + scale + ')';
+    });
+    document.body.style.overflow = 'hidden';
+    document.body.style.margin = '0';
+  }
+
+  addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { advance(1); e.preventDefault(); }
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { advance(-1); e.preventDefault(); }
+    else if (e.key === 'Home') show(0);
+    else if (e.key === 'End') show(slides.length - 1);
+  });
+  addEventListener('hashchange', function () { fromHash(); show(current); });
+  addEventListener('resize', fit);
+
+  fromHash();
+  show(current);
+  fit();
+})();
+</script>
+</body>
+</html>

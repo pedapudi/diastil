@@ -90,6 +90,12 @@ export function mountEditor(host: HTMLElement): void {
 
   const topbar = h('header', 'de-topbar')
   const brand = h('div', 'de-brand', 'diastil')
+  // the zicato research-preview pill: a quiet two-line product-status tag
+  // in the wordmark's register — informational, never interactive
+  const respreview = h('span', 'de-respreview')
+  respreview.setAttribute('role', 'note')
+  respreview.setAttribute('aria-label', 'research preview')
+  respreview.append(h('span', '', 'research'), h('span', '', 'preview'))
   const crumbs = h('div', 'de-crumbs')
 
   // one surface: the table. zoom replaces the old stage altitude's larger
@@ -135,7 +141,7 @@ export function mountEditor(host: HTMLElement): void {
   const statusWord = h('span', '', 'valid · v1')
   status.append(h('span', 'de-sdot'), statusWord)
 
-  topbar.append(brand, crumbs, h('div', 'de-spacer'), seg, btnOpen, btnSave, pickerSlot, status)
+  topbar.append(brand, respreview, crumbs, h('div', 'de-spacer'), seg, btnOpen, btnSave, pickerSlot, status)
 
   /* ---------- layout ---------- */
 

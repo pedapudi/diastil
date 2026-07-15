@@ -22,6 +22,20 @@
   font-size: calc(13px * var(--dt-font-scale, 1));
   color: var(--ink); letter-spacing: .01em; flex: none;
 }
+/* the research-preview tag: stacked, mono, faint, hairline divider —
+ * the zicato product-status register */
+.de-respreview {
+  display: inline-flex; flex-direction: column; justify-content: center;
+  align-self: center;
+  pointer-events: none; user-select: none;
+  font: 9.5px/1.25 var(--mono);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--ink-faint);
+  border-left: 1px solid var(--rule);
+  padding-left: 7px; margin-left: 2px;
+}
+.de-respreview span { white-space: nowrap; display: block; }
+
 .de-crumbs {
   font-family: var(--mono);
   font-size: calc(11px * var(--dt-font-scale, 1));
