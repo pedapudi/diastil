@@ -79,6 +79,7 @@ child shapes/paths are derived artifacts.
 | `scene/edge-endpoint` | error | both edge endpoints name nodes in the same scene |
 | `scene/edge-route` | error | `data-route` ∈ straight · ortho · curve |
 | `scene/edge-anchors` | error | `data-anchors` sides ∈ N · S · E · W · auto |
+| `scene/edge-via` | error | `data-via`, when present, is an `x,y` waypoint the route threads through |
 
 **Shapes** are label-less nodes — a circle is an `ellipse` node with equal
 sides, a square a `rect`; nothing further is required. The parametric
