@@ -109,7 +109,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
 </style>
 </head>
 <body>
-<section class="dia-slide dia-cover">
+<section class="dia-slide dia-cover" data-dia-transition="rise">
   <svg viewBox="0 0 140 26" role="img" aria-label="diastil mark — slides distilled to one file" style="width: 120px; height: 24px; margin-bottom: 18px; overflow: visible;">
     <path d="M4,5 L72,9" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.6; stroke-linecap: round; opacity: .55;"></path>
     <path d="M4,13 L80,13" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.6; stroke-linecap: round; opacity: .8;"></path>
@@ -124,7 +124,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
   <div class="dia-caption foot"><span>01 / 14</span><span class="wordmark">diastil</span></div>
 </section>
 
-<section class="dia-slide">
+<section class="dia-slide" data-dia-transition="rise">
   <div class="dia-kicker">the premise · 02</div>
   <h2 class="dia-title">The file <em>is</em> the format.</h2>
   <p class="sub dia-body">A deck is a closed profile of HTML — small enough for a validator to hold forever.</p>
@@ -149,7 +149,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
   <div class="dia-caption foot"><span>02 / 14</span><span class="wordmark">diastil</span></div>
 </section>
 
-<section class="dia-slide">
+<section class="dia-slide" data-dia-transition="rise">
   <div class="dia-kicker">architecture · 03</div>
   <h2 class="dia-title">One file, four surfaces.</h2>
   <div class="dia-columns">
@@ -208,7 +208,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
   <div class="dia-caption foot"><span>03 / 14</span><span class="wordmark">diastil</span></div>
 </section>
 
-<section class="dia-slide">
+<section class="dia-slide" data-dia-transition="rise">
   <div class="dia-kicker">implementation · editor architecture · 04</div>
   <h2 class="dia-title">A state hub, an op log, and <em>one law</em>: everything mutates through ops.</h2>
   <figure class="dia-figure" style="margin: 0 0 12px; width: 100%;">
@@ -264,7 +264,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
   <div class="dia-caption foot"><span>04 / 14</span><span class="wordmark">diastil</span></div>
 </section>
 
-<section class="dia-slide">
+<section class="dia-slide" data-dia-transition="rise">
   <div class="dia-kicker">implementation · scenes · 05</div>
   <h2 class="dia-title">Scenes: author intent, <em>derive geometry</em>.</h2>
   <div class="dia-columns">
@@ -282,30 +282,32 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
       </ul>
     </div>
     <figure class="dia-figure">
-      <svg class="dia-scene" viewBox="0 0 360 240" role="img" aria-label="shape vocabulary"><defs><marker id="dia-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"></path></marker></defs>
-        <g data-dia-node="idea" data-shape="cloud" data-x="16" data-y="16" data-w="120" data-h="58" data-dia-step="1"><path class="dia-node-shape" d="M42.4,65.3 C22,65.3 16,51.96 25.6,45 C16,33.4 35.2,27.6 52,29.92 C59.2,20.64 90.4,20.64 100,28.76 C120.4,25.28 136,34.56 128.8,45 C136,53.7 127.6,65.3 109.6,65.3 Z"></path>
-          <text class="dia-node-label" x="76" y="45" text-anchor="middle" dominant-baseline="central">idea</text>
+      <svg class="dia-scene" viewBox="0 0 420 240" role="img" aria-label="shape vocabulary"><defs><marker id="dia-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"></path></marker></defs>
+        <g data-dia-node="idea" data-shape="cloud" data-x="16" data-y="88" data-w="124" data-h="56" data-dia-step="1"><path class="dia-node-shape" d="M43.28,135.6 C22.2,135.6 16,122.72 25.92,116 C16,104.8 35.84,99.2 53.2,101.44 C60.64,92.48 92.88,92.48 102.8,100.32 C123.88,96.96 140,105.92 132.56,116 C140,124.4 131.32,135.6 112.72,135.6 Z"></path>
+          <text class="dia-node-label" x="78" y="116" text-anchor="middle" dominant-baseline="central">idea</text>
         </g>
-        <g data-dia-node="decide" data-shape="diamond" data-x="210" data-y="14" data-w="110" data-h="64" data-dia-step="2"><path class="dia-node-shape" d="M265,14 L320,46 L265,78 L210,46 Z"></path>
-          <text class="dia-node-label" x="265" y="46" text-anchor="middle" dominant-baseline="central">decide</text>
+        <g data-dia-node="decide" data-shape="diamond" data-x="180" data-y="84" data-w="112" data-h="64" data-dia-step="2"><path class="dia-node-shape" d="M236,84 L292,116 L236,148 L180,116 Z"></path>
+          <text class="dia-node-label" x="236" y="116" text-anchor="middle" dominant-baseline="central">decide</text>
         </g>
-        <g data-dia-node="store" data-shape="cylinder" data-x="24" data-y="150" data-w="104" data-h="64" data-dia-step="3"><path class="dia-node-shape" d="M24,159.6 A52,9.6 0 0 1 128,159.6 V204.4 A52,9.6 0 0 1 24,204.4 Z M24,159.6 A52,9.6 0 0 0 128,159.6"></path>
-          <text class="dia-node-label" x="76" y="182" text-anchor="middle" dominant-baseline="central">store</text>
+        <g data-dia-node="ship" data-shape="path" data-x="312" data-y="92" data-w="94" data-h="48" data-dia-step="3" data-dia-emphasis="" data-path="M0,32 L58,32 L58,8 L100,50 L58,92 L58,68 L0,68 Z"><path class="dia-node-shape" d="M0,32 L58,32 L58,8 L100,50 L58,92 L58,68 L0,68 Z" transform="translate(312,92) scale(0.94,0.48)" vector-effect="non-scaling-stroke"></path>
+          <text class="dia-node-label" x="359" y="116" text-anchor="middle" dominant-baseline="central">ship</text>
         </g>
-        <g data-dia-node="ship" data-shape="path" data-x="222" data-y="158" data-w="112" data-h="52" data-dia-step="3" data-path="M0,32 L58,32 L58,8 L100,50 L58,92 L58,68 L0,68 Z"><path class="dia-node-shape" d="M0,32 L58,32 L58,8 L100,50 L58,92 L58,68 L0,68 Z" transform="translate(222,158) scale(1.12,0.52)" vector-effect="non-scaling-stroke"></path>
-          <text class="dia-node-label" x="278" y="184" text-anchor="middle" dominant-baseline="central">ship</text>
+        <g data-dia-node="store" data-shape="cylinder" data-x="186" data-y="172" data-w="100" data-h="58" data-dia-step="3"><path class="dia-node-shape" d="M186,180.7 A50,8.7 0 0 1 286,180.7 V221.3 A50,8.7 0 0 1 186,221.3 Z M186,180.7 A50,8.7 0 0 0 286,180.7"></path>
+          <text class="dia-node-label" x="236" y="201" text-anchor="middle" dominant-baseline="central">store</text>
         </g>
-        <g data-dia-edge="idea-&gt;decide" data-anchors="E,W" data-route="curve" data-dia-step="2"><path class="dia-edge-path" d="M136,45 C173,45 173,46 210,46" fill="none" marker-end="url(#dia-arrow)"></path></g>
-        <g data-dia-edge="decide-&gt;store" data-anchors="S,E" data-route="ortho" data-label="keep" data-dia-step="3"><path class="dia-edge-path" d="M265,78 V90 H140 V182 H128" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="156.5" y="84" text-anchor="middle">keep</text></g>
-        <g data-dia-edge="decide-&gt;ship" data-anchors="S,N" data-route="ortho" data-label="go" data-dia-step="3"><path class="dia-edge-path" d="M265,78 V146 H278 V158" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="265" y="118.5" text-anchor="middle">go</text></g>
+        <g data-dia-edge="idea-&gt;decide" data-anchors="E,W" data-route="straight" data-dia-step="2"><path class="dia-edge-path" d="M140,116 L180,116" fill="none" marker-end="url(#dia-arrow)"></path></g>
+        <g data-dia-edge="decide-&gt;ship" data-anchors="E,W" data-route="straight" data-label="go" data-dia-step="3"><path class="dia-edge-path" d="M292,116 L312,116" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="302" y="110" text-anchor="middle">go</text></g>
+        <g data-dia-edge="decide-&gt;store" data-anchors="S,N" data-route="straight" data-label="keep" data-dia-step="3"><path class="dia-edge-path" d="M236,148 L236,172" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="236" y="154" text-anchor="middle">keep</text></g>
       </svg>
       <figcaption class="dia-caption">cloud · diamond · cylinder · freeform path — revealed in steps</figcaption>
     </figure>
   </div>
+  <div class="formula"><code>&lt;g data-dia-node="decide" data-shape="diamond" data-x="180" data-y="84" data-w="112" data-h="64"&gt;</code></div>
+  <p class="dia-caption sub">the drawing above is nine declarations like this one — a diff-able diagram any agent can edit</p>
   <div class="dia-caption foot"><span>05 / 14</span><span class="wordmark">diastil</span></div>
 </section>
 
-<section class="dia-slide">
+<section class="dia-slide" data-dia-transition="rise">
   <div class="dia-kicker">implementation · import · 06</div>
   <h2 class="dia-title">Import runs the original, then <em>measures everything</em>.</h2>
   <figure class="dia-figure" style="margin: 0 0 10px; width: 100%;">
@@ -349,7 +351,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
   <div class="dia-caption foot"><span>06 / 14</span><span class="wordmark">diastil</span></div>
 </section>
 
-<section class="dia-slide">
+<section class="dia-slide" data-dia-transition="rise">
   <div class="dia-kicker">implementation · the loss function · 07</div>
   <h2 class="dia-title">The score: four axes, one <em>ungameable</em> multiplier.</h2>
   <div class="dia-columns" style="grid-template-columns: 1.15fr 1fr;">
@@ -416,48 +418,56 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
   <div class="dia-caption foot"><span>07 / 14</span><span class="wordmark">diastil</span></div>
 </section>
 
-<section class="dia-slide">
+<section class="dia-slide" data-dia-transition="rise">
   <div class="dia-kicker">implementation · repair control flow · 08</div>
   <h2 class="dia-title">Repair: a <em>measurement-governed</em> loop.</h2>
   <figure class="dia-figure" style="margin: 0 0 10px; width: 100%;">
-    <svg class="dia-scene" viewBox="0 0 900 270" role="img" aria-label="the repair loop"><defs><marker id="dia-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"></path></marker></defs>
-      <g data-dia-node="measure" data-shape="rounded" data-x="10" data-y="40" data-w="110" data-h="48"><rect class="dia-node-shape" x="10" y="40" width="110" height="48" rx="6"></rect>
-        <text class="dia-node-label" x="65" y="64" text-anchor="middle" dominant-baseline="central">measure</text>
-      </g>
-      <g data-dia-node="gate" data-shape="diamond" data-x="170" data-y="30" data-w="100" data-h="68"><path class="dia-node-shape" d="M220,30 L270,64 L220,98 L170,64 Z"></path>
-        <text class="dia-node-label" x="220" y="64" text-anchor="middle" dominant-baseline="central">≥ 0.8 ?</text>
-      </g>
-      <g data-dia-node="accepted" data-shape="note" data-x="185" data-y="180" data-w="90" data-h="44" data-dia-emphasis=""><path class="dia-node-shape" d="M185,180 L261.8,180 L275,193.2 L275,224 L185,224 Z M261.8,180 L261.8,193.2 L275,193.2"></path>
-        <text class="dia-node-label" x="230" y="202" text-anchor="middle" dominant-baseline="central">accepted</text>
-      </g>
-      <g data-dia-node="evidence" data-shape="rounded" data-x="330" data-y="34" data-w="150" data-h="60"><rect class="dia-node-shape" x="330" y="34" width="150" height="60" rx="6"></rect>
-        <text class="dia-node-label" x="405" y="64" text-anchor="middle" dominant-baseline="central">build evidence</text>
-      </g>
-      <g data-dia-node="model" data-shape="cloud" data-x="540" data-y="30" data-w="120" data-h="66"><path class="dia-node-shape" d="M566.4,86.1 C546,86.1 540,70.92 549.6,63 C540,49.8 559.2,43.2 576,45.84 C583.2,35.28 614.4,35.28 624,44.52 C644.4,40.56 660,51.12 652.8,63 C660,72.9 651.6,86.1 633.6,86.1 Z"></path>
-        <text class="dia-node-label" x="600" y="63" text-anchor="middle" dominant-baseline="central">repair skill</text>
-      </g>
-      <g data-dia-node="remeasure" data-shape="rounded" data-x="720" data-y="34" data-w="160" data-h="60"><rect class="dia-node-shape" x="720" y="34" width="160" height="60" rx="6"></rect>
-        <text class="dia-node-label" x="800" y="64" text-anchor="middle" dominant-baseline="central">revalidate · re-measure</text>
-      </g>
-      <g data-dia-node="verdict" data-shape="diamond" data-x="730" data-y="160" data-w="140" data-h="80"><path class="dia-node-shape" d="M800,160 L870,200 L800,240 L730,200 Z"></path>
-        <text class="dia-node-label" x="800" y="200" text-anchor="middle" dominant-baseline="central">better ∧ text kept?</text>
-      </g>
-      <g data-dia-node="keep" data-shape="note" data-x="530" data-y="180" data-w="120" data-h="44" data-dia-emphasis=""><path class="dia-node-shape" d="M530,180 L636.8,180 L650,193.2 L650,224 L530,224 Z M636.8,180 L636.8,193.2 L650,193.2"></path>
-        <text class="dia-node-label" x="590" y="202" text-anchor="middle" dominant-baseline="central">new candidate</text>
-      </g>
-      <g data-dia-node="reject" data-shape="rounded" data-x="330" data-y="176" data-w="150" data-h="52"><rect class="dia-node-shape" x="330" y="176" width="150" height="52" rx="6"></rect>
-        <text class="dia-node-label" x="405" y="202" text-anchor="middle" dominant-baseline="central">reject · remember why</text>
-      </g>
-      <g data-dia-edge="measure-&gt;gate" data-anchors="E,W" data-route="straight"><path class="dia-edge-path" d="M120,64 L170,64" fill="none" marker-end="url(#dia-arrow)"></path></g>
-      <g data-dia-edge="gate-&gt;accepted" data-anchors="S,N" data-route="straight" data-label="yes"><path class="dia-edge-path" d="M220,98 L230,180" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="225" y="133" text-anchor="middle">yes</text></g>
-      <g data-dia-edge="gate-&gt;evidence" data-anchors="E,W" data-route="straight" data-label="no"><path class="dia-edge-path" d="M270,64 L330,64" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="300" y="58" text-anchor="middle">no</text></g>
-      <g data-dia-edge="evidence-&gt;model" data-anchors="E,W" data-route="straight"><path class="dia-edge-path" d="M480,64 L540,63" fill="none" marker-end="url(#dia-arrow)"></path></g>
-      <g data-dia-edge="model-&gt;remeasure" data-anchors="E,W" data-route="straight" data-label="html"><path class="dia-edge-path" d="M660,63 L720,64" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="690" y="57.5" text-anchor="middle">html</text></g>
-      <g data-dia-edge="remeasure-&gt;verdict" data-anchors="S,N" data-route="straight"><path class="dia-edge-path" d="M800,94 L800,160" fill="none" marker-end="url(#dia-arrow)"></path></g>
-      <g data-dia-edge="verdict-&gt;keep" data-anchors="W,E" data-route="straight" data-label="yes"><path class="dia-edge-path" d="M730,200 L650,202" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="690" y="195" text-anchor="middle">yes</text></g>
-      <g data-dia-edge="verdict-&gt;reject" data-anchors="S,S" data-route="ortho" data-label="no"><path class="dia-edge-path" d="M800,240 V252 H405 V228" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="596.5" y="246" text-anchor="middle">no</text></g>
-      <g data-dia-edge="reject-&gt;evidence" data-anchors="N,S" data-route="ortho" data-label="≤ 3 rounds"><path class="dia-edge-path" d="M405,176 V94" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="405" y="129" text-anchor="middle">≤ 3 rounds</text></g>
-    </svg>
+    <svg viewBox="0 0 900 250" role="img" aria-label="the repair loop" style="width: 100%; font-family: var(--dia-face-label); font-size: 10.5px;">
+        <rect x="10" y="52" width="104" height="44" rx="4" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.2;"></rect>
+        <text x="62" y="78" text-anchor="middle" style="fill: var(--dia-ink);">measure</text>
+
+        <path d="M114,74 H150" style="stroke: var(--dia-ink-soft); stroke-width: 1.2;"></path>
+        <path d="M196,50 L242,74 L196,98 L150,74 Z" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.2;"></path>
+        <text x="196" y="78" text-anchor="middle" style="fill: var(--dia-ink);">≥ 0.8</text>
+        <path d="M196,98 V140" style="stroke: var(--dia-ink-faint); stroke-width: 1.1;"></path>
+        <text x="204" y="122" style="fill: var(--dia-ink-faint);">yes</text>
+        <text x="196" y="158" text-anchor="middle" style="fill: var(--dia-accent);">accepted ✓</text>
+
+        <path d="M242,74 H286" style="stroke: var(--dia-ink-soft); stroke-width: 1.2;"></path>
+        <text x="248" y="66" style="fill: var(--dia-ink-faint);">no</text>
+        <rect x="286" y="40" width="160" height="68" rx="4" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.2;"></rect>
+        <text x="298" y="58" style="fill: var(--dia-ink);">build evidence</text>
+        <path d="M298,66 h100 M298,76 h124 M298,86 h84 M298,96 h112" style="stroke: var(--dia-ink-faint); stroke-width: 1.2;"></path>
+
+        <path d="M446,74 H492" style="stroke: var(--dia-ink-soft); stroke-width: 1.2;"></path>
+        <rect x="492" y="50" width="118" height="48" rx="24" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.2; stroke-dasharray: 5 4;"></rect>
+        <text x="551" y="78" text-anchor="middle" style="fill: var(--dia-ink);">repair skill</text>
+
+        <path d="M610,74 H656" style="stroke: var(--dia-ink-soft); stroke-width: 1.2;"></path>
+        <text x="616" y="66" style="fill: var(--dia-ink-faint);">html</text>
+        <rect x="656" y="52" width="130" height="44" rx="4" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.2;"></rect>
+        <text x="721" y="72" text-anchor="middle" style="fill: var(--dia-ink);">revalidate</text>
+        <text x="721" y="86" text-anchor="middle" style="fill: var(--dia-ink-soft);">re-measure</text>
+
+        <path d="M786,74 H830 V120" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.2;"></path>
+        <path d="M786,144 L830,120 L874,144 L830,168 Z" transform="translate(-44,0)" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.2;"></path>
+        <text x="786" y="140" text-anchor="middle" style="fill: var(--dia-ink);">better ∧</text>
+        <text x="786" y="153" text-anchor="middle" style="fill: var(--dia-ink);">text kept</text>
+
+        <path d="M742,144 H656" style="stroke: var(--dia-ink-soft); stroke-width: 1.2;"></path>
+        <text x="700" y="136" style="fill: var(--dia-ink-faint);">yes</text>
+        <rect x="530" y="122" width="126" height="44" rx="4" style="fill: none; stroke: var(--dia-accent); stroke-width: 1.6;"></rect>
+        <text x="593" y="148" text-anchor="middle" style="fill: var(--dia-accent);">new candidate</text>
+
+        <path d="M144,70 L150,74 L144,78 M280,70 L286,74 L280,78 M486,70 L492,74 L486,78 M650,70 L656,74 L650,78 M826,114 L830,120 L834,114 M662,140 L656,144 L662,148 M452,192 L446,196 L452,200 M232,114 L236,108 L240,114 M192,134 L196,140 L200,134" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.2;"></path>
+        <path d="M786,168 V196 H446" style="fill: none; stroke: var(--dia-ink-faint); stroke-width: 1.1;"></path>
+        <text x="794" y="186" style="fill: var(--dia-ink-faint);">no</text>
+        <rect x="286" y="174" width="160" height="44" rx="4" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.2;"></rect>
+        <text x="366" y="193" text-anchor="middle" style="fill: var(--dia-ink);">reject</text>
+        <text x="366" y="207" text-anchor="middle" style="fill: var(--dia-ink-soft);">remember why</text>
+        <path d="M286,196 H236 V108" style="fill: none; stroke: var(--dia-ink-faint); stroke-width: 1.1; stroke-dasharray: 4 3;"></path>
+        <text x="112" y="192" style="fill: var(--dia-ink-faint);">≤ 3 rounds, evidence grows</text>
+      </svg>
   </figure>
   <div class="dia-body">
     <p class="dia-caption"><strong>evidence</strong> = axis verdict ("this is an APPEARANCE problem — do not move content")
@@ -468,7 +478,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
   <div class="dia-caption foot"><span>08 / 14</span><span class="wordmark">diastil</span></div>
 </section>
 
-<section class="dia-slide">
+<section class="dia-slide" data-dia-transition="rise">
   <div class="dia-kicker">implementation · holding the line · 09</div>
   <h2 class="dia-title">The ratchet, and untrusted output <em>everywhere</em>.</h2>
   <div class="dia-columns">
@@ -507,7 +517,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
   <div class="dia-caption foot"><span>09 / 14</span><span class="wordmark">diastil</span></div>
 </section>
 
-<section class="dia-slide">
+<section class="dia-slide" data-dia-transition="rise">
   <div class="dia-kicker">implementation · agents · 10</div>
   <h2 class="dia-title">The copilot <em>proposes</em>; you preview; the log records.</h2>
   <div class="dia-columns">
@@ -540,7 +550,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
   <div class="dia-caption foot"><span>10 / 14</span><span class="wordmark">diastil</span></div>
 </section>
 
-<section class="dia-slide">
+<section class="dia-slide" data-dia-transition="rise">
   <div class="dia-kicker">how to use it · 11</div>
   <h2 class="dia-title">Five commands.</h2>
   <div class="dia-columns">
@@ -565,7 +575,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
   <div class="dia-caption foot"><span>11 / 14</span><span class="wordmark">diastil</span></div>
 </section>
 
-<section class="dia-slide">
+<section class="dia-slide" data-dia-transition="rise">
   <div class="dia-kicker">the numbers · 12</div>
   <h2 class="dia-title">Held by tests, not intentions.</h2>
   <div class="grid4">
@@ -585,7 +595,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
   <div class="dia-caption foot"><span>12 / 14</span><span class="wordmark">diastil</span></div>
 </section>
 
-<section class="dia-slide">
+<section class="dia-slide" data-dia-transition="rise">
   <div class="dia-kicker">grammar tour · 13</div>
   <h2 class="dia-title">Everything on these slides is <em>the dialect</em>.</h2>
   <div class="grid2">
@@ -602,7 +612,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
   <div class="dia-caption foot"><span>13 / 14</span><span class="wordmark">diastil</span></div>
 </section>
 
-<section class="dia-slide dia-cover">
+<section class="dia-slide dia-cover" data-dia-transition="rise">
   <div class="dia-kicker">the thesis · 14</div>
   <h2 class="dia-title" style="max-width: 30ch;">Plain files. Measured conversion.<br>
   <span class="u">Promote only what the pixels prove.</span></h2>
@@ -618,7 +628,8 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
 </section>
 <script id="dia-runtime">
 /* dia runtime v1 — embedded in every saved deck.
- * Present-mode navigation + build steps. No dependencies, no network.
+ * Present-mode navigation + build steps + slide transitions.
+ * No dependencies, no network.
  * In the editor this script is inert (the editor strips/reinjects on save). */
 (function () {
   'use strict';
@@ -632,6 +643,24 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
 
   var current = 0;
 
+  /* present-only styles: transitions + step reveals. Injected at runtime,
+   * never part of the saved document content. Motion respects
+   * prefers-reduced-motion; the scale from fit() rides along via --dia-fit
+   * so entrance transforms compose with it instead of clobbering it. */
+  var style = document.createElement('style');
+  style.id = 'dia-runtime-style';
+  style.textContent =
+    '@media (prefers-reduced-motion: no-preference) {' +
+    'section.dia-slide[data-dia-anim="fade"] { animation: diaFade .3s ease both; }' +
+    'section.dia-slide[data-dia-anim="slide"] { animation: diaSlide .36s cubic-bezier(.2,.7,.2,1) both; }' +
+    'section.dia-slide[data-dia-anim="rise"] { animation: diaRise .36s cubic-bezier(.2,.7,.2,1) both; }' +
+    '[data-dia-step] { transition: opacity .28s ease, translate .28s ease; }' +
+    '}' +
+    '@keyframes diaFade { from { opacity: 0; } }' +
+    '@keyframes diaSlide { from { opacity: 0; transform: var(--dia-fit, none) translateX(3%); } to { transform: var(--dia-fit, none); } }' +
+    '@keyframes diaRise { from { opacity: 0; transform: var(--dia-fit, none) translateY(2.5%); } to { transform: var(--dia-fit, none); } }';
+  document.head.appendChild(style);
+
   function fromHash() {
     var m = /^#(\d+)$/.exec(location.hash);
     if (m) current = Math.min(slides.length - 1, Math.max(0, +m[1] - 1));
@@ -642,21 +671,41 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
       .sort(function (a, b) { return (+a.getAttribute('data-dia-step')) - (+b.getAttribute('data-dia-step')); });
   }
 
-  function show(i) {
+  function transitionOf(slide) {
+    var t = slide.getAttribute('data-dia-transition') ||
+      document.documentElement.getAttribute('data-dia-transition') || 'none';
+    return t === 'fade' || t === 'slide' || t === 'rise' ? t : 'none';
+  }
+
+  function show(i, animate) {
     current = Math.min(slides.length - 1, Math.max(0, i));
-    slides.forEach(function (s, j) { s.style.display = j === current ? '' : 'none'; });
-    steps(slides[current]).forEach(function (el) { el.style.visibility = 'hidden'; el.removeAttribute('data-dia-step-shown'); });
+    slides.forEach(function (s, j) {
+      s.style.display = j === current ? '' : 'none';
+      s.removeAttribute('data-dia-anim');
+    });
+    var t = transitionOf(slides[current]);
+    if (animate && t !== 'none') {
+      // restart the entrance animation even on repeated visits
+      void slides[current].offsetWidth;
+      slides[current].setAttribute('data-dia-anim', t);
+    }
+    steps(slides[current]).forEach(function (el) {
+      el.style.opacity = '0';
+      el.style.translate = '0 6px';
+      el.removeAttribute('data-dia-step-shown');
+    });
     if (location.hash !== '#' + (current + 1)) history.replaceState(null, '', '#' + (current + 1));
   }
 
   function advance(dir) {
     var pend = steps(slides[current]).filter(function (el) { return !el.hasAttribute('data-dia-step-shown'); });
     if (dir > 0 && pend.length) {
-      pend[0].style.visibility = '';
+      pend[0].style.opacity = '';
+      pend[0].style.translate = '';
       pend[0].setAttribute('data-dia-step-shown', '1');
       return;
     }
-    show(current + dir);
+    show(current + dir, true);
   }
 
   function fit() {
@@ -665,7 +714,8 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
     var scale = Math.min(innerWidth / s.offsetWidth, innerHeight / s.offsetHeight);
     slides.forEach(function (sl) {
       sl.style.transformOrigin = 'top left';
-      sl.style.transform = 'scale(' + scale + ')';
+      sl.style.setProperty('--dia-fit', 'scale(' + scale + ')');
+      sl.style.transform = 'var(--dia-fit)';
     });
     document.body.style.overflow = 'hidden';
     document.body.style.margin = '0';
@@ -674,14 +724,14 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
   addEventListener('keydown', function (e) {
     if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { advance(1); e.preventDefault(); }
     else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { advance(-1); e.preventDefault(); }
-    else if (e.key === 'Home') show(0);
-    else if (e.key === 'End') show(slides.length - 1);
+    else if (e.key === 'Home') show(0, true);
+    else if (e.key === 'End') show(slides.length - 1, true);
   });
-  addEventListener('hashchange', function () { fromHash(); show(current); });
+  addEventListener('hashchange', function () { fromHash(); show(current, true); });
   addEventListener('resize', fit);
 
   fromHash();
-  show(current);
+  show(current, false);
   fit();
 })();
 </script>
