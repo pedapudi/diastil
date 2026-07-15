@@ -601,3 +601,27 @@ describe('math recovery from rendered formulas', () => {
     expect(doc.body.textContent).toContain('rises')
   })
 })
+
+/* Transition inference: the source's slide-transition vocabulary maps onto
+ * the dialect's enter attribute — a reveal-style deck keeps its feel. */
+describe('transition inference', () => {
+  const convertWith = (attrs: string) => convertToDoc(minimalSlide({
+    html: `<section data-dia-x="0" ${attrs}><p data-dia-x="1">hi</p></section>`,
+    samples: { 0: sample(), 1: sample({ ownText: 'hi' }) },
+    texts: ['hi'],
+  }))
+  it('maps fade to fade and zoomy things to slide', () => {
+    expect(convertWith('data-transition="fade"').querySelector('section')
+      ?.getAttribute('data-dia-transition')).toBe('fade')
+    expect(convertWith('data-transition="convex"').querySelector('section')
+      ?.getAttribute('data-dia-transition')).toBe('slide')
+    expect(convertWith('data-transition="slide-in fade-out"').querySelector('section')
+      ?.getAttribute('data-dia-transition')).toBe('slide')
+  })
+  it('carries none, and stays silent without a source signal', () => {
+    expect(convertWith('data-transition="none"').querySelector('section')
+      ?.getAttribute('data-dia-transition')).toBe('none')
+    expect(convertWith('').querySelector('section')
+      ?.hasAttribute('data-dia-transition')).toBe(false)
+  })
+})

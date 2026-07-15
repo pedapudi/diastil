@@ -9,6 +9,7 @@ import { mountThemePicker, mountTypePicker } from '../chrome/pickers'
 import { renderMarkdown } from '../copilot/markdown'
 import { validateDeckHtml } from '../model/validate'
 import { service } from '../service/client'
+import { openMenu as openReviewMenu, SEP as MENU_SEP, type Entry as MenuEntry } from '../editor/menu'
 import type { ExecuteResult } from './execute'
 import { EXEC_W, EXEC_H, shimFrameHistory } from './execute'
 import type { Extraction } from './extract'
@@ -111,6 +112,7 @@ class ReviewController {
   private acceptSlideBtn!: HTMLButtonElement
   private retryBtn!: HTMLButtonElement
   private liftBtn!: HTMLButtonElement
+  private redrawBtn!: HTMLButtonElement
   private hover!: HTMLElement
   private segButtons: HTMLButtonElement[] = []
   /** per-slide measurement detail (regions + heatmap) from the SAME rasters
@@ -182,6 +184,13 @@ class ReviewController {
     this.versions = conversions.map((c) => [{ conv: { ...c }, fidelity: undefined, origin: 'converted' }])
 
     this.overlay = h('div', 'dia-review')
+    // the review's verbs on right-click, anywhere on the overlay chrome
+    // (the panes forward from inside their iframes — see wireFrameMenu)
+    this.overlay.addEventListener('contextmenu', (e) => {
+      if (!(e.target instanceof Element) || e.target.closest('textarea, input')) return
+      e.preventDefault()
+      openReviewMenu(e.clientX, e.clientY, this.reviewMenuEntries())
+    })
     this.overlay.setAttribute('role', 'dialog')
     this.overlay.setAttribute('aria-modal', 'true')
     this.overlay.tabIndex = -1
@@ -291,6 +300,7 @@ class ReviewController {
     this.convFrame.addEventListener('load', () => {
       this.layout()
       this.convReady = true
+      this.wireFrameMenu(this.convFrame)
       void this.maybeRunFidelity()
     })
     this.convViewport.appendChild(this.convFrame)
@@ -347,7 +357,11 @@ class ReviewController {
     this.liftBtn.disabled = true
     this.liftBtn.title = 'lift static svgs into editable scenes (pixel-gated)'
     this.liftBtn.addEventListener('click', () => void this.liftDiagrams())
-    actions.append(this.retryBtn, this.liftBtn)
+    this.redrawBtn = btn('redraw as svg', 'dn-btn')
+    this.redrawBtn.disabled = true
+    this.redrawBtn.title = 'ask the model to redraw unconvertible visuals as inline svg — measured like any repair, kept only if the score holds'
+    this.redrawBtn.addEventListener('click', () => void this.redrawAsSvg())
+    actions.append(this.retryBtn, this.liftBtn, this.redrawBtn)
     // composer: the textarea owns the full panel width; send sits UNDER it
     const copComposer = h('div', 'dia-cop-composer dia-cop-composer-stack')
     this.copInput = document.createElement('textarea')
@@ -504,6 +518,7 @@ class ReviewController {
     this.acceptSlideBtn.textContent = c.accepted ? 'slide accepted ✓' : 'accept slide'
     this.retryBtn.disabled = !this.serviceOk || this.copBusy || pendingHere
     this.liftBtn.disabled = !this.serviceOk || this.copBusy || !this.hasLiftableSvg(this.current) || pendingHere
+    this.redrawBtn.disabled = !this.serviceOk || this.copBusy || pendingHere
     this.copSend.disabled = !this.serviceOk || this.copBusy || pendingHere
     if (this.serviceOk) this.hideHover()
 
@@ -1310,6 +1325,73 @@ class ReviewController {
   }
 
   /** composer → one repair round with the message as reviewer feedback */
+  /* ---------- right-click: the review's verbs at the pointer ---------- */
+
+  private reviewMenuEntries(): MenuEntry[] {
+    const c = this.conversions[this.current]
+    const busy = this.copBusy || !this.serviceOk
+    const items: MenuEntry[] = [
+      { label: c.accepted ? 'slide accepted ✓' : 'accept slide', run: () => this.acceptSlideBtn.click() },
+      { label: 'island entire slide', run: () => { this.overlay.querySelectorAll('button').forEach((b) => { if (b.textContent === 'island entire slide') b.click() }) } },
+      MENU_SEP,
+    ]
+    if (!busy) {
+      items.push(
+        { label: 'repair — focus the composer', run: () => this.copInput.focus() },
+        { label: 'retranslate slide', run: () => this.retryBtn.click() },
+      )
+      if (this.hasLiftableSvg(this.current)) items.push({ label: 'lift diagrams', run: () => this.liftBtn.click() })
+      items.push({ label: 'redraw visuals as svg', run: () => this.redrawBtn.click() }, MENU_SEP)
+    }
+    items.push(
+      { label: '← previous slide', run: () => this.go(this.current - 1) },
+      { label: 'next slide →', run: () => this.go(this.current + 1) },
+    )
+    return items
+  }
+
+  /** srcdoc iframes swallow right-clicks — reach inside and forward them,
+   * offset into page coordinates, to the shared menu */
+  private wireFrameMenu(frame: HTMLIFrameElement): void {
+    const doc = frame.contentDocument
+    if (!doc) return
+    doc.addEventListener('contextmenu', (e) => {
+      e.preventDefault()
+      const r = frame.getBoundingClientRect()
+      const scale = r.width / (frame.contentDocument?.documentElement.scrollWidth || r.width)
+      openReviewMenu(r.left + e.clientX * scale, r.top + e.clientY * scale, this.reviewMenuEntries())
+    })
+  }
+
+  /** the svg FALLBACK: unconvertible visuals (islands, css art, charts)
+   * get redrawn as inline svg by the model — through the ordinary repair
+   * loop, so the candidate is measured and text-gated like any other */
+  private async redrawAsSvg(): Promise<void> {
+    const i = this.current
+    this.copBusy = true
+    this.renderVerdict()
+    this.logModel(i, 'user', 'redraw unconvertible visuals as inline svg')
+    const before = this.conversions[i].fidelity
+    try {
+      const improved = await this.repairSlide(i, false,
+        'REDRAW THE VISUALS AS SVG: replace any [data-dia-island] region, css-drawn art, ' +
+        'chart, or decorative visual with a single inline <svg viewBox="…"> that reproduces its ' +
+        'APPEARANCE — hairline strokes, fills bound to var(--dia-*) tokens where they match, text ' +
+        'as <text> elements with the same words. No islands in the result, no <script>, no external ' +
+        'references. Keep every visible source text character. Leave already-clean dialect content untouched.')
+      const after = this.conversions[i].fidelity
+      const fmt = (v: number | null | undefined) => (v == null ? '—' : v.toFixed(3))
+      this.logModel(i, 'assistant', improved || (after ?? -1) >= (before ?? -1)
+        ? `redrew as svg — fidelity ${fmt(before)} → ${fmt(after)}`
+        : `the redraw re-measured lower (${fmt(before)} → kept the previous candidate)`)
+    } catch {
+      this.logModel(i, 'quiet', 'redraw failed — slide unchanged')
+    } finally {
+      this.copBusy = false
+      this.renderVerdict()
+    }
+  }
+
   private async chatRepair(): Promise<void> {
     const msg = this.copInput.value.trim()
     if (!msg || this.copBusy) return

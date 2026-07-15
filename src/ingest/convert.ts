@@ -157,6 +157,10 @@ export function convertSlide(
 
   const section = document.createElement('section')
   section.className = 'dia-slide'
+  // the source's slide transition carries: reveal-style data-transition
+  // (and friends) maps onto the dialect's enter vocabulary
+  const transition = inferTransition(srcRoot)
+  if (transition) section.setAttribute('data-dia-transition', transition)
   section.append(...convertContainerChildren(srcRoot, ctx))
   rebindSizes(section, ctx.sample, scalePx, designW)
   applyTypography(section, ctx)
@@ -763,6 +767,20 @@ function inlineSegment(container: Element, nodes: ChildNode[], ctx: Ctx): HTMLEl
   const stamp = container.getAttribute(STAMP)
   if (stamp) node.setAttribute(STAMP, stamp)
   return node
+}
+
+/** map a source framework's slide-transition vocabulary onto the dialect's.
+ * reveal.js puts data-transition on the section (possibly "in-spec out-spec");
+ * anything zoom/convex/slide-flavored becomes 'slide', fades stay fades. */
+function inferTransition(srcRoot: Element): string | null {
+  const holder = srcRoot.closest('[data-transition]') ?? srcRoot.querySelector(':scope[data-transition], [data-transition]')
+  const raw = (srcRoot.getAttribute('data-transition') ?? holder?.getAttribute('data-transition'))?.toLowerCase()
+  if (!raw) return srcRoot.hasAttribute('data-auto-animate') ? 'fade' : null
+  const first = raw.split(/[\s-]/)[0] // "slide-in fade-out" → judge the entrance
+  if (first === 'none') return 'none'
+  if (first === 'fade' || first === 'crossfade') return 'fade'
+  if (['slide', 'convex', 'concave', 'zoom', 'cube', 'page'].includes(first)) return 'slide'
+  return null
 }
 
 /* ---------- math recovery ----------

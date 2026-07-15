@@ -31,6 +31,8 @@ and every slide is pixel-diffed against the original's rendering.
 | rendered math (KaTeX, MathJax, raw MathML) | becomes `.dia-math` — the TeX source is recovered from the renderer's annotation and re-typeset to native MathML; without a source the MathML is carried as-is. Never the renderer's positioned spans |
 | animated SVGs (SMIL or CSS keyframes) | kept verbatim WITH the animation — `@keyframes` are harvested from the source stylesheets and embedded inside the svg; never lifted (lifting would kill the motion) |
 | genuinely interactive JS (canvas animations, sims) | **island** — preserved verbatim, still runs |
+| slide transitions (`data-transition` and friends) | mapped onto `data-dia-transition` — fades stay fades, zoom/convex/cube flavors become `slide` |
+| css-drawn art / charts the converter can't express | island first; the reviewer's **redraw as svg** action asks the model for an inline-svg replacement, measured and text-gated like any repair |
 | absolute-positioned "PDF-like" pages | converted, flagged low-structure |
 
 ## The review UI
