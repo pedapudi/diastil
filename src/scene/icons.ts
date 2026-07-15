@@ -75,7 +75,11 @@ export function widthIcon(name: string): SVGSVGElement {
   return s
 }
 
-export type MiscIcon = 'plus-node' | 'del' | 'front' | 'back' | 'anchors' | 'label' | 'ungroup' | 'make-node' | 'points'
+export type MiscIcon =
+  | 'plus-node' | 'del' | 'front' | 'back' | 'anchors' | 'label' | 'ungroup' | 'make-node' | 'points'
+  | 'select' | 'pen' | 'rect' | 'ellipse' | 'line' | 'freehand' | 'text'
+  | 'circle' | 'square' | 'star' | 'arrow' | 'group' | 'import'
+  | 'text-add' | 'drawing-add' | 'storyboard' | 'focus'
 
 export function miscIcon(name: MiscIcon): SVGSVGElement {
   const s = svg()
@@ -125,6 +129,79 @@ export function miscIcon(name: MiscIcon): SVGSVGElement {
       }
       break
     }
+    case 'select':
+      // the classic pointer
+      s.appendChild(pathEl('M8,1.5 L8,11 L10.5,8.5 L12.5,12.5 L14,11.5 L12,7.8 L15.5,7.5 Z', 1.1))
+      break
+    case 'pen':
+      // a nib on its stroke
+      s.appendChild(pathEl('M2,12 L6,11 L15,2 L17,4 L8,13 L4,14 Z', 1.05))
+      s.appendChild(pathEl('M13,4 L15,6', 0.9))
+      break
+    case 'rect':
+      s.appendChild(pathEl('M3,3 h14 v8 h-14 Z', 1.2))
+      break
+    case 'ellipse': {
+      const e = document.createElementNS(NS, 'ellipse')
+      e.setAttribute('cx', '10'); e.setAttribute('cy', '7')
+      e.setAttribute('rx', '7'); e.setAttribute('ry', '4.5')
+      s.appendChild(stroke(e, 1.2))
+      break
+    }
+    case 'line':
+      s.appendChild(pathEl('M3,11.5 L17,2.5', 1.3))
+      break
+    case 'freehand':
+      s.appendChild(pathEl('M2.5,9 C6,3 9,12 12.5,6 S17,7 17.5,4.5', 1.3))
+      break
+    case 'text':
+      s.appendChild(pathEl('M5,3 H15 M10,3 V11.5 M8,11.5 H12', 1.25))
+      break
+    case 'circle': {
+      const c = document.createElementNS(NS, 'circle')
+      c.setAttribute('cx', '10'); c.setAttribute('cy', '7'); c.setAttribute('r', '5')
+      s.appendChild(stroke(c, 1.2))
+      break
+    }
+    case 'square':
+      s.appendChild(pathEl('M5.5,2.5 h9 v9 h-9 Z', 1.2))
+      break
+    case 'star':
+      s.appendChild(pathEl('M10,1.5 L11.8,5.4 L16.2,5.7 L12.8,8.4 L14,12.5 L10,10.2 L6,12.5 L7.2,8.4 L3.8,5.7 L8.2,5.4 Z', 1.05))
+      break
+    case 'arrow':
+      s.appendChild(pathEl('M2,5.5 H10 V3 L17,7 L10,11 V8.5 H2 Z', 1.05))
+      break
+    case 'group':
+      // a dashed container gathering its two pieces
+      s.appendChild(dashed(pathEl('M2,2 h16 v10 h-16 Z', 1)))
+      s.appendChild(pathEl('M6,5 h8 v4 h-8 Z', 1.3))
+      break
+    case 'import':
+      // artwork dropping into a tray
+      s.appendChild(pathEl('M10,1.5 V7.5 M7.5,5.5 L10,8 L12.5,5.5', 1.25))
+      s.appendChild(pathEl('M3,9 v3 h14 v-3', 1.2))
+      break
+    case 'text-add':
+      s.appendChild(pathEl('M4,3.5 H11 M7.5,3.5 V11.5', 1.25))
+      s.appendChild(pathEl('M14.5,6 V11 M12,8.5 H17', 1.2))
+      break
+    case 'drawing-add':
+      // a frame with a stroke being drawn into it
+      s.appendChild(pathEl('M2.5,2.5 h15 v9 h-15 Z', 1.05))
+      s.appendChild(pathEl('M5,9.5 C7.5,5 10,10 12.5,6 S15.5,7 15.5,5.5', 1.2))
+      break
+    case 'storyboard':
+      // moment frames, filling left to right
+      s.appendChild(pathEl('M2,3.5 h4.4 v7 h-4.4 Z', 1.1))
+      s.appendChild(pathEl('M7.8,3.5 h4.4 v7 h-4.4 Z', 1.1))
+      s.appendChild(dashed(pathEl('M13.6,3.5 h4.4 v7 h-4.4 Z', 1.1)))
+      break
+    case 'focus':
+      // viewfinder corners around a slide
+      s.appendChild(pathEl('M2,5 V2.5 H5 M15,2.5 H18 V5 M18,9 V11.5 H15 M5,11.5 H2 V9', 1.2))
+      s.appendChild(pathEl('M7,5.5 h6 v3 h-6 Z', 1))
+      break
     case 'anchors': {
       s.appendChild(pathEl('M5.5,4 h9 v6 h-9 Z', 1))
       for (const [cx, cy] of [[10, 4], [10, 10], [5.5, 7], [14.5, 7]]) {

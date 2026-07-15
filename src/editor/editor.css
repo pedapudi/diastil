@@ -361,6 +361,12 @@
 .de-sb-cell.is-on { color: var(--accent); }
 .de-sb-hint { margin-top: 7px; color: var(--ink-faint); font-size: calc(11px * var(--dt-font-scale, 1)); }
 
+/* glyphs inside chrome buttons: quiet, inline with the label */
+.dn-seg button svg.dia-tb-icon, .dn-btn svg.dia-tb-icon {
+  display: inline-block; width: 17px; height: 12px;
+  vertical-align: -2px; margin-right: 6px;
+}
+
 /* right-click context menu: chrome register, clamped fixed panel */
 .de-menu {
   position: fixed; z-index: 520; min-width: 196px; padding: 5px;

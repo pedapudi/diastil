@@ -15,13 +15,12 @@ import {
   adoptSession, dropSession, h, button, closeStudio, ensureStudioStyle,
   registerSlideFocusClose, type StudioSession,
 } from './studio'
-import { mountTools, disposeTools, currentTool, deletePicked, exitGroup, nudgePicked, setTool, TOOLS } from './tools'
+import { mountTools, disposeTools, currentTool, deletePicked, exitGroup, nudgePicked, setTool, SCENE_INSERTS, TOOLS } from './tools'
 import { mountPanels, disposePanels, refreshPanels } from './panels'
 import { openImportDialog } from './svgimport'
-import { ensureSceneStyleRules } from '../scene/interact'
+import { ensureSceneStyleRules, insertShapeNode } from '../scene/interact'
 import { setToolbarSuppressed } from '../scene/toolbar'
 import { insertTextOnSlide } from '../editor/textedit'
-import { insertMathOnSlide } from '../editor/math'
 import { assignFreshIds } from '../editor/slides'
 
 const ARTIFACT = 'dia-editor-artifact'
@@ -170,14 +169,9 @@ export function openSlideFocus(slide: HTMLElement): void {
 
   /* ----- the rail: inserts + the vector toolset for ONE svg at a time ----- */
   toolsEl.append(h('div', 'dia-st-sect', 'insert'))
-  const bText = button('+ text', 'add a text block and start typing')
+  const bText = button('+ text', 'add a text block and start typing — type $latex$ (or a \\command) and it becomes math', 'text-add')
   bText.addEventListener('click', () => insertTextOnSlide(slide))
-  const bMath = button('+ math', 'add a LaTeX formula (edit by double-clicking it)')
-  bMath.addEventListener('click', () => {
-    const el = insertMathOnSlide(slide)
-    if (el) state.selection = { kind: 'element', el, slide }
-  })
-  toolsEl.append(bText, bMath)
+  toolsEl.append(bText)
   const vectorWrap = h('div', '')
   vectorWrap.style.display = 'contents'
   toolsEl.append(vectorWrap)
@@ -213,7 +207,7 @@ export function openSlideFocus(slide: HTMLElement): void {
     f.studio = s
     adoptSession(s)
     mountTools(s, vectorWrap)
-    const imp = button('import svg…', 'add artwork from pasted markup or a file (lands in this drawing)')
+    const imp = button('import svg…', 'add artwork from pasted markup or a file (lands in this drawing)', 'import')
     imp.addEventListener('click', () => { if (f.studio) openImportDialog(f.studio) })
     vectorWrap.append(imp)
     const panelHost = h('div', 'dia-st-rail')
@@ -223,19 +217,48 @@ export function openSlideFocus(slide: HTMLElement): void {
   }
   f.bindSession = bindSession
 
+  /** the FULL rail, before the drawing layer exists: every section shows
+   * from the start (no hidden UI); the first real use creates the layer
+   * and swaps in the live machinery in the same shape */
   const showPlaceholders = (): void => {
     clearSession()
     const ph = h('div', '')
     ph.style.display = 'contents'
     ph.append(h('div', 'dia-st-sect', 'tools'))
     for (const t of TOOLS) {
-      const b = button(t.label, `${t.tip} — the first use adds the slide’s drawing layer`)
+      const b = button(t.label, `${t.tip} — the first use adds the slide’s drawing layer`, t.icon)
       const kbd = document.createElement('kbd')
       kbd.textContent = t.key
       b.append(kbd)
       b.addEventListener('click', () => activate(t.name))
       ph.append(b)
     }
+    ph.append(h('div', 'dia-st-sect', 'scene'))
+    for (const ins of SCENE_INSERTS) {
+      const b = button(ins.label, `insert a ${ins.kind} — the first use adds the slide’s drawing layer`, ins.icon)
+      b.addEventListener('click', () => {
+        activate('select')
+        if (f.studio) insertShapeNode(f.studio.svg, ins.kind)
+      })
+      ph.append(b)
+    }
+    for (const [labelText, tip, icon] of [
+      ['edit points', 'drag a path’s anchors and control points — pick a path first', 'points'],
+      ['group', 'wrap a selection in a group — pick elements first', 'group'],
+      ['ungroup', 'dissolve a selected group', 'ungroup'],
+      ['import svg…', 'add artwork from pasted markup or a file', 'import'],
+    ] as const) {
+      const b = button(labelText, tip, icon)
+      b.addEventListener('click', () => {
+        activate('select')
+        if (labelText === 'import svg…' && f.studio) openImportDialog(f.studio)
+      })
+      ph.append(b)
+    }
+    ph.append(h('div', 'dia-st-sect', 'properties'))
+    ph.append(h('div', 'dia-st-hint', 'pick something on the drawing — fill, line, and width live here'))
+    ph.append(h('div', 'dia-st-sect', 'layers'))
+    ph.append(h('div', 'dia-st-hint', 'nothing drawn yet'))
     vectorWrap.append(ph)
   }
   const activate = (name: Parameters<typeof setTool>[0]): void => {

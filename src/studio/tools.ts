@@ -12,6 +12,7 @@ import { pxScale, showToast } from '../scene/overlay'
 import { openPointEditor, closePointEditor, canPointEdit } from '../scene/points'
 import { getNodeGeom, routeEdgesOf, setNodeGeom } from '../scene/route'
 import { beginEdgeViaDrag, insertEdgeFlow, insertShapeNode, openEdgeLabelEdit, openLabelEdit } from '../scene/interact'
+import type { MiscIcon } from '../scene/icons'
 import type { StudioSession } from './studio'
 import { isSceneArt } from './studio'
 import { refreshPanels } from './panels'
@@ -22,14 +23,23 @@ const ARTIFACT = 'dia-editor-artifact'
 
 export type ToolName = 'select' | 'pen' | 'rect' | 'ellipse' | 'line' | 'freehand' | 'text'
 
-export const TOOLS: Array<{ name: ToolName; label: string; key: string; tip: string }> = [
-  { name: 'select', label: 'select', key: 'v', tip: 'click picks · shift adds · drag moves · marquee over empty space' },
-  { name: 'pen', label: 'pen', key: 'p', tip: 'click for corners, drag for curves · enter or double-click finishes · near the start closes' },
-  { name: 'rect', label: 'rectangle', key: 'r', tip: 'drag a rectangle · shift for a square' },
-  { name: 'ellipse', label: 'ellipse', key: 'e', tip: 'drag an ellipse · shift for a circle' },
-  { name: 'line', label: 'line', key: 'l', tip: 'drag a line · shift snaps to 45°' },
-  { name: 'freehand', label: 'freehand', key: 'f', tip: 'draw by hand — the stroke is smoothed to a path' },
-  { name: 'text', label: 'text', key: 't', tip: 'click to place text — edit the words in the rail' },
+export const TOOLS: Array<{ name: ToolName; label: string; key: string; tip: string; icon: MiscIcon }> = [
+  { name: 'select', label: 'select', key: 'v', icon: 'select', tip: 'click picks · shift adds · drag moves · marquee over empty space' },
+  { name: 'pen', label: 'pen', key: 'p', icon: 'pen', tip: 'click for corners, drag for curves · enter or double-click finishes · near the start closes' },
+  { name: 'rect', label: 'rectangle', key: 'r', icon: 'rect', tip: 'drag a rectangle · shift for a square' },
+  { name: 'ellipse', label: 'ellipse', key: 'e', icon: 'ellipse', tip: 'drag an ellipse · shift for a circle' },
+  { name: 'line', label: 'line', key: 'l', icon: 'line', tip: 'drag a line · shift snaps to 45°' },
+  { name: 'freehand', label: 'freehand', key: 'f', icon: 'freehand', tip: 'draw by hand — the stroke is smoothed to a path' },
+  { name: 'text', label: 'text', key: 't', icon: 'text', tip: 'click to place text — edit the words in the rail' },
+]
+
+/** icons for the studio's scene-insert buttons */
+export const SCENE_INSERTS: Array<{ label: string; kind: 'node' | 'circle' | 'square' | 'star' | 'arrow'; icon: MiscIcon }> = [
+  { label: '+ node', kind: 'node', icon: 'plus-node' },
+  { label: '+ circle', kind: 'circle', icon: 'circle' },
+  { label: '+ square', kind: 'square', icon: 'square' },
+  { label: '+ star', kind: 'star', icon: 'star' },
+  { label: '+ arrow', kind: 'arrow', icon: 'arrow' },
 ]
 
 interface ToolCtx {
@@ -54,7 +64,7 @@ export function mountTools(s: StudioSession, host: HTMLElement): void {
   const buttons = new Map<ToolName, HTMLButtonElement>()
   host.append(hSect('tools'))
   for (const t of TOOLS) {
-    const b = button(t.label, t.tip)
+    const b = button(t.label, t.tip, t.icon)
     const kbd = document.createElement('kbd')
     kbd.textContent = t.key
     b.append(kbd)
@@ -66,27 +76,24 @@ export function mountTools(s: StudioSession, host: HTMLElement): void {
   // data-x/y/w/h and participate in routing like any canvas-born node
   if (isSceneArt(s.svg)) {
     host.append(hGap(), hSect('scene'))
-    for (const [labelText, kind] of [
-      ['+ node', 'node'], ['+ circle', 'circle'], ['+ square', 'square'],
-      ['+ star', 'star'], ['+ arrow', 'arrow'],
-    ] as const) {
-      const b = button(labelText, `insert a ${kind} node — drag between nodes on the canvas to connect`)
-      b.addEventListener('click', () => insertShapeNode(s.svg, kind))
+    for (const ins of SCENE_INSERTS) {
+      const b = button(ins.label, `insert a ${ins.kind} node — drag between nodes on the canvas to connect`, ins.icon)
+      b.addEventListener('click', () => insertShapeNode(s.svg, ins.kind))
       host.append(b)
     }
   }
 
   host.append(hGap())
-  const pts = button('edit points', 'drag the selected path’s anchors and control points (esc exits)')
+  const pts = button('edit points', 'drag the selected path’s anchors and control points (esc exits)', 'points')
   pts.addEventListener('click', () => {
     const el = [...s.picked][0]
     if (s.picked.size === 1 && el instanceof SVGPathElement && canPointEdit(el)) {
       openPointEditor({ kind: 'free', scene: s.svg, el })
     }
   })
-  const grp = button('group', 'wrap the selection in a group (double-click a group to enter it, esc exits)')
+  const grp = button('group', 'wrap the selection in a group (double-click a group to enter it, esc exits)', 'group')
   grp.addEventListener('click', groupPicked)
-  const ungrp = button('ungroup', 'dissolve the selected group into its children')
+  const ungrp = button('ungroup', 'dissolve the selected group into its children', 'ungroup')
   ungrp.addEventListener('click', ungroupPicked)
   host.append(pts, grp, ungrp)
 

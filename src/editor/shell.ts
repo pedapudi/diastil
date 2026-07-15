@@ -15,7 +15,7 @@ import {
   ensureSceneStyleRules, expandSceneCanvas, fitSceneCanvas, getDrawTool,
   insertShapeNode, setDrawTool,
 } from '../scene/interact'
-import { swatch } from '../scene/icons'
+import { miscIcon, swatch, type MiscIcon } from '../scene/icons'
 import { assignFreshIds } from './slides'
 import { mountThemePicker, mountTypePicker } from '../chrome/pickers'
 import { mountCopilot } from '../copilot/rail'
@@ -33,7 +33,7 @@ import { openCompare } from './compare'
 import { bootFromCli, openDeck, saveDeck, presentDeck } from './slides'
 import { canStudio, openStudio } from '../studio/studio'
 import { newDrawingOnSlide } from '../studio/svgimport'
-import { applyTex, insertMathOnSlide, mathOf, renderTex } from './math'
+import { applyTex, mathOf, renderTex } from './math'
 import { attachPickerProxy } from './colorwell'
 
 /* styles that must live inside the deck shadow root; serialization strips
@@ -501,22 +501,13 @@ export function mountEditor(host: HTMLElement): void {
         const rowEl = h('div', 'de-style-row')
         rowEl.append(h('span', 'de-style-k', 'insert'))
         const segEl = h('span', 'dn-seg')
-        const bd = h('button', '', '+ drawing')
-        bd.type = 'button'
-        bd.title = 'add a drawing — shapes, connectors, and freeform art in one; opens isolated in the studio'
+        const bd = iconSegButton('drawing-add', '+ drawing',
+          'add a drawing — shapes, connectors, and freeform art in one; opens isolated in the studio')
         bd.addEventListener('click', () => newDrawingOnSlide(slide))
-        const bt = h('button', '', '+ text')
-        bt.type = 'button'
-        bt.title = 'add a text block — starts editing right away (drag to place, inspector restyles)'
+        const bt = iconSegButton('text-add', '+ text',
+          'add a text block and start typing — type $latex$ (or a \\command) and it becomes math')
         bt.addEventListener('click', () => insertTextOnSlide(slide))
-        const bm = h('button', '', '+ math')
-        bm.type = 'button'
-        bm.title = 'add a LaTeX formula — rendered to native MathML, source kept on the element'
-        bm.addEventListener('click', () => {
-          const el = insertMathOnSlide(slide)
-          if (el) state.selection = { kind: 'element', el, slide }
-        })
-        segEl.append(bt, bd, bm)
+        segEl.append(bt, bd)
         rowEl.append(segEl)
         inspectBody.append(rowEl)
       }
@@ -581,13 +572,11 @@ export function mountEditor(host: HTMLElement): void {
       // the storyboard: element lanes × step columns for this slide's build
       const sbRow = h('div', 'de-style-row')
       sbRow.append(h('span', 'de-style-k', 'steps'))
-      const sbBtn = h('button', 'dn-btn', 'storyboard')
-      sbBtn.type = 'button'
-      sbBtn.title = 'arrange the slide’s reveal moments on a board — preview each moment live'
+      const sbBtn = iconDnButton('storyboard', 'storyboard',
+        'arrange the slide’s reveal moments on a board — preview each moment live')
       sbBtn.addEventListener('click', () => toggleStoryboard(slide))
-      const focusBtn = h('button', 'dn-btn', 'focus')
-      focusBtn.type = 'button'
-      focusBtn.title = 'open this slide alone on a large zoomable stage — every editing gesture works there'
+      const focusBtn = iconDnButton('focus', 'focus',
+        'open this slide alone on a large zoomable stage — every editing gesture works there')
       focusBtn.addEventListener('click', () => openSlideFocus(slide))
       sbRow.append(sbBtn, focusBtn)
       inspectBody.append(sbRow)
@@ -783,6 +772,24 @@ export function mountEditor(host: HTMLElement): void {
     }
     row.append(seg)
     return row
+  }
+
+  /** a dn-seg button with a leading glyph */
+  function iconSegButton(icon: MiscIcon, label: string, tip: string): HTMLButtonElement {
+    const b = h('button', '', '') as HTMLButtonElement
+    b.type = 'button'
+    b.title = tip
+    b.append(miscIcon(icon), document.createTextNode(label))
+    return b
+  }
+
+  /** a dn-btn with a leading glyph */
+  function iconDnButton(icon: MiscIcon, label: string, tip: string): HTMLButtonElement {
+    const b = h('button', 'dn-btn', '') as HTMLButtonElement
+    b.type = 'button'
+    b.title = tip
+    b.append(miscIcon(icon), document.createTextNode(label))
+    return b
   }
 
   function kv(k: string, v: string): HTMLElement {

@@ -8,7 +8,6 @@ import { state } from '../state'
 import { insertEl, removeEl } from '../model/ops'
 import { canStudio, openStudio } from '../studio/studio'
 import { newDrawingOnSlide } from '../studio/svgimport'
-import { insertMathOnSlide } from './math'
 import { insertTextOnSlide, startEdit } from './textedit'
 import { openCompare } from './compare'
 import { assignFreshIds } from './slides'
@@ -71,7 +70,6 @@ function entriesFor(target: Element, slide: HTMLElement): Entry[] {
   // ---- the slide itself ----
   items.push(
     { label: '+ text', run: () => insertTextOnSlide(slide) },
-    { label: '+ math', run: () => { const el = insertMathOnSlide(slide); if (el) state.selection = { kind: 'element', el, slide } } },
     { label: '+ drawing', run: () => newDrawingOnSlide(slide) },
     SEP,
     { label: 'focus slide…', run: () => openSlideFocus(slide) },

@@ -6,6 +6,7 @@
  * is adopted; serializeClean() closes the focus before any save. */
 
 import { state } from '../state'
+import { miscIcon, type MiscIcon } from '../scene/icons'
 
 const ARTIFACT = 'dia-editor-artifact'
 
@@ -99,11 +100,12 @@ export function h(tag: string, cls = '', text = ''): HTMLElement {
   return el
 }
 
-export function button(text: string, tip = ''): HTMLButtonElement {
+export function button(text: string, tip = '', icon?: MiscIcon): HTMLButtonElement {
   const b = document.createElement('button')
   b.type = 'button'
   b.className = 'dia-st-btn'
-  b.textContent = text
+  if (icon) b.appendChild(miscIcon(icon))
+  b.appendChild(h('span', 'dia-st-btn-label', text))
   if (tip) b.title = tip
   return b
 }
@@ -131,8 +133,11 @@ const STUDIO_CSS = `
   font: inherit; font-size: 12.5px; color: var(--ink, #eee);
   background: transparent; border: 1px solid var(--rule, #444);
   border-radius: 5px; padding: 3px 11px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 7px;
 }
 .dia-st-btn:hover { border-color: var(--accent); }
+.dia-st-btn svg { width: 17px; height: 12px; flex: none; }
+.dia-st-btn .dia-st-btn-label { flex: 1; text-align: left; min-width: 0; }
 .dia-st-btn.dia-st-on { border-color: var(--accent); color: var(--accent); }
 .dia-st-done { border-color: var(--accent); color: var(--accent); }
 .dia-st-body { flex: 1; display: flex; min-height: 0; }
@@ -140,9 +145,9 @@ const STUDIO_CSS = `
   flex: none; width: 148px; padding: 10px;
   display: flex; flex-direction: column; gap: 4px;
   border-right: 1px solid var(--rule, #333); background: var(--panel, #222);
-  overflow-y: auto;
+  overflow-y: auto; overscroll-behavior: contain;
 }
-.dia-st-tools .dia-st-btn { text-align: left; display: flex; justify-content: space-between; }
+.dia-st-tools .dia-st-btn { text-align: left; display: flex; }
 .dia-st-tools .dia-st-btn kbd {
   font: 10.5px/1.6 var(--mono, ui-monospace, monospace);
   color: var(--ink-faint, #888); border: 1px solid var(--rule, #444);
@@ -167,7 +172,7 @@ const STUDIO_CSS = `
   box-shadow: 0 0 0 1px var(--rule, #444), 0 18px 60px rgba(0,0,0,.35);
 }
 .dia-st-rail {
-  flex: none; width: 252px; overflow-y: auto;
+  flex: none; width: 252px; overflow-y: auto; overscroll-behavior: contain;
   border-left: 1px solid var(--rule, #333); background: var(--panel, #222);
   padding: 10px; display: flex; flex-direction: column; gap: 14px;
 }
