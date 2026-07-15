@@ -212,11 +212,14 @@ export function ungroupPicked(): void {
   refreshAll()
 }
 
-/** redraw selection visuals + panels (exported for panels → tools updates) */
+/** redraw selection visuals + panels (exported for panels → tools updates);
+ * the inspector's structure tree doubles as the layers panel, so it must
+ * hear about pick changes that never touch the op log */
 export function refreshAll(): void {
   if (!ctx) return
   renderSelection(ctx)
   refreshPanels(ctx.s)
+  state.bus.emit({ type: 'studio-selection' })
 }
 
 /** the top-level element (in the current context) owning a pointer target */

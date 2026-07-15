@@ -300,6 +300,17 @@
   font-family: var(--sans); color: var(--ink-faint);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
 }
+/* studio layer rows inside the tree: verbs appear on hover/selection */
+.de-tree-acts { margin-left: auto; flex: none; display: none; gap: 2px; }
+.de-tree-row:hover .de-tree-acts, .de-tree-row.de-on .de-tree-acts { display: inline-flex; }
+.de-tree-act {
+  border: 0; background: transparent; cursor: pointer;
+  color: var(--ink-faint); font-size: calc(10px * var(--dt-font-scale, 1));
+  padding: 0 3px; border-radius: 3px; line-height: 1.4;
+}
+.de-tree-act:hover { color: var(--ink); background: var(--rule-soft); }
+.de-tree-row.is-hidden .de-tree-name { opacity: .45; text-decoration: line-through; }
+.de-tree-row.is-dragging { opacity: .4; }
 
 .de-style-row { display: flex; align-items: center; gap: 8px; }
 /* the label column scales WITH the type preset — a fixed pixel width lets

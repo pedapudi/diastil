@@ -134,6 +134,9 @@ export function openSlideFocus(slide: HTMLElement): void {
 
   const head = h('header', 'dia-st-head')
   const idx = state.slides().indexOf(slide)
+  // the inspector follows the focused slide — its structure tree doubles
+  // as the studio's layers panel, so it must be about THIS slide
+  state.setCurrentSlide(Math.max(0, idx))
   const SLIDE_HINT = 'text edits in place · tools draw on the slide’s layer · double-click a drawing to step into it'
   const hint = h('span', 'dia-st-hint', SLIDE_HINT)
   // where you are in the deck — every crumb is a way back up, the same
@@ -293,8 +296,7 @@ export function openSlideFocus(slide: HTMLElement): void {
     }
     ph.append(h('div', 'dia-st-sect', 'properties'))
     ph.append(h('div', 'dia-st-hint', 'pick something on the drawing — fill, line, and width live here'))
-    ph.append(h('div', 'dia-st-sect', 'layers'))
-    ph.append(h('div', 'dia-st-hint', 'nothing drawn yet'))
+    ph.append(h('div', 'dia-st-hint', 'layers live under structure, in the inspector rail'))
     vectorWrap.append(ph)
   }
   const activate = (name: Parameters<typeof setTool>[0]): void => {

@@ -27,7 +27,7 @@ import { legendOpen, toggleLegend, closeLegend } from './legend'
 import { installTextEditing, insertTextOnSlide } from './textedit'
 import { installContextMenu } from './contextmenu'
 import { toggleStoryboard } from './storyboard'
-import { openSlideFocus } from '../studio/focus'
+import { focusedSlide, openSlideFocus } from '../studio/focus'
 import { buildSlideTree } from './tree'
 import { openCompare } from './compare'
 import { bootFromCli, openDeck, saveDeck, presentDeck } from './slides'
@@ -297,6 +297,12 @@ export function mountEditor(host: HTMLElement): void {
         renderInspect()
         break
       }
+      case 'studio-selection': {
+        // the structure tree doubles as the studio's layers panel — picks
+        // made in the studio must highlight here without an op or selection
+        renderInspect()
+        break
+      }
       case 'current-slide': {
         updateCrumbs()
         renderInspect() // the structure tree follows the current slide
@@ -437,8 +443,12 @@ export function mountEditor(host: HTMLElement): void {
 
   /* ----- inspect pane ----- */
 
-  /** the slide the inspect pane is about: the selection's, else the current */
+  /** the slide the inspect pane is about: the studio's (a focused slide
+   * reparents into the overlay, so index-based lookup would miss it),
+   * else the selection's, else the current */
   function inspectedSlide(): HTMLElement | null {
+    const focused = focusedSlide()
+    if (focused) return focused
     const sel = state.selection
     if (sel.kind !== 'none') return sel.slide
     return state.slides()[state.currentSlide] ?? null

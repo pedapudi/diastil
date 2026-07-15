@@ -1,14 +1,15 @@
 /* Studio rail: properties (fill/stroke/width/dash/opacity, deck-token
- * swatches, text words) + layers (top-first list of the svg's children:
- * select, hide, duplicate, delete, drag to reorder). Every control writes
- * ops; token colors write var(--dia-*) STYLE properties so the artwork
- * retints with the deck theme. */
+ * swatches, text words). Every control writes ops; token colors write
+ * var(--dia-*) STYLE properties so the artwork retints with the deck
+ * theme. Layers live in the inspector's structure tree (editor/tree.ts),
+ * which doubles as the layers panel while a session is bound — one
+ * hierarchy, one place. */
 
 import { state } from '../state'
-import { batch, insertEl, moveEl, removeEl, setAttr, setStyleProp, setText } from '../model/ops'
+import { batch, setAttr, setStyleProp, setText } from '../model/ops'
 import type { StudioSession } from './studio'
 import { h } from './studio'
-import { duplicateOne, enterGroup, exitGroup, isEdgeEl, isNodeEl, isPlainGroup, pick, pickables, refreshAll } from './tools'
+import { isNodeEl, refreshAll } from './tools'
 import { attachPickerProxy } from '../editor/colorwell'
 
 /** scene nodes style through their custom props (the scene rules read
@@ -48,8 +49,7 @@ export function refreshPanels(s: StudioSession): void {
   host.replaceChildren()
   host.append(h('div', 'dia-st-sect', 'properties'))
   host.append(...propRows(s))
-  host.append(h('div', 'dia-st-sect', 'layers'))
-  host.append(layersPanel(s))
+  host.append(h('div', 'dia-st-hint', 'layers live under structure, in the inspector rail'))
 }
 
 /* ---------- properties ---------- */
@@ -201,135 +201,4 @@ function resolveToken(s: StudioSession, value: string): string {
   const name = /var\((--[\w-]+)\)/.exec(value)?.[1]
   if (!name) return value
   return getComputedStyle(s.svg).getPropertyValue(name).trim() || value
-}
-
-/* ---------- layers ---------- */
-
-function layersPanel(s: StudioSession): HTMLElement {
-  const wrap = h('div', 'dia-st-layers')
-  // inside a group: a way back up, and a reminder of where you are
-  if (s.entered.length > 0) {
-    const up = h('div', 'dia-st-layer')
-    up.append(h('span', 'dia-st-lname', `◂ exit group (${'g > '.repeat(s.entered.length - 1)}g) — esc`))
-    up.addEventListener('click', () => exitGroup())
-    wrap.append(up)
-  }
-  const els = pickables(s)
-  if (els.length === 0) {
-    wrap.append(h('div', 'dia-st-hint', 'nothing here yet — draw or import'))
-    return wrap
-  }
-  // top of the stack first, like every layers panel
-  for (const el of [...els].reverse()) {
-    wrap.append(layerRow(s, el, els))
-  }
-  // scene edges are DERIVED — they follow their nodes, so they list
-  // separately: deletable and hideable, never reordered or duplicated
-  const edges = s.entered.length === 0 ? [...s.svg.children].filter(isEdgeEl) as SVGGElement[] : []
-  if (edges.length > 0) {
-    wrap.append(h('div', 'dia-st-sect', 'edges — derived'))
-    for (const edge of edges) {
-      const row = h('div', 'dia-st-layer')
-      const eye = lbtn(isHidden(edge as SVGGraphicsElement) ? '◌' : '●', isHidden(edge as SVGGraphicsElement) ? 'show' : 'hide')
-      eye.addEventListener('click', (e) => {
-        e.stopPropagation()
-        state.apply(setStyleProp(edge, 'display', isHidden(edge as SVGGraphicsElement) ? '' : 'none'))
-        refreshAll()
-      })
-      const ref = edge.getAttribute('data-dia-edge') ?? '?'
-      const route = edge.getAttribute('data-route') ?? 'ortho'
-      const name = h('span', 'dia-st-lname', `${ref.replace('->', ' → ')} · ${route}`)
-      const del = lbtn('×', 'delete edge')
-      del.addEventListener('click', (e) => {
-        e.stopPropagation()
-        state.apply(removeEl(edge, `DeleteEdge ${ref}`))
-        refreshAll()
-      })
-      row.append(eye, name, del)
-      wrap.append(row)
-    }
-  }
-  return wrap
-}
-
-function layerRow(s: StudioSession, el: SVGGraphicsElement, all: SVGGraphicsElement[]): HTMLElement {
-  const row = h('div', `dia-st-layer${s.picked.has(el) ? ' dia-st-on' : ''}${isHidden(el) ? ' is-hidden' : ''}`)
-  row.draggable = true
-
-  const eye = lbtn(isHidden(el) ? '◌' : '●', isHidden(el) ? 'show' : 'hide')
-  eye.addEventListener('click', (e) => {
-    e.stopPropagation()
-    state.apply(setStyleProp(el, 'display', isHidden(el) ? '' : 'none'))
-    refreshAll()
-  })
-
-  const name = h('span', 'dia-st-lname', describeLayer(el))
-
-  const dup = lbtn('⧉', 'duplicate')
-  dup.addEventListener('click', (e) => {
-    e.stopPropagation()
-    const copy = duplicateOne(s, el)
-    s.picked.clear()
-    s.picked.add(copy)
-    refreshAll()
-  })
-
-  const del = lbtn('×', 'delete')
-  del.addEventListener('click', (e) => {
-    e.stopPropagation()
-    state.apply(removeEl(el))
-    s.picked.delete(el)
-    refreshAll()
-  })
-
-  row.append(eye, name, dup, del)
-  row.addEventListener('click', (e) => pick(el, e.shiftKey))
-  if (isPlainGroup(el)) {
-    row.title = 'double-click to enter the group'
-    row.addEventListener('dblclick', () => enterGroup(el))
-  }
-
-  /* drag to reorder — drop above the row under the cursor */
-  row.addEventListener('dragstart', (e) => {
-    row.classList.add('is-dragging')
-    e.dataTransfer?.setData('text/plain', String(all.indexOf(el)))
-  })
-  row.addEventListener('dragend', () => row.classList.remove('is-dragging'))
-  row.addEventListener('dragover', (e) => e.preventDefault())
-  row.addEventListener('drop', (e) => {
-    e.preventDefault()
-    const fromIdx = Number(e.dataTransfer?.getData('text/plain'))
-    const dragged = all[fromIdx]
-    if (!dragged || dragged === el) return
-    // panel is top-first; dropping ON a row puts the dragged element
-    // directly ABOVE it in the stack (after it in document order)
-    const targetIdx = [...s.svg.children].indexOf(el)
-    state.apply(moveEl(dragged, s.svg, targetIdx + (fromIdx > all.indexOf(el) ? 1 : 0), 'Reorder drawing layers'))
-    refreshAll()
-  })
-  return row
-}
-
-function isHidden(el: SVGGraphicsElement): boolean {
-  return el.style.display === 'none'
-}
-
-function describeLayer(el: SVGGraphicsElement): string {
-  const tag = el.tagName.toLowerCase()
-  if (el.hasAttribute('data-dia-node')) {
-    const shape = el.getAttribute('data-shape') ?? 'node'
-    return `node ${el.getAttribute('data-dia-node')} · ${shape}`
-  }
-  if (el instanceof SVGTextElement) return `text “${(el.textContent ?? '').slice(0, 18)}”`
-  if (tag === 'g') return `group (${el.children.length})`
-  return tag
-}
-
-function lbtn(text: string, tip: string): HTMLButtonElement {
-  const b = document.createElement('button')
-  b.type = 'button'
-  b.className = 'dia-st-lbtn'
-  b.textContent = text
-  b.title = tip
-  return b
 }

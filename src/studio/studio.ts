@@ -44,10 +44,14 @@ export function registerSlideFocusClose(fn: () => void): void {
  * menu helper operates on it */
 export function adoptSession(s: StudioSession): void {
   session = s
+  // the inspector's structure tree doubles as the layers panel of the
+  // BOUND drawing — it must re-render when the binding changes
+  state.bus.emit({ type: 'studio-selection' })
 }
 
 export function dropSession(s: StudioSession): void {
   if (session === s) session = null
+  state.bus.emit({ type: 'studio-selection' })
 }
 
 export function studioOpen(): boolean {

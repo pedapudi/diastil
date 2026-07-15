@@ -53,6 +53,7 @@ export type EditorEvent =
   | { type: 'current-slide'; index: number }
   | { type: 'deck-loaded' }
   | { type: 'slides-changed' }
+  | { type: 'studio-selection' }
 
 export type Altitude = 'table' | 'stage'
 
