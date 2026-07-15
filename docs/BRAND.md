@@ -2,12 +2,15 @@
 
 ## The name
 
-**diastīl**, lowercase, from *dia* (through) + *style* — traced to its
-root, Latin **stīlus**, the pointed writing instrument. Classical Latin
-spells that word with a genuinely long ī, so the macron is philological,
-not decorative: it marks the Latin vowel quantity and gives the
-pronunciation *dee-ah-STEEL*. "Through the pen": documents written
-directly, in their own style.
+**diastīl**, lowercase, pronounced ***die-ah-STYLE***, from *dia*
+(through) + *style* — traced to its root, Latin **stīlus**, the pointed
+writing instrument. The macron is doing real work in two traditions at
+once: it is the Latin long ī of *stīlus* (philology), and in English
+dictionary pronunciation keys **ī IS the "long i"** — the /aɪ/ of *īce*
+— so *stīl* respells exactly as "style". The Great Vowel Shift is the
+bridge: the Latin length the macron marks is precisely what English
+now pronounces "die". "Through the pen": documents written directly,
+in their own style.
 
 (The *y* in English "style"/"stylus" is a historical confusion with
 Greek στῦλος, "column" — the root of the architectural term *diastyle*.

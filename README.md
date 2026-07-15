@@ -1,9 +1,9 @@
 # diastil
 
-**diastīl** (*dee-ah-STEEL* — dia + style, via Latin *stīlus*, the pen;
-the macron marks the Latin long ī and is display-only — everything
-machine-facing stays `diastil`/`dia`) — a browser-based WYSIWYG editor
-for HTML/CSS/JS slide decks. The condensation mark — three slide-lines
+**diastīl** (*die-ah-STYLE* — dia + style, via Latin *stīlus*, the pen;
+the ī is the dictionary-key "long i" of *īce*, and it is display-only —
+everything machine-facing stays `diastil`/`dia`) — a browser-based
+WYSIWYG editor for HTML/CSS/JS slide decks. The condensation mark — three slide-lines
 converging to one accent drop — draws the second reading, *distill*:
 many sources, one verified document. Brand rules:
 [docs/BRAND.md](docs/BRAND.md).
