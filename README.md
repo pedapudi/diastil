@@ -29,7 +29,10 @@ The editor opens on the built-in demo deck (six slides, one scene
 diagram). Double-click text to edit (`Enter` commits), `Enter`/`Esc` to
 move between the table and stage altitudes, drag diagram nodes and watch
 edges reroute, `⌘S` to save — the saved file is self-contained HTML that
-presents itself when opened.
+presents itself when opened. Select any svg artwork and open it in the
+**studio** — a full-screen drawing surface with pen/shape/freehand/text
+tools, transform handles, layers, deck-token color swatches, and
+sanitized svg import — every gesture an undoable op on the document.
 
 To try **conversion**, click `open` and pick any file in
 [examples/fixtures/](examples/fixtures/) — eight foreign decks covering

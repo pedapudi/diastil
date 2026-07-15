@@ -28,6 +28,8 @@ import { installTextEditing } from './textedit'
 import { buildSlideTree } from './tree'
 import { openCompare } from './compare'
 import { bootFromCli, openDeck, saveDeck, presentDeck } from './slides'
+import { canStudio, openStudio } from '../studio/studio'
+import { newDrawingOnSlide } from '../studio/svgimport'
 
 /* styles that must live inside the deck shadow root; serialization strips
  * style.dia-editor-artifact (slides.ts removes them around serializeDeck) */
@@ -484,7 +486,11 @@ export function mountEditor(host: HTMLElement): void {
         b.type = 'button'
         b.title = 'add a full-slide diagram layer — shapes anywhere on the slide'
         b.addEventListener('click', () => { insertDiagram(slide); renderInspect() })
-        segEl.append(b)
+        const bd = h('button', '', '+ drawing')
+        bd.type = 'button'
+        bd.title = 'add freeform svg artwork and open it in the studio'
+        bd.addEventListener('click', () => newDrawingOnSlide(slide))
+        segEl.append(b, bd)
         rowEl.append(segEl)
         inspectBody.append(rowEl)
       }
@@ -546,7 +552,18 @@ export function mountEditor(host: HTMLElement): void {
     // a selected svg (scene background click) gets CREATION tools here in
     // the stable rail — floating bars are reserved for concrete selections
     if (sel.kind === 'element' && (el as unknown as Element) instanceof SVGSVGElement) {
-      inspectBody.append(...sceneToolRows(el as unknown as SVGSVGElement))
+      const svgEl = el as unknown as SVGSVGElement
+      if (canStudio(svgEl)) {
+        const row = h('div', 'de-style-row')
+        row.append(h('span', 'de-style-k', 'studio'))
+        const b = h('button', 'dn-btn', 'open in studio')
+        b.type = 'button'
+        b.title = 'edit this artwork on a large canvas — draw, import, transform, layer'
+        b.addEventListener('click', () => openStudio(svgEl))
+        row.append(b)
+        inspectBody.append(row)
+      }
+      inspectBody.append(...sceneToolRows(svgEl))
       appendTree()
       return
     }
