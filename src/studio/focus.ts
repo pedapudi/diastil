@@ -21,6 +21,7 @@ import { openImportDialog } from './svgimport'
 import { ensureSceneStyleRules, insertShapeNode } from '../scene/interact'
 import { setToolbarSuppressed } from '../scene/toolbar'
 import { menuIsOpen } from '../editor/menu'
+import { highlightModeActive } from '../editor/highlights'
 import { insertTextOnSlide } from '../editor/textedit'
 import { assignFreshIds } from '../editor/slides'
 
@@ -410,8 +411,9 @@ export function openSlideFocus(slide: HTMLElement): void {
   }
   const onKey = (e: KeyboardEvent): void => {
     if (isTyping(e)) return
-    // an open context menu owns esc — closing it must not also back out
-    if (e.key === 'Escape' && menuIsOpen()) return
+    // an open context menu or an active highlight session owns esc —
+    // ending those must not also back the studio out a level
+    if (e.key === 'Escape' && (menuIsOpen() || highlightModeActive())) return
     if (e.key === 'Escape') {
       e.stopPropagation()
       e.preventDefault()

@@ -12,8 +12,10 @@ import { rasterizeToDataUrl } from '../ingest/fidelity'
 import { embeddedOriginals } from '../editor/compare'
 import { scrollToSlide } from '../editor/table'
 import {
-  installMarquee, renderHighlightBoxes, stampHighlights, type HighlightRegion,
+  highlightModeActive, installMarquee, renderHighlightBoxes, setHighlightMode,
+  stampHighlights, type HighlightRegion,
 } from '../editor/highlights'
+import { focusedSlide } from '../studio/focus'
 import { compileOps, resolveTarget } from './compile'
 import { clearPreview, previewIsActive, startPreview } from './preview'
 import { renderMarkdown } from './markdown'
@@ -27,7 +29,23 @@ const HEALTH_MIN_INTERVAL = 30_000
  * ELEMENT, so reordering slides keeps highlights with their slide. */
 
 const slideHighlights = new WeakMap<HTMLElement, HighlightRegion[]>()
-let hlMode = false
+
+/** slides in LOGICAL order: a focused slide reparents into the studio
+ * overlay, which pushes it to the end of document order — every consumer
+ * here (highlight layers, renders, neighbors, target resolution) must see
+ * it back at its own index */
+function slidesInOrder(): HTMLElement[] {
+  const f = focusedSlide()
+  const all = state.slides()
+  if (!f) return all
+  const rest = all.filter((sl) => sl !== f)
+  rest.splice(Math.min(state.currentSlide, rest.length), 0, f)
+  return rest
+}
+
+function currentSlideEl(): HTMLElement | null {
+  return focusedSlide() ?? state.slides()[state.currentSlide] ?? null
+}
 
 function hlList(slide: HTMLElement): HighlightRegion[] {
   let list = slideHighlights.get(slide)
@@ -57,27 +75,29 @@ function refreshHlLayer(slide: HTMLElement): void {
     refreshHlLayer(slide)
     for (const fn of [...contextListeners]) fn()
   })
-  layer.classList.toggle('is-active', hlMode && slide === state.slides()[state.currentSlide])
+  layer.classList.toggle('is-active', highlightModeActive() && slide === currentSlideEl())
 }
 
 /** activate only the current slide's layer; others go inert */
 function syncHlLayers(): void {
-  for (const [i, slide] of state.slides().entries()) {
+  const cur = currentSlideEl()
+  for (const slide of state.slides()) {
     const has = (slideHighlights.get(slide)?.length ?? 0) > 0
-    const isCurrent = i === state.currentSlide
-    if (has || (hlMode && isCurrent)) refreshHlLayer(slide)
+    if (has || (highlightModeActive() && slide === cur)) refreshHlLayer(slide)
     else slide.querySelector(':scope > .dia-hl-layer')?.classList.remove('is-active')
   }
 }
 
 function toggleHlMode(): void {
-  hlMode = !hlMode
+  setHighlightMode(!highlightModeActive())
   syncHlLayers()
   for (const fn of [...contextListeners]) fn()
 }
 
+// bubble-phase on purpose: the studio's capture-phase esc chain yields to
+// an active highlight session, so this handler is the one that ends it
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && hlMode) toggleHlMode()
+  if (e.key === 'Escape' && highlightModeActive()) toggleHlMode()
 })
 
 /* ---------- the imported original as context ----------
@@ -293,7 +313,7 @@ export function mountCopilot(host: HTMLElement): void {
     const tail = document.createElement('span')
     const pinGesture = /Mac|iP(hone|ad|od)/.test(navigator.platform) ? '⌥-click' : 'alt/shift-click'
     const withOriginal = deckHasOriginals(state.deck) ? ' + original' : ''
-    const curSlide = state.slides()[state.currentSlide]
+    const curSlide = currentSlideEl()
     const hlCount = curSlide ? (slideHighlights.get(curSlide)?.length ?? 0) : 0
     const withHl = hlCount > 0 ? ` + ${hlCount} highlight${hlCount > 1 ? 's' : ''}` : ''
     tail.textContent = `${what ? ` › ${what}` : ''} + tokens + slide render${withOriginal}${withHl} · ${pinGesture} a minimap slide to pin`
@@ -301,8 +321,8 @@ export function mountCopilot(host: HTMLElement): void {
     // shade regions on the slide for the model — drag to add, click to remove
     const hlBtn = document.createElement('button')
     hlBtn.type = 'button'
-    hlBtn.className = `dia-cop-chip${hlMode ? ' is-pinned' : ''}`
-    hlBtn.textContent = hlMode ? 'highlighting… (Esc)' : 'highlight'
+    hlBtn.className = `dia-cop-chip${highlightModeActive() ? ' is-pinned' : ''}`
+    hlBtn.textContent = highlightModeActive() ? 'highlighting… (Esc)' : 'highlight'
     hlBtn.title = 'drag a region on the current slide to focus the copilot on it — click a shaded box to remove it'
     hlBtn.addEventListener('click', toggleHlMode)
     context.appendChild(hlBtn)
@@ -439,8 +459,8 @@ export function mountCopilot(host: HTMLElement): void {
   async function buildContext(): Promise<ChatContext> {
     const deck = state.deck
     // the exact slide set the context chips display: neighbors + pins,
-    // size-capped, in document order — what you see is what it sees
-    const slides = state.slides()
+    // size-capped, in logical order — what you see is what it sees
+    const slides = slidesInOrder()
     const cap = (el: HTMLElement | undefined): string | null => {
       if (!el) return null
       const html = el.outerHTML
@@ -450,7 +470,7 @@ export function mountCopilot(host: HTMLElement): void {
     // shows structure, the image shows what the user is looking at.
     // null (rasterization failed) degrades to text-only, same as before.
     let slideImage: string | null = null
-    const current = slides[state.currentSlide]
+    const current = currentSlideEl()
     const hl = current ? (slideHighlights.get(current) ?? []) : []
     if (current) {
       try {
@@ -537,7 +557,7 @@ export function mountCopilot(host: HTMLElement): void {
     if (!deck) return null
     for (const p of ops) {
       try {
-        const el = resolveTarget(p.target, deck.root, state.slides(), state.currentSlide)
+        const el = resolveTarget(p.target, deck.root, slidesInOrder(), state.currentSlide)
         const slide = el?.closest<HTMLElement>('section.dia-slide')
         if (slide) return slide
       } catch { /* keep looking */ }

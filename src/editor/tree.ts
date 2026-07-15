@@ -52,6 +52,9 @@ export function buildSlideTree(slide: SlideEl): HTMLElement {
 function walk(list: HTMLElement, el: Element, slide: SlideEl, depth: number, counter: { rows: number }): void {
   if (counter.rows >= MAX_ROWS) return
   if (el instanceof HTMLStyleElement || el.tagName === 'SCRIPT') return
+  // editor chrome (highlight layers, preview badges, overlays) is not
+  // document structure — it strips on save and never shows here
+  if (el.classList.contains(ARTIFACT)) return
 
   // islands are opaque: one row, no descent
   if (el.hasAttribute('data-dia-island')) {

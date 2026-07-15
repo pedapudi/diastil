@@ -12,6 +12,19 @@ export interface HighlightRegion {
   h: number
 }
 
+/* highlight MODE lives here (not in the copilot rail) so the studio's
+ * esc chain can consult it without a module cycle: an active highlight
+ * session owns esc, exactly like an open menu */
+let mode = false
+
+export function highlightModeActive(): boolean {
+  return mode
+}
+
+export function setHighlightMode(on: boolean): void {
+  mode = on
+}
+
 /** draw the regions onto a PNG data URL: translucent accent fill + border.
  * The note text tells the model what the boxes mean. */
 export async function stampHighlights(dataUrl: string, regions: HighlightRegion[]): Promise<string> {
