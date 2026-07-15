@@ -213,7 +213,7 @@ class ReviewController {
     // toggle row
     const tools = h('div', 'dia-review-tools')
     const seg = h('div', 'dn-seg')
-    for (const [label, mode] of [['side-by-side', 'side'], ['overlay', 'overlay'], ['heatmap', 'heatmap']] as const) {
+    for (const [label, mode] of [['side-by-side', 'side'], ['difference', 'overlay'], ['heatmap', 'heatmap']] as const) {
       const b = document.createElement('button')
       b.textContent = label
       b.addEventListener('click', () => this.setMode(mode))
@@ -601,7 +601,7 @@ class ReviewController {
     this.segButtons[1].classList.toggle('dn-on', mode === 'overlay')
     this.segButtons[2].classList.toggle('dn-on', mode === 'heatmap')
     this.hint.textContent =
-      mode === 'overlay' ? 'difference — matched regions read dark' :
+      mode === 'overlay' ? 'difference blend: identical pixels cancel to BLACK — an all-black slide is a perfect match; anything glowing differs' :
       mode === 'heatmap' ? 'the measured diff — exactly what the fidelity score scored' : ''
     this.renderHeatmap()
     requestAnimationFrame(() => this.layout())

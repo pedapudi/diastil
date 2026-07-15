@@ -46,11 +46,28 @@ section.dia-slide svg.dia-scene-full { pointer-events: none; }
 section.dia-slide svg.dia-scene-full > :not(.dia-editor-artifact) { pointer-events: auto; }
 :host([data-dia-drawing]) section.dia-slide svg { pointer-events: bounding-box; }
 [contenteditable] { outline: 2px solid var(--accent); outline-offset: 2px; cursor: text; }
-/* highlight-for-context: user-shaded regions the copilot receives */
+/* highlight-for-context: user-shaded regions the copilot receives.
+ * THEME-PROOF by construction: orange stroke, white OUTER halo, dark INNER
+ * line — whatever the background, one of the halos contrasts with it. */
 section.dia-slide > .dia-hl-layer { position: absolute; inset: 0; z-index: 40; pointer-events: none; }
 section.dia-slide > .dia-hl-layer.is-active { pointer-events: auto; cursor: crosshair; }
-.dia-hl-layer .dia-hl-box { position: absolute; background: rgba(255,170,0,.18); border: 1.5px solid rgba(255,150,0,.9); pointer-events: auto; cursor: pointer; }
-.dia-hl-layer .dia-hl-box.is-ghost { pointer-events: none; border-style: dashed; }
+.dia-hl-layer .dia-hl-box {
+  position: absolute;
+  background: rgba(255, 153, 0, 0.22);
+  border: 2px solid #ff9500;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9), inset 0 0 0 1.5px rgba(0, 0, 0, 0.4);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.dia-hl-layer .dia-hl-box:hover { background: rgba(255, 80, 60, 0.28); border-color: #ff5040; }
+.dia-hl-layer .dia-hl-box:hover::after {
+  content: '\\00d7 remove';
+  position: absolute; top: -1.6em; right: -2px;
+  font: 11px/1.6 ui-monospace, monospace;
+  padding: 0 6px; border-radius: 3px;
+  background: #ff5040; color: #fff; white-space: nowrap;
+}
+.dia-hl-layer .dia-hl-box.is-ghost { pointer-events: none; border-style: dashed; background: rgba(255, 153, 0, 0.12); box-shadow: none; }
 `
 
 export function mountEditor(host: HTMLElement): void {
