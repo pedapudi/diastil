@@ -6,12 +6,12 @@
 <title>what is diastil</title>
 <style id="dia-theme">
 :root {
-  --dia-paper: #101210;
-  --dia-ink: #f2f3ef;
-  --dia-ink-soft: #c2c5bb;
-  --dia-ink-faint: #8a8e83;
-  --dia-accent: #3FB87A;
-  --dia-rule: #2d302b;
+  --dia-paper: #300A24;
+  --dia-ink: #EEEEEC;
+  --dia-ink-soft: #CBC3C9;
+  --dia-ink-faint: #8A7383;
+  --dia-accent: #34E2E2;
+  --dia-rule: #4B2640;
   --dia-face-display: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
   --dia-face-body: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
   --dia-face-label: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
@@ -71,7 +71,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
 .dia-body ul, .dia-body ol { margin: 0; padding-left: 1.1em; }
 .dia-body li { margin-bottom: 10px; line-height: 1.5; }
 .dia-scene { width: 100%; }
-.dia-scene .dia-node-shape { fill: var(--dia-node-fill, #191c19); stroke: var(--dia-node-stroke, var(--dia-ink-soft)); stroke-width: var(--dia-node-stroke-w, 1.1); }
+.dia-scene .dia-node-shape { fill: var(--dia-node-fill, #3D1530); stroke: var(--dia-node-stroke, var(--dia-ink-soft)); stroke-width: var(--dia-node-stroke-w, 1.1); }
 .dia-scene .dia-node-label { font: 12.5px var(--dia-face-label); fill: var(--dia-node-ink, var(--dia-ink)); }
 .dia-scene .dia-edge-path { stroke: var(--dia-edge-stroke, var(--dia-ink-soft)); stroke-width: var(--dia-edge-w, 1); fill: none; color: var(--dia-edge-stroke, var(--dia-ink-soft)); }
 .dia-scene .dia-edge-label { font: 11px var(--dia-face-label); fill: var(--dia-edge-ink, var(--dia-ink-soft)); }
@@ -167,29 +167,42 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
       <p class="dia-caption">zero runtime dependencies in the document path —
       the editor bundle and deck runtime import nothing.</p>
     </div>
-    <figure class="dia-figure">
-      <svg class="dia-scene" viewBox="0 0 360 260" role="img" aria-label="the deck file at the center of four surfaces"><defs><marker id="dia-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"></path></marker></defs>
-        <g data-dia-node="deck" data-shape="note" data-x="120" data-y="102" data-w="120" data-h="52" data-dia-emphasis=""><path class="dia-node-shape" d="M120,102 L226,102 L240,116 L240,154 L120,154 Z M226,102 L226,116 L240,116"></path>
-          <text class="dia-node-label" x="180" y="128" text-anchor="middle" dominant-baseline="central">deck.html</text>
-        </g>
-        <g data-dia-node="editor" data-shape="rounded" data-x="20" data-y="14" data-w="110" data-h="40"><rect class="dia-node-shape" x="20" y="14" width="110" height="40" rx="6"></rect>
-          <text class="dia-node-label" x="75" y="34" text-anchor="middle" dominant-baseline="central">editor</text>
-        </g>
-        <g data-dia-node="present" data-shape="rounded" data-x="230" data-y="14" data-w="110" data-h="40"><rect class="dia-node-shape" x="230" y="14" width="110" height="40" rx="6"></rect>
-          <text class="dia-node-label" x="285" y="34" text-anchor="middle" dominant-baseline="central">present</text>
-        </g>
-        <g data-dia-node="import" data-shape="rounded" data-x="20" data-y="204" data-w="110" data-h="40"><rect class="dia-node-shape" x="20" y="204" width="110" height="40" rx="6"></rect>
-          <text class="dia-node-label" x="75" y="224" text-anchor="middle" dominant-baseline="central">import</text>
-        </g>
-        <g data-dia-node="agents" data-shape="rounded" data-x="230" data-y="204" data-w="110" data-h="40"><rect class="dia-node-shape" x="230" y="204" width="110" height="40" rx="6"></rect>
-          <text class="dia-node-label" x="285" y="224" text-anchor="middle" dominant-baseline="central">agents</text>
-        </g>
-        <g data-dia-edge="editor-&gt;deck" data-anchors="S,W" data-route="ortho"><path class="dia-edge-path" d="M75,54 V66 H108 V128 H120" fill="none" marker-end="url(#dia-arrow)"></path></g>
-        <g data-dia-edge="deck-&gt;present" data-anchors="E,S" data-route="ortho"><path class="dia-edge-path" d="M240,128 H285 V54" fill="none" marker-end="url(#dia-arrow)"></path></g>
-        <g data-dia-edge="import-&gt;deck" data-anchors="E,S" data-route="ortho"><path class="dia-edge-path" d="M130,224 H142 V166 H180 V154" fill="none" marker-end="url(#dia-arrow)"></path></g>
-        <g data-dia-edge="agents-&gt;deck" data-anchors="W,S" data-route="ortho"><path class="dia-edge-path" d="M230,224 H218 V166 H180 V154" fill="none" marker-end="url(#dia-arrow)"></path></g>
+    <figure class="dia-figure" style="width: 100%; margin: 0;">
+      <svg viewBox="0 0 400 270" role="img" aria-label="anatomy of a deck file" style="width: 100%; font-family: var(--dia-face-label); font-size: 10px;">
+        <path d="M40,10 H240 L262,32 V258 H40 Z" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.4;"></path>
+        <path d="M240,10 V32 H262" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.4;"></path>
+
+        <rect x="54" y="26" width="192" height="40" rx="3" style="fill: none; stroke: var(--dia-rule); stroke-width: 1;"></rect>
+        <rect x="62" y="34" width="9" height="9" style="fill: var(--dia-ink-soft); opacity: .4;"></rect>
+        <rect x="75" y="34" width="9" height="9" style="fill: var(--dia-ink-soft); opacity: .7;"></rect>
+        <rect x="88" y="34" width="9" height="9" style="fill: var(--dia-accent);"></rect>
+        <path d="M104,38 h60 M104,58 h100 M62,50 h80" style="stroke: var(--dia-ink-faint); stroke-width: 1.6;"></path>
+
+        <rect x="54" y="78" width="192" height="46" rx="3" style="fill: none; stroke: var(--dia-rule); stroke-width: 1;"></rect>
+        <path d="M62,90 h70" style="stroke: var(--dia-ink); stroke-width: 3;"></path>
+        <path d="M62,102 h140 M62,112 h120" style="stroke: var(--dia-ink-faint); stroke-width: 1.6;"></path>
+        <rect x="54" y="132" width="192" height="46" rx="3" style="fill: none; stroke: var(--dia-rule); stroke-width: 1;"></rect>
+        <path d="M62,144 h56" style="stroke: var(--dia-ink); stroke-width: 3;"></path>
+        <rect x="62" y="152" width="34" height="18" rx="3" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.1;"></rect>
+        <rect x="120" y="156" width="34" height="14" rx="3" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.1;"></rect>
+        <path d="M96,161 H120" style="stroke: var(--dia-ink-soft); stroke-width: 1;"></path>
+        <rect x="54" y="186" width="192" height="30" rx="3" style="fill: none; stroke: var(--dia-rule); stroke-width: 1;"></rect>
+        <path d="M62,196 h110 M62,206 h90" style="stroke: var(--dia-ink-faint); stroke-width: 1.6;"></path>
+
+        <rect x="54" y="226" width="192" height="22" rx="3" style="fill: none; stroke: var(--dia-rule); stroke-width: 1; stroke-dasharray: 4 3;"></rect>
+        <text x="62" y="240" style="fill: var(--dia-ink-faint);">script#dia-runtime</text>
+
+        <path d="M252,46 L292,46" style="stroke: var(--dia-ink-faint); stroke-width: 1; stroke-dasharray: 2 3;"></path>
+        <text x="296" y="42" style="fill: var(--dia-ink-soft);">style#dia-theme</text>
+        <text x="296" y="54" style="fill: var(--dia-ink-faint);">all color · type</text>
+        <path d="M252,150 L292,150" style="stroke: var(--dia-ink-faint); stroke-width: 1; stroke-dasharray: 2 3;"></path>
+        <text x="296" y="146" style="fill: var(--dia-ink-soft);">section.dia-slide ×N</text>
+        <text x="296" y="158" style="fill: var(--dia-ink-faint);">roles · scenes</text>
+        <path d="M252,237 L292,237" style="stroke: var(--dia-ink-faint); stroke-width: 1; stroke-dasharray: 2 3;"></path>
+        <text x="296" y="233" style="fill: var(--dia-ink-soft);">the runtime</text>
+        <text x="296" y="245" style="fill: var(--dia-ink-faint);">embedded on save</text>
       </svg>
-      <figcaption class="dia-caption">this diagram is a scene — the edges routed themselves</figcaption>
+      <figcaption class="dia-caption">the whole format is one file — theme, slides, runtime</figcaption>
     </figure>
   </div>
   <div class="dia-caption foot"><span>03 / 14</span><span class="wordmark">diastil</span></div>
@@ -199,35 +212,44 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
   <div class="dia-kicker">implementation · editor architecture · 04</div>
   <h2 class="dia-title">A state hub, an op log, and <em>one law</em>: everything mutates through ops.</h2>
   <figure class="dia-figure" style="margin: 0 0 12px; width: 100%;">
-    <svg class="dia-scene" viewBox="0 0 900 240" role="img" aria-label="editor architecture"><defs><marker id="dia-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"></path></marker></defs>
-      <g data-dia-node="shell" data-shape="rounded" data-x="20" data-y="20" data-w="150" data-h="44"><rect class="dia-node-shape" x="20" y="20" width="150" height="44" rx="6"></rect>
-        <text class="dia-node-label" x="95" y="42" text-anchor="middle" dominant-baseline="central">shell · rail · minimap</text>
-      </g>
-      <g data-dia-node="scenes" data-shape="rounded" data-x="20" data-y="98" data-w="150" data-h="44"><rect class="dia-node-shape" x="20" y="98" width="150" height="44" rx="6"></rect>
-        <text class="dia-node-label" x="95" y="120" text-anchor="middle" dominant-baseline="central">scene runtime</text>
-      </g>
-      <g data-dia-node="copilot" data-shape="rounded" data-x="20" data-y="176" data-w="150" data-h="44"><rect class="dia-node-shape" x="20" y="176" width="150" height="44" rx="6"></rect>
-        <text class="dia-node-label" x="95" y="198" text-anchor="middle" dominant-baseline="central">copilot rail</text>
-      </g>
-      <g data-dia-node="state" data-shape="rounded" data-x="280" data-y="92" data-w="170" data-h="56" data-dia-emphasis=""><rect class="dia-node-shape" x="280" y="92" width="170" height="56" rx="6"></rect>
-        <text class="dia-node-label" x="365" y="120" text-anchor="middle" dominant-baseline="central">state · bus · op log</text>
-      </g>
-      <g data-dia-node="deck" data-shape="note" data-x="560" data-y="92" data-w="160" data-h="56"><path class="dia-node-shape" d="M560,92 L706,92 L720,106 L720,148 L560,148 Z M706,92 L706,106 L720,106"></path>
-        <text class="dia-node-label" x="640" y="120" text-anchor="middle" dominant-baseline="central">deck DOM · shadow root</text>
-      </g>
-      <g data-dia-node="service" data-shape="cylinder" data-x="300" data-y="180" data-w="130" data-h="52"><path class="dia-node-shape" d="M300,187.8 A65,7.8 0 0 1 430,187.8 V224.2 A65,7.8 0 0 1 300,224.2 Z M300,187.8 A65,7.8 0 0 0 430,187.8"></path>
-        <text class="dia-node-label" x="365" y="206" text-anchor="middle" dominant-baseline="central">dia service :8317</text>
-      </g>
-      <g data-dia-node="file" data-shape="note" data-x="770" data-y="96" data-w="110" data-h="48"><path class="dia-node-shape" d="M770,96 L866,96 L880,110 L880,144 L770,144 Z M866,96 L866,110 L880,110"></path>
-        <text class="dia-node-label" x="825" y="120" text-anchor="middle" dominant-baseline="central">.html file</text>
-      </g>
-      <g data-dia-edge="shell-&gt;state" data-anchors="E,W" data-route="ortho" data-label="ops"><path class="dia-edge-path" d="M170,42 H182 V120 H280" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="186" y="114" text-anchor="middle">ops</text></g>
-      <g data-dia-edge="scenes-&gt;state" data-anchors="E,W" data-route="ortho" data-label="ops"><path class="dia-edge-path" d="M170,120 H280" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="225" y="114" text-anchor="middle">ops</text></g>
-      <g data-dia-edge="copilot-&gt;state" data-anchors="E,W" data-route="ortho" data-label="proposals"><path class="dia-edge-path" d="M170,198 H182 V120 H280" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="186" y="114" text-anchor="middle">proposals</text></g>
-      <g data-dia-edge="state-&gt;deck" data-anchors="E,W" data-route="straight" data-label="apply · invert"><path class="dia-edge-path" d="M450,120 L560,120" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="505" y="114" text-anchor="middle">apply · invert</text></g>
-      <g data-dia-edge="copilot-&gt;service" data-anchors="S,W" data-route="ortho" data-label="chat · skills"><path class="dia-edge-path" d="M95,220 V232 H288 V206 H300" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="204.5" y="226" text-anchor="middle">chat · skills</text></g>
-      <g data-dia-edge="deck-&gt;file" data-anchors="E,W" data-route="straight" data-label="byte-stable"><path class="dia-edge-path" d="M720,120 L770,120" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="745" y="114" text-anchor="middle">byte-stable</text></g>
-    </svg>
+    <svg viewBox="0 0 900 250" role="img" aria-label="the editor, annotated" style="width: 100%; font-family: var(--dia-face-label); font-size: 10px;">
+        <rect x="10" y="14" width="620" height="180" rx="4" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.4;"></rect>
+        <path d="M10,38 H630" style="stroke: var(--dia-rule); stroke-width: 1;"></path>
+        <circle cx="26" cy="26" r="4" style="fill: var(--dia-accent);"></circle>
+        <path d="M40,26 h90 M560,26 h50" style="stroke: var(--dia-ink-faint); stroke-width: 1.6;"></path>
+        <path d="M92,38 V194 M508,38 V194" style="stroke: var(--dia-rule); stroke-width: 1;"></path>
+        <rect x="22" y="50" width="56" height="30" rx="2" style="fill: none; stroke: var(--dia-ink-faint); stroke-width: 1;"></rect>
+        <rect x="22" y="88" width="56" height="30" rx="2" style="fill: none; stroke: var(--dia-accent); stroke-width: 1.2;"></rect>
+        <rect x="22" y="126" width="56" height="30" rx="2" style="fill: none; stroke: var(--dia-ink-faint); stroke-width: 1;"></rect>
+        <rect x="130" y="54" width="340" height="120" rx="2" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.2; stroke-dasharray: 5 4;"></rect>
+        <path d="M150,78 h120" style="stroke: var(--dia-ink); stroke-width: 3;"></path>
+        <path d="M150,96 h240 M150,108 h200" style="stroke: var(--dia-ink-faint); stroke-width: 1.6;"></path>
+        <rect x="150" y="124" width="90" height="36" rx="3" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.1;"></rect>
+        <rect x="300" y="130" width="80" height="26" rx="3" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.1;"></rect>
+        <path d="M240,142 H300" style="stroke: var(--dia-ink-soft); stroke-width: 1;"></path>
+        <path d="M520,54 h44 M572,54 h44" style="stroke: var(--dia-ink-faint); stroke-width: 2;"></path>
+        <path d="M520,74 h96 M520,88 h76 M520,102 h96 M520,116 h60" style="stroke: var(--dia-ink-faint); stroke-width: 1.4;"></path>
+        <rect x="520" y="132" width="96" height="42" rx="3" style="fill: none; stroke: var(--dia-rule); stroke-width: 1;"></rect>
+        <text x="528" y="150" style="fill: var(--dia-ink-faint);">copilot</text>
+        <path d="M528,160 h70" style="stroke: var(--dia-ink-faint); stroke-width: 1.4;"></path>
+
+        <text x="24" y="216" style="fill: var(--dia-ink-soft); letter-spacing: .1em;">MINIMAP</text>
+        <text x="240" y="216" style="fill: var(--dia-ink-soft); letter-spacing: .1em;">TABLE · deck in a shadow root</text>
+        <text x="516" y="216" style="fill: var(--dia-ink-soft); letter-spacing: .1em;">RAIL · inspect tokens copilot</text>
+
+        <rect x="660" y="14" width="230" height="180" rx="4" style="fill: none; stroke: var(--dia-rule); stroke-width: 1;"></rect>
+        <text x="672" y="34" style="fill: var(--dia-ink-soft); letter-spacing: .1em;">THE OP LOG</text>
+        <rect x="672" y="48" width="200" height="22" rx="3" style="fill: none; stroke: var(--dia-ink-faint); stroke-width: 1;"></rect>
+        <text x="680" y="63" style="fill: var(--dia-ink-faint);">you · SetText dia-title</text>
+        <rect x="672" y="76" width="200" height="22" rx="3" style="fill: none; stroke: var(--dia-ink-faint); stroke-width: 1;"></rect>
+        <text x="680" y="91" style="fill: var(--dia-ink-faint);">you · MoveNode auth</text>
+        <rect x="672" y="104" width="200" height="22" rx="3" style="fill: none; stroke: var(--dia-accent); stroke-width: 1.2;"></rect>
+        <text x="680" y="119" style="fill: var(--dia-ink-soft);">copilot · batch (3 ops)</text>
+        <path d="M672,140 h200" style="stroke: var(--dia-rule); stroke-width: 1;"></path>
+        <text x="672" y="158" style="fill: var(--dia-ink-faint);">apply() ↓ · invert() ↑</text>
+        <text x="672" y="172" style="fill: var(--dia-ink-faint);">one gesture = one step</text>
+        <path d="M630,104 L672,115" style="stroke: var(--dia-ink-faint); stroke-width: 1; stroke-dasharray: 2 3;"></path>
+      </svg>
   </figure>
   <div class="grid2">
     <div class="panel"><div class="panel-k">ops</div>
