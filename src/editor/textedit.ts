@@ -159,12 +159,15 @@ function commitEdit(): void {
   const html = el.innerHTML
   const text = (el.textContent ?? '').trim()
   cleanupEdit(el)
-  // typing $…$ (or $$…$$) as the WHOLE text turns the element into math:
-  // LaTeX renders to MathML and the source persists on the element
-  const tex = /^\$\$?([^$]+.*?)\$\$?$/s.exec(text)?.[1]?.trim()
-  if (tex) {
+  // typing LaTeX as the WHOLE text turns the element into math: either
+  // explicitly delimited ($…$ / $$…$$), or simply starting with a TeX
+  // command (\frac{a}{b}…). Explicit math reports its errors; bare text
+  // that happens to start with a backslash falls back to plain text.
+  const delimited = /^\$\$?([^$]+.*?)\$\$?$/s.exec(text)?.[1]?.trim()
+  const bare = !delimited && /^\\[a-zA-Z]/.test(text) ? text : null
+  if (delimited || bare) {
     el.innerHTML = original
-    if (commitAsMath(el, tex)) return
+    if (commitAsMath(el, delimited ?? bare!, !!delimited)) return
   }
   if (html !== original) {
     // restore the original first so the op captures it as prev (undo works)
@@ -174,10 +177,10 @@ function commitEdit(): void {
 }
 
 /** render + commit in one op: content, source attr, and the dia-math class */
-function commitAsMath(el: HTMLElement, tex: string): boolean {
+function commitAsMath(el: HTMLElement, tex: string, explicit: boolean): boolean {
   const r = renderTex(tex)
   if ('error' in r) {
-    showEditToast(`latex: ${r.error}`)
+    if (explicit) showEditToast(`latex: ${r.error}`)
     return false
   }
   const cls = el.classList.contains('dia-math') ? null

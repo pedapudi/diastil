@@ -13,7 +13,7 @@
  * editor; the studio refuses them. */
 
 import { state } from '../state'
-import { mountTools, disposeTools, currentTool, deletePicked, nudgePicked, setTool, TOOLS } from './tools'
+import { mountTools, disposeTools, currentTool, deletePicked, exitGroup, nudgePicked, setTool, TOOLS } from './tools'
 import { mountPanels, disposePanels, refreshPanels } from './panels'
 import { openImportDialog } from './svgimport'
 import { setToolbarSuppressed } from '../scene/toolbar'
@@ -26,8 +26,11 @@ export interface StudioSession {
   stage: HTMLElement
   /** where the svg goes back to on close */
   home: { parent: ParentNode; next: Node | null }
-  /** studio-local selection — top-level children of the svg */
+  /** studio-local selection — top-level children of the edit context */
   picked: Set<SVGGraphicsElement>
+  /** entered groups, outermost first — the edit context is the last one
+   * (Illustrator isolation): dblclick enters, esc exits one level */
+  entered: SVGGElement[]
   zoom: number
   panX: number
   panY: number
@@ -125,6 +128,7 @@ export function openStudio(svg: SVGSVGElement): void {
   const s: StudioSession = {
     svg, overlay, stage, home,
     picked: new Set(),
+    entered: [],
     zoom: 1, panX: 0, panY: 0,
     offBus: () => {},
     offKey: () => {},
@@ -246,7 +250,7 @@ function fitToStage(s: StudioSession, wrap: HTMLElement): void {
   s.panY = (wr.height - h2 * s.zoom) / 2
 }
 
-/** esc while drawing cancels the drawing, while selected clears selection */
+/** esc backs out one layer: drawing → selection → entered group → studio */
 function toolsHandleEscape(): boolean {
   if (!session) return false
   if (currentTool() !== 'select') { setTool('select'); return true }
@@ -255,6 +259,7 @@ function toolsHandleEscape(): boolean {
     refreshPanels(session)
     return true
   }
+  if (session.entered.length > 0) { exitGroup(); return true }
   return false
 }
 

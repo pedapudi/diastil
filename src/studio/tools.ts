@@ -7,8 +7,8 @@
  * (scene/points.ts) drills into path geometry when asked. */
 
 import { state } from '../state'
-import { batch, insertEl, moveSceneNode, removeEl, setAttr } from '../model/ops'
-import { pxScale } from '../scene/overlay'
+import { batch, insertEl, moveEl, moveSceneNode, removeEl, setAttr } from '../model/ops'
+import { pxScale, showToast } from '../scene/overlay'
 import { openPointEditor, closePointEditor, canPointEdit } from '../scene/points'
 import { getNodeGeom, routeEdgesOf, setNodeGeom } from '../scene/route'
 import { insertShapeNode } from '../scene/interact'
@@ -84,7 +84,11 @@ export function mountTools(s: StudioSession, host: HTMLElement): void {
       openPointEditor({ kind: 'free', scene: s.svg, el })
     }
   })
-  host.append(pts)
+  const grp = button('group', 'wrap the selection in a group (double-click a group to enter it, esc exits)')
+  grp.addEventListener('click', groupPicked)
+  const ungrp = button('ungroup', 'dissolve the selected group into its children')
+  ungrp.addEventListener('click', ungroupPicked)
+  host.append(pts, grp, ungrp)
 
   const ov = document.createElementNS(NS, 'g') as SVGGElement
   ov.setAttribute('class', `${ARTIFACT} dia-st-ov`)
@@ -143,9 +147,53 @@ export function nudgePicked(dx: number, dy: number): void {
       const g = getNodeGeom(el)
       return moveSceneNode(s.svg, el, { ...g, x: r2(g.x + dx), y: r2(g.y + dy) })
     }
-    return setAttr(el, 'transform', prefixTransform(el, `translate(${r2(dx)} ${r2(dy)})`))
+    const step = parentStep(s, el, `translate(${r2(dx)} ${r2(dy)})`, () => new DOMMatrix().translate(dx, dy))
+    return setAttr(el, 'transform', prefixTransform(el, step))
   })
   state.apply(ops.length === 1 ? ops[0] : batch('Nudge drawing selection', ops))
+  refreshAll()
+}
+
+/** wrap the picked elements in ONE group, preserving their order */
+export function groupPicked(): void {
+  if (!ctx) return
+  const s = ctx.s
+  const els = pickables(s).filter((el) => s.picked.has(el)) // document order
+  if (els.length < 2) { showToast('pick at least two elements to group'); return }
+  if (els.some(isNodeEl)) { showToast('scene nodes stay ungrouped — the router owns them'); return }
+  const parent = contextOf(s)
+  const g = document.createElementNS(NS, 'g') as SVGGElement
+  const at = [...parent.children].indexOf(els[els.length - 1]) + 1
+  state.apply(batch(`Group ${els.length} elements`, [
+    insertEl(parent, at, g, 'Insert group'),
+    ...els.map((el, i) => moveEl(el, g, i)),
+  ]))
+  s.picked.clear()
+  s.picked.add(g)
+  refreshAll()
+}
+
+/** dissolve a selected plain group into its children, in place */
+export function ungroupPicked(): void {
+  if (!ctx) return
+  const s = ctx.s
+  const g = [...s.picked][0]
+  if (s.picked.size !== 1 || !isPlainGroup(g)) { showToast('pick one plain group to ungroup'); return }
+  if (g.getAttribute('transform') || g.getAttribute('style')) {
+    // same contract as the scene canvas: unwrapping would move/restyle
+    // the children — enter the group and edit inside instead
+    showToast('group carries its own transform/style — enter it (double-click) instead')
+    return
+  }
+  const parent = g.parentNode as Element
+  const at = [...parent.children].indexOf(g)
+  const kids = [...g.children].filter((el): el is SVGGraphicsElement => el instanceof SVGGraphicsElement)
+  state.apply(batch('Ungroup', [
+    ...kids.map((el, i) => moveEl(el, parent, at + i)),
+    removeEl(g),
+  ]))
+  s.picked.clear()
+  for (const k of kids) s.picked.add(k)
   refreshAll()
 }
 
@@ -218,6 +266,28 @@ function prefixTransform(el: SVGGraphicsElement, step: string): string {
   return prev ? `${step} ${prev}` : step
 }
 
+/** express a ROOT-space step in the element's PARENT space. Handles live
+ * in root coordinates, but inside an entered group the parent may carry
+ * its own transform — prefixing the root step verbatim would apply that
+ * transform twice. Root-level elements keep the readable step string. */
+function parentStep(s: StudioSession, el: SVGGraphicsElement, pretty: string, make: () => DOMMatrix): string {
+  const p = el.parentElement as unknown as SVGGraphicsElement | null
+  if (!p || (p as unknown as Element) === (s.svg as unknown as Element)) return pretty
+  const rootCtm = s.svg.getScreenCTM?.()
+  const pCtm = p.getScreenCTM?.()
+  if (!rootCtm || !pCtm) return pretty
+  // getScreenCTM returns legacy SVGMatrix, whose multiply() rejects
+  // DOMMatrix arguments — normalize both before mixing
+  const P = DOMMatrix.fromMatrix(rootCtm).inverse().multiply(DOMMatrix.fromMatrix(pCtm))
+  // float noise from the CTM round-trip must not demote a plain translate
+  // to an opaque matrix() in the saved document
+  const nearIdentity = Math.abs(P.a - 1) + Math.abs(P.b) + Math.abs(P.c) +
+    Math.abs(P.d - 1) + Math.abs(P.e) + Math.abs(P.f) < 1e-6
+  if (nearIdentity) return pretty
+  const M = P.inverse().multiply(make()).multiply(P)
+  return `matrix(${r2(M.a)} ${r2(M.b)} ${r2(M.c)} ${r2(M.d)} ${r2(M.e)} ${r2(M.f)})`
+}
+
 /** a scene node group — picked as a UNIT and moved as GEOMETRY, never
  * transforms: data-x/y/w/h stays the single source and edges reroute */
 export function isNodeEl(el: Element): el is SVGGElement {
@@ -228,8 +298,36 @@ export function isEdgeEl(el: Element): boolean {
   return el instanceof SVGGElement && el.hasAttribute('data-dia-edge')
 }
 
+/** the current edit context: the innermost entered group, else the svg */
+export function contextOf(s: StudioSession): SVGSVGElement | SVGGElement {
+  return s.entered[s.entered.length - 1] ?? s.svg
+}
+
+/** a plain container group — enterable; nodes/edges are semantic units */
+export function isPlainGroup(el: Element): el is SVGGElement {
+  return el instanceof SVGGElement &&
+    !el.hasAttribute('data-dia-node') && !el.hasAttribute('data-dia-edge') &&
+    !el.classList.contains(ARTIFACT)
+}
+
+export function enterGroup(g: SVGGElement): void {
+  if (!ctx || !isPlainGroup(g)) return
+  ctx.s.entered.push(g)
+  ctx.s.picked.clear()
+  refreshAll()
+}
+
+export function exitGroup(): void {
+  if (!ctx || ctx.s.entered.length === 0) return
+  const g = ctx.s.entered.pop()
+  ctx.s.picked.clear()
+  // leaving a group selects it — you land where you came from
+  if (g?.isConnected) ctx.s.picked.add(g)
+  refreshAll()
+}
+
 export function pickables(s: StudioSession): SVGGraphicsElement[] {
-  return [...s.svg.children].filter((c): c is SVGGraphicsElement =>
+  return [...contextOf(s).children].filter((c): c is SVGGraphicsElement =>
     c instanceof SVGGraphicsElement && !c.classList.contains(ARTIFACT) &&
     !(c instanceof SVGDefsElement) && c.tagName !== 'style' &&
     !isEdgeEl(c)) // edges are DERIVED — they follow their nodes
@@ -296,7 +394,14 @@ function installPointer(c: ToolCtx): void {
       default: return shapeDown(c, e)
     }
   }
-  const dbl = (): void => { if (c.tool === 'pen') finishPen(false) }
+  const dbl = (e: MouseEvent): void => {
+    if (c.tool === 'pen') { finishPen(false); return }
+    // dblclick a group → enter it (isolation); dblclick empty space → exit
+    if (c.tool !== 'select') return
+    const hit = topLevelOf(c, e.target)
+    if (hit && isPlainGroup(hit)) enterGroup(hit)
+    else if (!hit && c.s.entered.length > 0) exitGroup()
+  }
   const key = (e: KeyboardEvent): void => {
     if (c.tool === 'pen' && e.key === 'Enter') { e.stopPropagation(); finishPen(false) }
   }
@@ -325,8 +430,9 @@ function drag(onMove: (e: PointerEvent) => void, onUp: (e: PointerEvent) => void
 
 function topLevelOf(c: ToolCtx, target: EventTarget | null): SVGGraphicsElement | null {
   if (!(target instanceof Element)) return null
+  const context = contextOf(c.s)
   let el: Element | null = target
-  while (el && el.parentNode !== c.s.svg) el = el.parentElement
+  while (el && el.parentNode !== context) el = el.parentElement
   return el instanceof SVGGraphicsElement && !el.classList.contains(ARTIFACT) ? el : null
 }
 
@@ -358,7 +464,8 @@ function beginMove(c: ToolCtx, e: PointerEvent): void {
         setNodeGeom(el, { ...g, x: g.x + dx, y: g.y + dy })
         routeEdgesOf(s.svg, el.getAttribute('data-dia-node') ?? '')
       } else {
-        const step = `translate(${r2(dx)} ${r2(dy)})`
+        const step = parentStep(s, el, `translate(${r2(dx)} ${r2(dy)})`,
+          () => new DOMMatrix().translate(dx, dy))
         el.setAttribute('transform', originals[i] ? `${step} ${originals[i]}` : step)
       }
     })
@@ -386,7 +493,8 @@ function beginMove(c: ToolCtx, e: PointerEvent): void {
     const ops = els.map((el, i) => {
       const g = geoms[i]
       if (g && isNodeEl(el)) return moveSceneNode(s.svg, el, { ...g, x: r2(g.x + dx), y: r2(g.y + dy) })
-      return setAttr(el, 'transform', prefixTransform(el, `translate(${dx} ${dy})`))
+      const step = parentStep(s, el, `translate(${dx} ${dy})`, () => new DOMMatrix().translate(dx, dy))
+      return setAttr(el, 'transform', prefixTransform(el, step))
     })
     state.apply(ops.length === 1 ? ops[0] : batch('Move drawing selection', ops))
     refreshAll()
@@ -444,21 +552,23 @@ function beginScale(e: PointerEvent, handle: string, box: { x: number; y: number
     if (ev.shiftKey) { const u = Math.max(Math.abs(sx), Math.abs(sy)); sx = Math.sign(sx || 1) * u; sy = Math.sign(sy || 1) * u }
     return { sx, sy }
   }
-  const stepOf = (f: { sx: number; sy: number }): string =>
-    `translate(${r2(ax)} ${r2(ay)}) scale(${r2(f.sx)} ${r2(f.sy)}) translate(${r2(-ax)} ${r2(-ay)})`
+  const stepOf = (el: SVGGraphicsElement, f: { sx: number; sy: number }): string =>
+    parentStep(s, el,
+      `translate(${r2(ax)} ${r2(ay)}) scale(${r2(f.sx)} ${r2(f.sy)}) translate(${r2(-ax)} ${r2(-ay)})`,
+      () => new DOMMatrix().translate(ax, ay).scale(f.sx, f.sy).translate(-ax, -ay))
   /** a node scales as GEOMETRY around the anchor — strokes keep their weight */
   const nodeGeomAt = (g: { x: number; y: number; w: number; h: number }, f: { sx: number; sy: number }) => ({
     x: r2(ax + (g.x - ax) * f.sx), y: r2(ay + (g.y - ay) * f.sy),
     w: r2(Math.max(8, g.w * Math.abs(f.sx))), h: r2(Math.max(8, g.h * Math.abs(f.sy))),
   })
   const applyLive = (f: { sx: number; sy: number }): void => {
-    const step = stepOf(f)
     els.forEach((el, i) => {
       const g = geoms[i]
       if (g && isNodeEl(el)) {
         setNodeGeom(el, nodeGeomAt(g, f))
         routeEdgesOf(s.svg, el.getAttribute('data-dia-node') ?? '')
       } else {
+        const step = stepOf(el, f)
         el.setAttribute('transform', originals[i] ? `${step} ${originals[i]}` : step)
       }
     })
@@ -468,7 +578,6 @@ function beginScale(e: PointerEvent, handle: string, box: { x: number; y: number
     renderSelection(c)
   }, (ev) => {
     const f = factors(ev)
-    const step = stepOf(f)
     els.forEach((el, i) => {
       const g = geoms[i]
       if (g && isNodeEl(el)) setNodeGeom(el, g)
@@ -478,7 +587,7 @@ function beginScale(e: PointerEvent, handle: string, box: { x: number; y: number
     const ops = els.map((el, i) => {
       const g = geoms[i]
       if (g && isNodeEl(el)) return moveSceneNode(s.svg, el, nodeGeomAt(g, f))
-      return setAttr(el, 'transform', prefixTransform(el, step))
+      return setAttr(el, 'transform', prefixTransform(el, stepOf(el, f)))
     })
     state.apply(ops.length === 1 ? ops[0] : batch('Scale drawing selection', ops))
     refreshAll()
@@ -497,22 +606,28 @@ function beginRotate(e: PointerEvent, box: { x: number; y: number; w: number; h:
   const a0 = Math.atan2(from.y - cy, from.x - cx)
   const els = [...s.picked]
   const originals = els.map((el) => el.getAttribute('transform'))
-  const stepOf = (ev: PointerEvent): string => {
+  const degOf = (ev: PointerEvent): number => {
     const p = toArt(s.svg, ev.clientX, ev.clientY)
     let deg = (Math.atan2(p.y - cy, p.x - cx) - a0) * 180 / Math.PI
     if (ev.shiftKey) deg = Math.round(deg / 15) * 15
-    return `rotate(${r2(deg)} ${r2(cx)} ${r2(cy)})`
+    return deg
   }
+  const stepOf = (el: SVGGraphicsElement, deg: number): string =>
+    parentStep(s, el, `rotate(${r2(deg)} ${r2(cx)} ${r2(cy)})`,
+      () => new DOMMatrix().translate(cx, cy).rotate(deg).translate(-cx, -cy))
   drag((ev) => {
-    const step = stepOf(ev)
-    els.forEach((el, i) => el.setAttribute('transform', originals[i] ? `${step} ${originals[i]}` : step))
+    const deg = degOf(ev)
+    els.forEach((el, i) => {
+      const step = stepOf(el, deg)
+      el.setAttribute('transform', originals[i] ? `${step} ${originals[i]}` : step)
+    })
     renderSelection(c)
   }, (ev) => {
-    const step = stepOf(ev)
+    const deg = degOf(ev)
     els.forEach((el, i) => originals[i] === null
       ? el.removeAttribute('transform')
       : el.setAttribute('transform', originals[i] as string))
-    const ops = els.map((el) => setAttr(el, 'transform', prefixTransform(el, step)))
+    const ops = els.map((el) => setAttr(el, 'transform', prefixTransform(el, stepOf(el, deg))))
     state.apply(ops.length === 1 ? ops[0] : batch('Rotate drawing selection', ops))
     refreshAll()
   })
@@ -567,7 +682,7 @@ function shapeDown(c: ToolCtx, e: PointerEvent): void {
     const el = document.createElementNS(NS, draft.tagName) as SVGGraphicsElement
     write(el, g)
     el.setAttribute('style', DRAW_STYLE)
-    state.apply(insertEl(s.svg, insertIndex(s), el, `Draw ${tool}`))
+    state.apply(insertEl(contextOf(s), insertIndex(s), el, `Draw ${tool}`))
     s.picked.clear()
     s.picked.add(el)
     setTool('select')
@@ -625,7 +740,7 @@ export function finishPen(close: boolean): void {
   const el = document.createElementNS(NS, 'path')
   el.setAttribute('d', cmds.join(' ') + (close ? ' Z' : ''))
   el.setAttribute('style', DRAW_STYLE)
-  state.apply(insertEl(s.svg, insertIndex(s), el, 'Draw path'))
+  state.apply(insertEl(contextOf(s), insertIndex(s), el, 'Draw path'))
   s.picked.clear()
   s.picked.add(el)
   setTool('select')
@@ -649,7 +764,7 @@ function installFreehand(c: ToolCtx, e: PointerEvent): void {
     const el = document.createElementNS(NS, 'path')
     el.setAttribute('d', smoothPath(kept))
     el.setAttribute('style', DRAW_STYLE)
-    state.apply(insertEl(s.svg, insertIndex(s), el, 'Draw freehand'))
+    state.apply(insertEl(contextOf(s), insertIndex(s), el, 'Draw freehand'))
     s.picked.clear()
     s.picked.add(el)
     setTool('select')
@@ -700,7 +815,7 @@ function textDown(c: ToolCtx, e: PointerEvent): void {
   el.setAttribute('y', String(r2(p.y)))
   el.setAttribute('style', 'fill: var(--dia-ink, currentColor); font-size: 16px; font-family: var(--dia-face-label, inherit);')
   el.textContent = 'text'
-  state.apply(insertEl(s.svg, insertIndex(s), el, 'Place text'))
+  state.apply(insertEl(contextOf(s), insertIndex(s), el, 'Place text'))
   s.picked.clear()
   s.picked.add(el)
   setTool('select')
@@ -708,7 +823,7 @@ function textDown(c: ToolCtx, e: PointerEvent): void {
 
 /* ---------- shared ---------- */
 
-/** new artwork goes on top, but always below the overlay artifact */
+/** new artwork goes on top of the CONTEXT, below any overlay artifact */
 function insertIndex(s: StudioSession): number {
   return pickables(s).length
 }

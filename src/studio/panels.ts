@@ -8,7 +8,7 @@ import { state } from '../state'
 import { batch, insertEl, moveEl, removeEl, setAttr, setStyleProp, setText } from '../model/ops'
 import type { StudioSession } from './studio'
 import { h } from './studio'
-import { isEdgeEl, isNodeEl, pick, pickables, refreshAll } from './tools'
+import { enterGroup, exitGroup, isEdgeEl, isNodeEl, isPlainGroup, pick, pickables, refreshAll } from './tools'
 import { attachPickerProxy } from '../editor/colorwell'
 
 /** scene nodes style through their custom props (the scene rules read
@@ -207,6 +207,13 @@ function resolveToken(s: StudioSession, value: string): string {
 
 function layersPanel(s: StudioSession): HTMLElement {
   const wrap = h('div', 'dia-st-layers')
+  // inside a group: a way back up, and a reminder of where you are
+  if (s.entered.length > 0) {
+    const up = h('div', 'dia-st-layer')
+    up.append(h('span', 'dia-st-lname', `◂ exit group (${'g > '.repeat(s.entered.length - 1)}g) — esc`))
+    up.addEventListener('click', () => exitGroup())
+    wrap.append(up)
+  }
   const els = pickables(s)
   if (els.length === 0) {
     wrap.append(h('div', 'dia-st-hint', 'nothing here yet — draw or import'))
@@ -218,7 +225,7 @@ function layersPanel(s: StudioSession): HTMLElement {
   }
   // scene edges are DERIVED — they follow their nodes, so they list
   // separately: deletable and hideable, never reordered or duplicated
-  const edges = [...s.svg.children].filter(isEdgeEl) as SVGGElement[]
+  const edges = s.entered.length === 0 ? [...s.svg.children].filter(isEdgeEl) as SVGGElement[] : []
   if (edges.length > 0) {
     wrap.append(h('div', 'dia-st-sect', 'edges — derived'))
     for (const edge of edges) {
@@ -285,6 +292,10 @@ function layerRow(s: StudioSession, el: SVGGraphicsElement, all: SVGGraphicsElem
 
   row.append(eye, name, dup, del)
   row.addEventListener('click', (e) => pick(el, e.shiftKey))
+  if (isPlainGroup(el)) {
+    row.title = 'double-click to enter the group'
+    row.addEventListener('dblclick', () => enterGroup(el))
+  }
 
   /* drag to reorder — drop above the row under the cursor */
   row.addEventListener('dragstart', (e) => {
