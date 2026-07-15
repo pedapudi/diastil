@@ -470,11 +470,16 @@ export function mountEditor(host: HTMLElement): void {
       return
     }
     if (sel.kind === 'scene-node' || sel.kind === 'scene-edge' || sel.kind === 'scene-free') {
+      const sceneEl = sel.kind === 'scene-node' ? sel.node
+        : sel.kind === 'scene-edge' ? sel.edge : sel.el
       inspectBody.append(
         kv('role', sel.kind === 'scene-node' ? 'scene node'
           : sel.kind === 'scene-edge' ? 'scene edge'
           : `svg <${sel.el.tagName.toLowerCase()}>`),
-        h('div', 'de-hint', 'scene selections are edited on the canvas'),
+        h('div', 'de-hint', 'geometry and style are edited on the canvas'),
+        // reveal order applies to scene content like any element — this is
+        // where a diagram's build animation is managed
+        stepRow(sceneEl),
       )
       appendTree()
       return
@@ -564,9 +569,13 @@ export function mountEditor(host: HTMLElement): void {
       allBtn.title = 'apply this slide’s transition to every slide (one undo step)'
       allBtn.addEventListener('click', () => {
         const v = slide.getAttribute('data-dia-transition')
+        const n = state.slides().length
         state.apply(batchOps(`Transition ${v ?? 'inherit'} → all slides`, state.slides()
           .map((sl) => setAttr(sl, 'data-dia-transition', v))))
-        renderInspect()
+        // the op is invisible from here — say that it landed
+        allBtn.textContent = `✓ ${v ?? 'inherit'} → ${n} slides`
+        allBtn.disabled = true
+        setTimeout(() => { allBtn.textContent = 'all slides'; allBtn.disabled = false }, 1400)
       })
       tRow.append(allBtn)
       inspectBody.append(tRow)
@@ -648,22 +657,7 @@ export function mountEditor(host: HTMLElement): void {
       if (list) inspectBody.append(listRow(list))
 
       // build step: this element's reveal order in present mode
-      const stepRow = h('div', 'de-style-row')
-      stepRow.append(h('span', 'de-style-k', 'step'))
-      const stepSeg = h('span', 'dn-seg')
-      const currentStep = el.getAttribute('data-dia-step') ?? ''
-      for (const v of ['', '1', '2', '3', '4', '5', '6'] as const) {
-        const b = h('button', v === currentStep ? 'dn-on' : '', v === '' ? 'none' : v)
-        b.type = 'button'
-        b.title = v === '' ? 'always visible' : `revealed ${v === '1' ? 'first' : `at step ${v}`} in present mode`
-        b.addEventListener('click', () => {
-          state.apply(setAttr(el, 'data-dia-step', v || null))
-          renderInspect()
-        })
-        stepSeg.append(b)
-      }
-      stepRow.append(stepSeg)
-      inspectBody.append(stepRow)
+      inspectBody.append(stepRow(el))
 
       // write-target line: computed honestly from the bound token and the
       // number of elements sharing this role class across the deck
@@ -797,6 +791,26 @@ export function mountEditor(host: HTMLElement): void {
   function kv(k: string, v: string): HTMLElement {
     const row = h('div', 'dn-kv')
     row.append(h('span', 'k', k), h('span', 'v', v))
+    return row
+  }
+
+  /** reveal order in present mode — HTML elements and scene content alike */
+  function stepRow(el: Element): HTMLElement {
+    const row = h('div', 'de-style-row')
+    row.append(h('span', 'de-style-k', 'step'))
+    const seg2 = h('span', 'dn-seg')
+    const current = el.getAttribute('data-dia-step') ?? ''
+    for (const v of ['', '1', '2', '3', '4', '5', '6'] as const) {
+      const b = h('button', v === current ? 'dn-on' : '', v === '' ? 'none' : v)
+      b.type = 'button'
+      b.title = v === '' ? 'always visible' : `revealed ${v === '1' ? 'first' : `at step ${v}`} in present mode`
+      b.addEventListener('click', () => {
+        state.apply(setAttr(el, 'data-dia-step', v || null))
+        renderInspect()
+      })
+      seg2.append(b)
+    }
+    row.append(seg2)
     return row
   }
 
