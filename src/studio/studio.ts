@@ -126,6 +126,14 @@ const STUDIO_CSS = `
 }
 .dia-st-foot { border-bottom: 0; border-top: 1px solid var(--rule, #333); padding-block: 5px; }
 .dia-st-title { font-weight: 600; letter-spacing: .02em; }
+.dia-st-crumbs { display: flex; align-items: center; gap: 8px; flex: none; letter-spacing: .02em; }
+.dia-st-crumb {
+  background: transparent; border: 0; padding: 0; font: inherit; font-weight: 600;
+  color: var(--ink-faint, #999); cursor: pointer;
+}
+.dia-st-crumb:hover { color: var(--accent); }
+.dia-st-here { font-weight: 600; color: var(--ink, #eee); }
+.dia-st-csep { color: var(--ink-faint, #888); }
 .dia-st-hint, .dia-st-keys { color: var(--ink-faint, #999); font-size: 12px; }
 .dia-st-zoom { font: 11.5px/1 var(--mono, ui-monospace, monospace); color: var(--ink-soft, #bbb); }
 .dia-st-spacer { flex: 1; }

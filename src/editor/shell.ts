@@ -575,8 +575,8 @@ export function mountEditor(host: HTMLElement): void {
       const sbBtn = iconDnButton('storyboard', 'storyboard',
         'arrange the slide’s reveal moments on a board — preview each moment live')
       sbBtn.addEventListener('click', () => toggleStoryboard(slide))
-      const focusBtn = iconDnButton('focus', 'focus',
-        'open this slide alone on a large zoomable stage — every editing gesture works there')
+      const focusBtn = iconDnButton('focus', 'studio',
+        'open this slide in the studio — text edits in place, vector tools on its layer')
       focusBtn.addEventListener('click', () => openSlideFocus(slide))
       sbRow.append(sbBtn, focusBtn)
       inspectBody.append(sbRow)
@@ -589,9 +589,9 @@ export function mountEditor(host: HTMLElement): void {
       if (canStudio(svgEl)) {
         const row = h('div', 'de-style-row')
         row.append(h('span', 'de-style-k', 'studio'))
-        const b = h('button', 'dn-btn', 'open in studio')
+        const b = h('button', 'dn-btn', 'open drawing in studio')
         b.type = 'button'
-        b.title = 'edit this artwork on a large canvas — draw, import, transform, layer'
+        b.title = 'isolate this artwork in the studio — draw, import, transform, layer'
         b.addEventListener('click', () => openStudio(svgEl))
         row.append(b)
         inspectBody.append(row)

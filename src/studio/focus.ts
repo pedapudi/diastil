@@ -12,7 +12,7 @@
 import { state } from '../state'
 import { insertEl } from '../model/ops'
 import {
-  adoptSession, dropSession, h, button, closeStudio, ensureStudioStyle,
+  adoptSession, canStudio, dropSession, h, button, closeStudio, ensureStudioStyle,
   registerSlideFocusClose, type StudioSession,
 } from './studio'
 import { mountTools, disposeTools, clearPicked, currentTool, deletePicked, exitGroup, nudgePicked, setTool, SCENE_INSERTS, TOOLS } from './tools'
@@ -123,9 +123,33 @@ export function openSlideFocus(slide: HTMLElement): void {
 
   const head = h('header', 'dia-st-head')
   const idx = state.slides().indexOf(slide)
-  const hint = h('span', 'dia-st-hint',
-    `slide ${idx + 1} — text and blocks edit in place; vector tools draw on the slide's layer`)
-  head.append(h('span', 'dia-st-title', 'slide focus'), hint, h('span', 'dia-st-spacer'))
+  const SLIDE_HINT = 'text edits in place · tools draw on the slide’s layer · double-click a drawing to step into it'
+  const hint = h('span', 'dia-st-hint', SLIDE_HINT)
+  // where you are in the deck — every crumb is a way back up, the same
+  // ladder esc climbs: deck › slide › drawing
+  const crumbs = h('nav', 'dia-st-crumbs')
+  const crumbBtn = (text: string, tip: string, go: () => void): HTMLElement => {
+    const b = document.createElement('button')
+    b.type = 'button'
+    b.className = 'dia-st-crumb'
+    b.textContent = text
+    b.title = tip
+    b.addEventListener('click', go)
+    return b
+  }
+  const renderCrumbs = (): void => {
+    crumbs.replaceChildren()
+    crumbs.append(crumbBtn('deck', 'back to the deck (esc)', () => closeSlideFocus()))
+    crumbs.append(h('span', 'dia-st-csep', '›'))
+    if (f.isolated) {
+      crumbs.append(crumbBtn(`slide ${idx + 1}`, 'back to the whole slide (esc)', () => f.exitIsolation()))
+      crumbs.append(h('span', 'dia-st-csep', '›'))
+      crumbs.append(h('span', 'dia-st-here', 'drawing'))
+    } else {
+      crumbs.append(h('span', 'dia-st-here', `slide ${idx + 1}`))
+    }
+  }
+  head.append(crumbs, hint, h('span', 'dia-st-spacer'))
   const done = button('done', 'return the slide to the deck (esc)')
   done.classList.add('dia-st-done')
   done.addEventListener('click', closeSlideFocus)
@@ -182,6 +206,7 @@ export function openSlideFocus(slide: HTMLElement): void {
     offBus: () => {}, offKey: () => {}, offPlace: () => {},
   }
   focus = f
+  renderCrumbs()
 
   const clearSession = (): void => {
     if (f.studio) {
@@ -281,7 +306,8 @@ export function openSlideFocus(slide: HTMLElement): void {
     if (svg.classList.contains('dia-scene')) setToolbarSuppressed(true)
     state.selection = { kind: 'none' }
     bindSession(svg)
-    hint.textContent = `isolated drawing — everything else is dimmed; esc steps back to the slide`
+    hint.textContent = 'one drawing, isolated — the rest of the slide is dimmed; esc or the slide crumb steps back'
+    renderCrumbs()
   }
   const exitIsolation = (): void => {
     const iso = f.isolated
@@ -292,7 +318,8 @@ export function openSlideFocus(slide: HTMLElement): void {
       d.pe ? d.el.style.pointerEvents = d.pe : d.el.style.removeProperty('pointer-events')
     }
     setToolbarSuppressed(false)
-    hint.textContent = `slide ${idx + 1} — text and blocks edit in place; vector tools draw on the slide's layer`
+    hint.textContent = SLIDE_HINT
+    renderCrumbs()
     const layer = slide.querySelector<SVGSVGElement>(':scope > svg.dia-scene-full')
     layer ? bindSession(layer) : showPlaceholders()
   }
@@ -346,6 +373,21 @@ export function openSlideFocus(slide: HTMLElement): void {
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
   }, true)
+
+  // going DEEPER mirrors coming back up: double-click a drawing on the
+  // slide to isolate it (the crumb and esc are the way out). The bound
+  // surface keeps its own dblclick grammar; scene nodes/edges keep theirs.
+  stageWrap.addEventListener('dblclick', (e) => {
+    const t = e.composedPath()[0]
+    if (!(t instanceof Element)) return
+    if (t.closest('svg.dia-studio-surface')) return
+    if (t.closest('[data-dia-node], [data-dia-edge], .dia-math')) return
+    const svg = t.closest('svg')
+    if (svg instanceof SVGSVGElement && slide.contains(svg) && canStudio(svg)) {
+      e.preventDefault()
+      f.isolate(svg)
+    }
+  })
 
   /* ----- keys: full studio chain, then isolation, then focus ----- */
   const isTyping = (e: KeyboardEvent): boolean => {

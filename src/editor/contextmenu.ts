@@ -46,7 +46,7 @@ function entriesFor(target: Element, slide: HTMLElement): Entry[] {
       SEP,
     )
   } else if (svg && !island) {
-    if (canStudio(svg)) items.push({ label: 'open in studio', run: () => openStudio(svg) })
+    if (canStudio(svg)) items.push({ label: 'open drawing in studio', run: () => openStudio(svg) })
     if (svg.classList.contains('dia-scene')) {
       items.push({ label: 'insert node', run: () => insertShapeNode(svg, 'node') })
       const sel = state.selection
@@ -72,7 +72,7 @@ function entriesFor(target: Element, slide: HTMLElement): Entry[] {
     { label: '+ text', run: () => insertTextOnSlide(slide) },
     { label: '+ drawing', run: () => newDrawingOnSlide(slide) },
     SEP,
-    { label: 'focus slide…', run: () => openSlideFocus(slide) },
+    { label: 'open slide in studio', run: () => openSlideFocus(slide) },
     { label: 'storyboard…', run: () => openStoryboard(slide) },
     { label: 'duplicate slide', run: () => duplicateSlide(slide) },
   )
