@@ -689,11 +689,26 @@ export const SCENE_STYLE_RULES = `
 section.dia-slide { position: relative; }
 .dia-scene-full { position: absolute; inset: 0; width: 100%; height: 100%; }`
 
-/** make sure the deck theme can express scene styling (idempotent) */
+/** the block above, from '.dia-scene-full' on — themes healed before
+ * full-slide layers existed carry the older rules but not these */
+const FULL_LAYER_RULES = SCENE_STYLE_RULES.slice(SCENE_STYLE_RULES.indexOf('section.dia-slide { position: relative; }'))
+
+/** make sure the deck theme can express scene styling (idempotent).
+ * VERSIONED healing: the guard must key on the NEWEST rule, not the
+ * oldest — a theme with node styling but no .dia-scene-full positioning
+ * left inserted diagram layers unpositioned (static, below the content,
+ * unhittable) instead of covering the slide. */
 export function ensureSceneStyleRules(): void {
   const theme = state.deck?.themeStyle
-  if (!theme || (theme.textContent ?? '').includes('--dia-node-fill')) return
-  theme.textContent = `${theme.textContent ?? ''}\n${SCENE_STYLE_RULES}\n`
+  if (!theme) return
+  const text = theme.textContent ?? ''
+  if (!text.includes('--dia-node-fill')) {
+    theme.textContent = `${text}\n${SCENE_STYLE_RULES}\n`
+    return
+  }
+  if (!text.includes('.dia-scene-full')) {
+    theme.textContent = `${text}\n${FULL_LAYER_RULES}\n`
+  }
 }
 
 /** freeform primitives as 100×100-normalized outlines — path-shaped nodes,

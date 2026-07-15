@@ -49,8 +49,9 @@ export interface StudioSession {
 
 let session: StudioSession | null = null
 
-/** focus registers its close here — a module cycle would be worse */
-export let closeSlideFocusHook: (() => void) | null = null
+/** focus registers its close here AT CALL TIME — the studio↔focus module
+ * cycle makes eval-time registration hit the let's temporal dead zone */
+let closeSlideFocusHook: (() => void) | null = null
 export function registerSlideFocusClose(fn: () => void): void {
   closeSlideFocusHook = fn
 }
@@ -489,11 +490,11 @@ input[type='range'].dia-st-range { flex: 1; accent-color: var(--accent); }
 }
 .dia-st-import .dia-st-err { color: var(--bad, #e05); font-size: 12px; }
 /* overlay artifacts inside the artwork svg */
-svg.dia-studio-art .dia-st-ov { pointer-events: none; }
-svg.dia-studio-art .dia-st-ov * { vector-effect: non-scaling-stroke; }
-svg.dia-studio-art .dia-st-selbox { fill: none !important; stroke: var(--accent, #59c2ff) !important; stroke-width: 1 !important; stroke-dasharray: 4 3; }
-svg.dia-studio-art .dia-st-handle { fill: var(--paper, #fff) !important; stroke: var(--accent, #59c2ff) !important; stroke-width: 1.2 !important; pointer-events: auto; }
-svg.dia-studio-art .dia-st-rot { cursor: grab; }
-svg.dia-studio-art .dia-st-marquee { fill: color-mix(in srgb, var(--accent) 14%, transparent) !important; stroke: var(--accent) !important; stroke-width: 1 !important; stroke-dasharray: 3 3; }
-svg.dia-studio-art .dia-st-draft { fill: none !important; stroke: var(--accent) !important; stroke-width: 1.2 !important; stroke-dasharray: 5 3; }
+.dia-studio .dia-st-ov { pointer-events: none; }
+.dia-studio .dia-st-ov * { vector-effect: non-scaling-stroke; }
+.dia-studio .dia-st-selbox { fill: none !important; stroke: var(--accent, #59c2ff) !important; stroke-width: 1 !important; stroke-dasharray: 4 3; }
+.dia-studio .dia-st-handle { fill: var(--paper, #fff) !important; stroke: var(--accent, #59c2ff) !important; stroke-width: 1.2 !important; pointer-events: auto; }
+.dia-studio .dia-st-rot { cursor: grab; }
+.dia-studio .dia-st-marquee { fill: color-mix(in srgb, var(--accent) 14%, transparent) !important; stroke: var(--accent) !important; stroke-width: 1 !important; stroke-dasharray: 3 3; }
+.dia-studio .dia-st-draft { fill: none !important; stroke: var(--accent) !important; stroke-width: 1.2 !important; stroke-dasharray: 5 3; }
 `

@@ -8,6 +8,7 @@ import { state } from '../state'
 import { batch, insertEl } from '../model/ops'
 import type { StudioSession } from './studio'
 import { h, button, openStudio } from './studio'
+import { focusedSlide } from './focus'
 import { refreshAll } from './tools'
 
 const NS = 'http://www.w3.org/2000/svg'
@@ -103,7 +104,9 @@ function importAsGroup(target: SVGSVGElement, imported: SVGSVGElement): SVGGElem
 }
 
 /** a fresh drawing on a slide: empty viewBoxed svg inserted as an op,
- * then opened in the studio (the inspector's "+ drawing" entry) */
+ * then opened in the studio (the inspector's "+ drawing" entry).
+ * While THIS slide is focused, the drawing lands in place instead —
+ * focus already carries the full toolset, and studios never nest. */
 export function newDrawingOnSlide(slide: HTMLElement): void {
   const svg = document.createElementNS(NS, 'svg') as SVGSVGElement
   svg.setAttribute('viewBox', '0 0 480 300')
@@ -115,6 +118,10 @@ export function newDrawingOnSlide(slide: HTMLElement): void {
   const foot = slide.querySelector(':scope > .dia-caption.foot')
   const index = foot ? [...slide.children].indexOf(foot) : slide.children.length
   state.apply(batch('Insert drawing', [insertEl(slide, index, figure, 'Insert drawing figure')]))
+  if (focusedSlide() === slide) {
+    state.selection = { kind: 'element', el: svg as unknown as HTMLElement, slide }
+    return
+  }
   openStudio(svg)
 }
 

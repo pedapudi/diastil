@@ -40,6 +40,11 @@ export function slideFocusOpen(): boolean {
   return focus !== null
 }
 
+/** the slide currently visiting the focus stage, if any */
+export function focusedSlide(): HTMLElement | null {
+  return focus?.slide ?? null
+}
+
 export function closeSlideFocus(): void {
   if (!focus) return
   const f = focus
@@ -59,8 +64,6 @@ export function closeSlideFocus(): void {
     state.deck?.root.getElementById('dia-studio-style')?.remove()
   }
 }
-
-registerSlideFocusClose(closeSlideFocus)
 
 export function toggleSlideFocus(slide: HTMLElement): void {
   if (focus && focus.slide === slide) { closeSlideFocus(); return }
@@ -84,6 +87,7 @@ function diagramLayerOf(slide: HTMLElement): SVGSVGElement {
 export function openSlideFocus(slide: HTMLElement): void {
   const deck = state.deck
   if (!deck || !slide.parentNode) return
+  registerSlideFocusClose(closeSlideFocus) // call-time: safe from the cycle
   closeStudio()
   closeSlideFocus()
   ensureStudioStyle()
@@ -182,13 +186,31 @@ export function openSlideFocus(slide: HTMLElement): void {
     panelHost.style.cssText = 'border-left: 0; border-top: 1px solid var(--rule, #333); width: auto; padding: 10px 0 0; margin-top: 10px;'
     toolsEl.append(panelHost)
     mountPanels(s, panelHost)
-    enable.remove()
   }
-  const enable = button('vector tools…', 'draw on this slide — pen, shapes, freehand, layers (adds the slide’s drawing layer)')
-  toolsEl.append(h('div', 'dia-st-sect', 'drawing'), enable)
-  enable.addEventListener('click', mountVector)
-  // a slide that already draws gets the full set immediately
-  if (slide.querySelector(':scope > svg.dia-scene-full')) mountVector()
+  // the toolset is ALWAYS visible — a slide that already draws gets the
+  // live machinery; otherwise placeholder buttons stand in, and the first
+  // tool you actually use creates the drawing layer and swaps them out
+  const placeholders = h('div', '')
+  placeholders.style.display = 'contents'
+  const activate = (name: Parameters<typeof setTool>[0]): void => {
+    placeholders.remove()
+    mountVector()
+    setTool(name)
+  }
+  if (slide.querySelector(':scope > svg.dia-scene-full')) {
+    mountVector()
+  } else {
+    placeholders.append(h('div', 'dia-st-sect', 'tools'))
+    for (const t of TOOLS) {
+      const b = button(t.label, `${t.tip} — the first use adds the slide’s drawing layer`)
+      const kbd = document.createElement('kbd')
+      kbd.textContent = t.key
+      b.append(kbd)
+      b.addEventListener('click', () => activate(t.name))
+      placeholders.append(b)
+    }
+    toolsEl.append(placeholders)
+  }
 
   /* ----- zoom / pan ----- */
   const view = { zoom: 1, x: 0, y: 0 }
@@ -274,6 +296,13 @@ export function openSlideFocus(slide: HTMLElement): void {
     const tool = TOOLS.find((t) => t.key === e.key.toLowerCase())
     if (tool && !e.metaKey && !e.ctrlKey) { e.stopPropagation(); setTool(tool.name) }
   }
+  const onKeyPre = (e: KeyboardEvent): void => {
+    // tool shortcuts work BEFORE the layer exists too — first use creates it
+    if (f.studio || isTyping(e) || e.metaKey || e.ctrlKey) return
+    const tool = TOOLS.find((t) => t.key === e.key.toLowerCase())
+    if (tool) { e.stopPropagation(); activate(tool.name) }
+  }
+  document.addEventListener('keydown', onKeyPre, true)
   document.addEventListener('keydown', onKey, true)
 
   const offBus = state.bus.on((ev) => {
@@ -281,7 +310,10 @@ export function openSlideFocus(slide: HTMLElement): void {
   })
 
   f.offBus = offBus
-  f.offKey = () => document.removeEventListener('keydown', onKey, true)
+  f.offKey = () => {
+    document.removeEventListener('keydown', onKey, true)
+    document.removeEventListener('keydown', onKeyPre, true)
+  }
   f.offPlace = () => {
     ro?.disconnect()
     window.removeEventListener('resize', place)
