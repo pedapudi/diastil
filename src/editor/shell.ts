@@ -9,7 +9,7 @@ import demoDeckRaw from '../../examples/demo-deck.html?raw'
 import type { Deck } from '../types'
 import { state } from '../state'
 import { loadDeck } from '../model/parse'
-import { batch as batchOps, insertEl, setAttr, setStyleProp, setToken } from '../model/ops'
+import { batch as batchOps, insertEl, removeEl, setAttr, setStyleProp, setToken } from '../model/ops'
 import { routeAll } from '../scene/route'
 import {
   ensureSceneStyleRules, expandSceneCanvas, fitSceneCanvas, getDrawTool,
@@ -333,6 +333,20 @@ export function mountEditor(host: HTMLElement): void {
       return
     }
     if (!state.deck) return
+    // Delete removes the selected ELEMENT (one undoable op) — the legend
+    // has promised this all along; scene selections handle their own key
+    // (interact.ts stops propagation), and whole slides are deleted from
+    // the minimap, not from a keystroke
+    if ((e.key === 'Delete' || e.key === 'Backspace') && state.selection.kind === 'element') {
+      const el = state.selection.el
+      if (!el.matches('section.dia-slide')) {
+        e.preventDefault()
+        const role = [...el.classList].find((c) => c.startsWith('dia-')) ?? el.tagName.toLowerCase()
+        state.apply(removeEl(el, `Delete ${role}`))
+        state.selection = { kind: 'none' }
+        return
+      }
+    }
     if (e.key === 'ArrowDown' || e.key === 'j' || e.key === 'ArrowRight') { e.preventDefault(); stepSlide(1) }
     else if (e.key === 'ArrowUp' || e.key === 'k' || e.key === 'ArrowLeft') { e.preventDefault(); stepSlide(-1) }
     else if (e.key === 'Escape') { state.selection = { kind: 'none' } }
@@ -676,6 +690,12 @@ export function mountEditor(host: HTMLElement): void {
     sel.className = 'de-tok-face de-inspect-face'
     const current = el.style.getPropertyValue('font-family').trim()
     const cs = getComputedStyle(el)
+    // the RESOLVED family is always visible — "auto" alone hides the one
+    // fact needed to replicate a font on another slide
+    const firstFace = (stack: string): string =>
+      (stack.split(',')[0] ?? '').trim().replace(/^["']|["']$/g, '')
+    const rendered = firstFace(cs.fontFamily)
+    sel.title = `this element renders in: ${cs.fontFamily}`
     const addOpt = (parent: HTMLSelectElement | HTMLOptGroupElement, labelText: string, value: string, preview: string): void => {
       const o = document.createElement('option')
       o.textContent = labelText
@@ -684,12 +704,12 @@ export function mountEditor(host: HTMLElement): void {
       if (value === current) o.selected = true
       parent.append(o)
     }
-    addOpt(sel, 'auto (role default)', '', '')
+    addOpt(sel, `auto — ${rendered} (role default)`, '', cs.fontFamily)
     const tokenGroup = document.createElement('optgroup')
     tokenGroup.label = 'deck faces'
     for (const t of ['display', 'body', 'label'] as const) {
-      const v = `var(--dia-face-${t})`
-      addOpt(tokenGroup, t, v, cs.getPropertyValue(`--dia-face-${t}`).trim())
+      const stack = cs.getPropertyValue(`--dia-face-${t}`).trim()
+      addOpt(tokenGroup, `${t} — ${firstFace(stack) || 'unset'}`, `var(--dia-face-${t})`, stack)
     }
     sel.append(tokenGroup)
     const sysGroup = document.createElement('optgroup')
