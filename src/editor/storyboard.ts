@@ -50,6 +50,41 @@ function steppedEls(slide: HTMLElement): Array<HTMLElement | SVGElement> {
     .filter((el) => !el.closest('.dia-editor-artifact'))
 }
 
+/** transparent layout wrappers — their CHILDREN are the steppable units */
+const LAYOUT = new Set(['dia-columns', 'dia-stack', 'dia-split', 'grid2', 'grid4'])
+
+/** every element on the slide worth a lane, stepped or not: role blocks,
+ * list items, figures, drawings, scene nodes and edges — so choreographing
+ * a slide never requires visiting each element in the inspector first */
+function candidates(slide: HTMLElement): Array<HTMLElement | SVGElement> {
+  const out: Array<HTMLElement | SVGElement> = []
+  const walk = (el: Element): void => {
+    for (const c of el.children) {
+      if (!(c instanceof HTMLElement) && !(c instanceof SVGElement)) continue
+      const tag = c.tagName.toLowerCase()
+      if (tag === 'style' || tag === 'script') continue
+      if (c.classList.contains('dia-editor-artifact')) continue
+      if (c.classList.contains('foot')) continue // the page footer never steps
+      if (c instanceof SVGSVGElement) {
+        out.push(c)
+        for (const g of c.querySelectorAll<SVGElement>(':scope > [data-dia-node], :scope > [data-dia-edge]')) {
+          out.push(g)
+        }
+        continue
+      }
+      if ([...c.classList].some((cl) => LAYOUT.has(cl))) { walk(c); continue }
+      out.push(c as HTMLElement)
+      if (tag === 'ul' || tag === 'ol') {
+        for (const li of c.querySelectorAll<HTMLElement>(':scope > li')) out.push(li)
+      }
+    }
+  }
+  walk(slide)
+  // anything already stepped that the heuristic missed still gets a lane
+  for (const el of steppedEls(slide)) if (!out.includes(el)) out.push(el)
+  return out
+}
+
 function maxStep(slide: HTMLElement): number {
   return Math.max(0, ...steppedEls(slide).map((el) => Number(el.getAttribute('data-dia-step')) || 0))
 }
@@ -126,14 +161,17 @@ function rebuild(): void {
   head.append(spacer, play, close)
   drawer.append(head)
 
-  const els = steppedEls(slide)
+  const all = candidates(slide)
+  const overflow = Math.max(0, all.length - 36)
+  const els = overflow > 0
+    ? all.filter((el, i) => el.hasAttribute('data-dia-step') || i < 36)
+    : all
   if (els.length === 0) {
-    drawer.append(h('div', 'de-sb-hint',
-      'no stepped elements on this slide yet — select an element and give it a step (inspector or right-click), then arrange it here'))
+    drawer.append(h('div', 'de-sb-hint', 'nothing steppable on this slide yet'))
     return
   }
 
-  const cols = maxStep(slide) + 1 // one spare column to push things later
+  const cols = Math.max(1, maxStep(slide) + 1) // one spare column to push things later
   const grid = h('div', 'de-sb-grid')
   grid.style.gridTemplateColumns = `minmax(180px, 240px) 44px repeat(${cols}, 40px)`
 
@@ -153,11 +191,18 @@ function rebuild(): void {
     grid.append(c)
   }
 
-  const sorted = [...els].sort((a, b) =>
-    (Number(a.getAttribute('data-dia-step')) - Number(b.getAttribute('data-dia-step'))) ||
-    (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
+  // stepped lanes first (in reveal order), then the unstepped in document
+  // order — the whole slide is on the board, ready to choreograph
+  const stepOf = (el: Element): number => Number(el.getAttribute('data-dia-step')) || 0
+  const sorted = [...els].sort((a, b) => {
+    const sa = stepOf(a)
+    const sb = stepOf(b)
+    if ((sa === 0) !== (sb === 0)) return sa === 0 ? 1 : -1
+    if (sa !== sb) return sa - sb
+    return a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1
+  })
   for (const el of sorted) {
-    const step = Number(el.getAttribute('data-dia-step'))
+    const step = stepOf(el)
     const lane = h('span', 'de-sb-lane', labelOf(el))
     lane.title = 'click to select the element'
     lane.addEventListener('click', () => {
@@ -165,9 +210,9 @@ function rebuild(): void {
       if (sl && el instanceof HTMLElement) state.selection = { kind: 'element', el, slide: sl }
     })
     grid.append(lane)
-    const none = btn('·', 'always visible (remove the step)')
-    none.className = 'de-sb-cell'
-    none.addEventListener('click', () => state.apply(setAttr(el, 'data-dia-step', null)))
+    const none = btn(step === 0 ? '●' : '·', 'always visible (no step)')
+    none.className = `de-sb-cell${step === 0 ? ' is-on' : ''}`
+    if (step !== 0) none.addEventListener('click', () => state.apply(setAttr(el, 'data-dia-step', null)))
     grid.append(none)
     for (let k = 1; k <= cols; k++) {
       const cell = btn(step === k ? '●' : '·', `reveal at moment ${k}`)
@@ -177,6 +222,9 @@ function rebuild(): void {
     }
   }
   drawer.append(grid)
+  if (overflow > 0) {
+    drawer.append(h('div', 'de-sb-hint', `${overflow} more elements not shown — step them from the inspector and they join the board`))
+  }
 
   if (previewStep >= 0) {
     drawer.append(h('div', 'de-sb-hint',
