@@ -93,6 +93,9 @@ class ReviewController {
   private modelLog: Array<Array<ModelLogEntry>> = []
   /** a lift that re-measured lower, awaiting the reviewer's keep/revert call */
   private pendingLift: { index: number; before: SlideConversion; prev: number | null; after: number | null } | null = null
+  /** what the last REJECTED repair attempt did, per slide — fed back so the
+   * model never repeats the mistake it just made */
+  private lastRejected: Array<{ score: number | null; summary: string } | null> = []
   /** reviewer-shaded regions per slide — rendered as overlays, stamped onto
    * the PNGs vision skills receive, and described in the prompt text */
   private highlights: Array<{ original: HighlightRegion[]; converted: HighlightRegion[] }> = []
@@ -874,12 +877,19 @@ class ReviewController {
     try {
       let mismatch = this.describeMismatch(i)
       const images = await this.repairImages(i)
-      const crops = await this.highlightCrops(i)
+      let crops = await this.highlightCrops(i)
+      let cropKind = 'reviewer-highlighted regions (original-pane crops first, then converted-pane)'
+      if (crops.length === 0) {
+        // no reviewer highlights: crop the WORST measured region instead —
+        // every repair round gets a readable close-up of its main problem
+        crops = await this.worstRegionCrops(i)
+        cropKind = 'the worst measured mismatch region (original first, then candidate)'
+      }
       const impl = this.highlightImplementation(i)
       if (impl) mismatch += `\n\n${impl}`
       if (crops.length > 0 && images.length > 0) {
         images.push(...crops)
-        mismatch += `\nthe last ${crops.length} attached image(s) are CLOSE-UP crops of the reviewer-highlighted regions (original-pane crops first, then converted-pane) — read them, they carry the detail the full renders cannot.`
+        mismatch += `\nthe last ${crops.length} attached image(s) are CLOSE-UP crops of ${cropKind} — read them, they carry the detail the full renders cannot.`
       }
       this.logDetail(i, `sent → repair-fidelity${images.length ? ` · ${images.length} images (original · candidate · diff${crops.length ? ' · highlight crops' : ''})` : ''}`,
         `${mismatch}${feedback ? `\n\nreviewer feedback:\n${feedback}` : ''}`,
@@ -898,12 +908,34 @@ class ReviewController {
       // the candidate is recorded WHATEVER the verdict — auto-keep-best only
       // chooses the default; the operator can select any version later
       this.recordVersion(i, `repair ${repaired.repairRounds}`)
-      if (before.fidelity != null && (after ?? -1) < before.fidelity) {
+      // HARD gate: a repair that loses source text is rejected no matter
+      // what the pixels say — deleting content must never win the score
+      const missing = (c: SlideConversion): number =>
+        c.warnings.filter((w) => w.includes('source text missing')).length
+      const lostText = missing(repaired) > missing(before)
+      const scoredLower = before.fidelity != null && (after ?? -1) < before.fidelity
+      if (lostText || scoredLower) {
+        // remember what THIS attempt did before restoring, so the next
+        // round is told not to repeat it
+        const regions = (this.slideDiffs[i]?.regions ?? []).slice(0, 2)
+          .map((r) => `x=${r.x.toFixed(2)} y=${r.y.toFixed(2)}`).join(', ')
+        this.lastRejected[i] = {
+          score: after ?? null,
+          summary: lostText
+            ? 'it DELETED source text (content loss is rejected outright)'
+            : `its worst regions were at ${regions || 'unknown'}`,
+        }
         this.conversions[i] = { ...before, repairRounds: repaired.repairRounds }
         await this.rebuildAndWait()
-        if (!auto) this.verdictMsg.textContent = 'repair scored lower — kept the previous candidate (still in versions)'
+        await this.measureSlide(i) // notes/regions must describe the KEPT candidate
+        if (!auto) {
+          this.verdictMsg.textContent = lostText
+            ? 'repair dropped source text — rejected (still in versions)'
+            : 'repair scored lower — kept the previous candidate (still in versions)'
+        }
       } else {
         improved = before.fidelity == null || (after ?? 0) > before.fidelity
+        if (improved) this.lastRejected[i] = null
       }
     } catch (err) {
       this.conversions[i] = before
@@ -1048,6 +1080,84 @@ class ReviewController {
     ].filter(Boolean).join('\n')
   }
 
+  /** what the extraction MEASURED inside a region: role/tag + a text stub —
+   * the same geometry hit-test the highlights use, summarized */
+  private regionContents(i: number, r: { x: number; y: number; w: number; h: number }): string {
+    const slide = this.input.extraction.slides[i]
+    const doc = new DOMParser().parseFromString(slide.html, 'text/html')
+    const R = {
+      x: slide.rect.x + r.x * slide.rect.w, y: slide.rect.y + r.y * slide.rect.h,
+      w: r.w * slide.rect.w, h: r.h * slide.rect.h,
+    }
+    const parts: string[] = []
+    for (const el of doc.querySelectorAll(`[${STAMP}]`)) {
+      const smp = slide.samples[Number(el.getAttribute(STAMP))]
+      if (!smp || smp.w < 2 || smp.h < 2 || smp.ownChars === 0) continue
+      const ox = Math.max(0, Math.min(smp.x + smp.w, R.x + R.w) - Math.max(smp.x, R.x))
+      const oy = Math.max(0, Math.min(smp.y + smp.h, R.y + R.h) - Math.max(smp.y, R.y))
+      if ((ox * oy) / (smp.w * smp.h) < 0.5) continue
+      const stub = smp.ownText.slice(0, 32)
+      parts.push(`<${el.tagName.toLowerCase()}> "${stub}${smp.ownText.length > 32 ? '…' : ''}"`)
+      if (parts.length >= 3) break
+    }
+    return parts.join(', ')
+  }
+
+  /** numeric per-element discrepancies: the original's MEASURED font-size /
+   * color vs the candidate's, matched by normalized text. The model gets a
+   * bug report ("title: 64px vs 39px"), not a picture to squint at. */
+  private elementDeltas(i: number, regions: Array<{ x: number; y: number; w: number; h: number }>): string[] {
+    const slide = this.input.extraction.slides[i]
+    const conv = this.convRoots()[i]
+    const win = conv?.ownerDocument.defaultView
+    if (!conv || !win) return []
+    const doc = new DOMParser().parseFromString(slide.html, 'text/html')
+    const candidates = [...conv.querySelectorAll<HTMLElement>('*')]
+    const norm = (t: string): string => t.replace(/\s+/g, ' ').trim()
+    const out: string[] = []
+    const seen = new Set<string>()
+    for (const r of regions) {
+      const R = {
+        x: slide.rect.x + r.x * slide.rect.w, y: slide.rect.y + r.y * slide.rect.h,
+        w: r.w * slide.rect.w, h: r.h * slide.rect.h,
+      }
+      for (const el of doc.querySelectorAll(`[${STAMP}]`)) {
+        if (out.length >= 5) return out
+        const smp = slide.samples[Number(el.getAttribute(STAMP))]
+        if (!smp || smp.ownChars < 4 || smp.w < 2) continue
+        const ox = Math.max(0, Math.min(smp.x + smp.w, R.x + R.w) - Math.max(smp.x, R.x))
+        const oy = Math.max(0, Math.min(smp.y + smp.h, R.y + R.h) - Math.max(smp.y, R.y))
+        if ((ox * oy) / (smp.w * smp.h) < 0.5) continue
+        const text = norm(smp.ownText)
+        if (!text || seen.has(text)) continue
+        // the candidate counterpart: the innermost element with the same text
+        let match: HTMLElement | null = null
+        for (const c of candidates) {
+          if (norm(c.textContent ?? '') !== text) continue
+          if (!match || match.contains(c)) match = c
+        }
+        if (!match) {
+          seen.add(text)
+          out.push(`- "${text.slice(0, 40)}": MISSING from the candidate — restore it`)
+          continue
+        }
+        const cs = win.getComputedStyle(match)
+        const candSize = parseFloat(cs.fontSize)
+        const sizeOff = smp.fontSizePx > 0 && Math.abs(candSize - smp.fontSizePx) / smp.fontSizePx > 0.18
+        const candColor = cs.color
+        const colorOff = smp.color !== '' && !sameColorLoose(smp.color, candColor)
+        if (sizeOff || colorOff) {
+          seen.add(text)
+          const facts: string[] = []
+          if (sizeOff) facts.push(`font-size ${Math.round(smp.fontSizePx)}px vs candidate ${Math.round(candSize)}px`)
+          if (colorOff) facts.push(`color ${smp.color} vs candidate ${candColor}`)
+          out.push(`- "${text.slice(0, 40)}": ${facts.join('; ')}`)
+        }
+      }
+    }
+    return out
+  }
+
   /** close-up crops of the highlighted regions, sharp enough for the model
    * to READ — the full-slide render shows WHERE, these show WHAT */
   private async highlightCrops(i: number, which: 'both' | 'original' = 'both'): Promise<string[]> {
@@ -1075,6 +1185,31 @@ class ReviewController {
       }
     }
     return crops
+  }
+
+  /** close-up pair of the worst measured mismatch region — original then
+   * candidate — so every repair round can READ its main problem */
+  private async worstRegionCrops(i: number): Promise<string[]> {
+    const region = this.slideDiffs[i]?.regions[0]
+    const orig = this.origRoots[i]
+    const conv = this.convRoots()[i]
+    if (!region || !orig || !conv) return []
+    // pad slightly: context around the mismatch reads better than a sliver
+    const pad = 0.02
+    const r = {
+      x: Math.max(0, region.x - pad), y: Math.max(0, region.y - pad),
+      w: Math.min(1, region.w + 2 * pad), h: Math.min(1, region.h + 2 * pad),
+    }
+    await this.showOriginal(i)
+    const unforce = !this.oneAtATime() ? forceVisible(orig) : null
+    let a: string | null = null
+    try {
+      a = await rasterizeCropDataUrl(orig, r)
+    } finally {
+      unforce?.()
+    }
+    const b = await rasterizeCropDataUrl(conv, r)
+    return a && b ? [a, b] : []
   }
 
   /** The SOURCE IMPLEMENTATION under the original-pane highlights: stamped
@@ -1218,6 +1353,26 @@ class ReviewController {
     lines.push(c.fidelity != null
       ? `visual mismatch: ${Math.round((1 - c.fidelity) * 100)}% (composite of content displacement, layout overlap, and appearance between the source render and the converted render).`
       : 'visual comparison unavailable (slide would not rasterize) — rely on the structural notes below.')
+    // the NAMED axes: which kind of problem this is decides which kind of
+    // fix to make — style changes for appearance, movement for displacement
+    const comp = this.slideDiffs[i]?.score.components
+    if (comp) {
+      lines.push(
+        `axis scores — displacement ${comp.displacement.toFixed(2)}, layout ${comp.layout.toFixed(2)}, appearance ${comp.appearance.toFixed(2)}.`)
+      const worst = Math.min(comp.displacement, comp.layout, comp.appearance)
+      if (worst === comp.appearance && comp.displacement >= worst + 0.15 && comp.layout >= worst + 0.15) {
+        lines.push('this is primarily an APPEARANCE problem: fix colors, typography, and surfaces — do NOT move or rewrite content.')
+      } else if (worst === comp.displacement && comp.appearance >= worst + 0.15) {
+        lines.push('this is primarily a PLACEMENT problem: move content to the source positions (margins, anchoring, columns) — keep its styling and wording.')
+      } else if (worst === comp.layout && comp.appearance >= worst + 0.15) {
+        lines.push('this is primarily a COMPOSITION problem: content mass sits in the wrong areas — restructure the layout, keep the wording.')
+      }
+    }
+    // what the previous rejected attempt did — never repeat it
+    const prev = this.lastRejected[i]
+    if (prev) {
+      lines.push(`your previous repair was REJECTED (it re-measured ${prev.score == null ? 'unmeasurable' : `at ${prev.score.toFixed(3)}, lower`}): ${prev.summary} — take a different approach.`)
+    }
     // a single vertical shift that explains the mismatch is a SPACING miss —
     // name it, or the model rewrites content when it should move it
     const drift = this.slideDiffs[i]?.verticalDrift
@@ -1233,9 +1388,15 @@ class ReviewController {
     if (regions.length > 0) {
       lines.push('mismatch regions (fractions of the slide, origin top-left; fix THESE areas, leave the rest untouched):')
       for (const r of regions) {
+        const contents = this.regionContents(i, r)
         lines.push(
           `- x=${r.x.toFixed(2)} y=${r.y.toFixed(2)} w=${r.w.toFixed(2)} h=${r.h.toFixed(2)}` +
-          ` — ${Math.round(r.frac * 100)}% of its content differs`)
+          ` — ${Math.round(r.frac * 100)}% of its content differs${contents ? ` — contains: ${contents}` : ''}`)
+      }
+      const deltas = this.elementDeltas(i, regions)
+      if (deltas.length > 0) {
+        lines.push('measured element discrepancies (original vs candidate — fix these EXACT values):')
+        lines.push(...deltas)
       }
     }
     for (const w of c.warnings) lines.push(w)
@@ -1317,4 +1478,14 @@ function btn(label: string, cls: string): HTMLButtonElement {
   b.className = cls
   b.textContent = label
   return b
+}
+
+/** loose color equality for delta reporting — rendering shifts under ~20
+ * per channel are noise, not discrepancies worth telling the model about */
+function sameColorLoose(a: string, b: string): boolean {
+  const pa = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(a)
+  const pb = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(b)
+  if (!pa || !pb) return a === b
+  return Math.max(
+    Math.abs(+pa[1] - +pb[1]), Math.abs(+pa[2] - +pb[2]), Math.abs(+pa[3] - +pb[3])) <= 20
 }

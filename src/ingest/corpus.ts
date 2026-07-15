@@ -12,7 +12,7 @@
 import { runPipeline } from './pipeline'
 import { findSlideRoots, forceVisible } from './extract'
 import { DeckNavigator } from './navigate'
-import { scoreSlideFidelityDetailed } from './fidelity'
+import { scoreSlideFidelityDetailed, type ScoreComponents } from './fidelity'
 import type { ExecuteResult } from './execute'
 
 /** Everything a fixture records — derived strictly from ImportResult
@@ -36,6 +36,9 @@ export interface CorpusFixture {
    * and metric changes are judged by diffing these across re-captures, and
    * corpus.test.ts holds them above explicit floors */
   fidelity: Array<number | null>
+  /** the named axes behind each score (displacement · layout · appearance ·
+   * completeness) — which axis a conversion change moved is the diff */
+  fidelityComponents: Array<{ displacement: number; layout: number; appearance: number; completeness: number } | null>
   /** the assembled dialect document — must stay profile-valid forever */
   deckHtml: string
 }
@@ -49,8 +52,10 @@ export async function captureFixture(html: string, name: string): Promise<string
     for (const r of result.report.regions) {
       regionKinds[r.kind] = (regionKinds[r.kind] ?? 0) + 1
     }
-    const fidelity = await measureFidelity(result.execution, result.deckHtml,
+    const measured = await measureFidelity(result.execution, result.deckHtml,
       result.extraction.slides[0]?.rect.w)
+    const fidelity = measured.map((m) => m?.score ?? null)
+    const fidelityComponents = measured.map((m) => m?.components ?? null)
     const fixture: CorpusFixture = {
       name,
       capturedAt: new Date().toISOString(),
@@ -62,6 +67,7 @@ export async function captureFixture(html: string, name: string): Promise<string
       tokens: result.report.tokens,
       originalSlideCount: result.originalSlides.length,
       fidelity,
+      fidelityComponents,
       deckHtml: result.deckHtml,
     }
     return JSON.stringify(fixture, null, 2)
@@ -76,7 +82,7 @@ export async function captureFixture(html: string, name: string): Promise<string
  * in a hidden same-origin frame at the source's design width. */
 async function measureFidelity(
   execution: ExecuteResult, deckHtml: string, designW?: number,
-): Promise<Array<number | null>> {
+): Promise<Array<{ score: number; components: ScoreComponents | null } | null>> {
   const frame = document.createElement('iframe')
   frame.setAttribute('sandbox', 'allow-same-origin')
   frame.setAttribute('aria-hidden', 'true')
@@ -95,7 +101,7 @@ async function measureFidelity(
     const origRoots = findSlideRoots(origDoc).roots
     const oneAtATime = origRoots.length > 1 && origRoots.some((r) => r.offsetWidth === 0)
     const nav = oneAtATime ? new DeckNavigator(origDoc, origRoots) : null
-    const scores: Array<number | null> = []
+    const scores: Array<{ score: number; components: ScoreComponents | null } | null> = []
     for (let i = 0; i < convRoots.length; i++) {
       const orig = origRoots[i]
       const conv = convRoots[i]
@@ -104,7 +110,7 @@ async function measureFidelity(
       const unforce = !oneAtATime ? forceVisible(orig) : null
       try {
         const detail = await scoreSlideFidelityDetailed(orig, conv)
-        scores.push(detail ? detail.score.score : null)
+        scores.push(detail ? { score: detail.score.score, components: detail.score.components } : null)
       } finally {
         unforce?.()
       }

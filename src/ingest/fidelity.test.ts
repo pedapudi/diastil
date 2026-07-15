@@ -248,3 +248,41 @@ describe('subtle surfaces (cards) are graded symmetrically', () => {
     expect(sWith).toBeGreaterThanOrEqual(0.95)
   })
 })
+
+describe('negative space cannot be gamed by dropping content', () => {
+  const bg: [number, number, number, number] = [250, 250, 246, 255]
+  function block(img: ImageData, x0: number, y0: number, w: number, h: number): void {
+    for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) {
+      const i = (y * img.width + x) * 4
+      img.data[i] = 20; img.data[i + 1] = 24; img.data[i + 2] = 30
+    }
+  }
+
+  it('dropping a SMALL element (a footer) costs real score, more than a small shift', () => {
+    // mostly-blank slide: one title block + a small footer line
+    const orig = bitmap(200, 200, bg)
+    block(orig, 20, 30, 120, 24) // title
+    block(orig, 20, 180, 90, 8)  // footer — tiny ink mass
+    const shifted = bitmap(200, 200, bg)
+    block(shifted, 22, 32, 120, 24) // everything kept, nudged 2px
+    block(shifted, 22, 182, 90, 8)
+    const dropped = bitmap(200, 200, bg)
+    block(dropped, 20, 30, 120, 24) // title perfect, footer DELETED
+    const sShifted = diffBitmaps(orig, shifted).score
+    const sDropped = diffBitmaps(orig, dropped).score
+    expect(sShifted).toBeGreaterThan(sDropped)
+    expect(sDropped).toBeLessThan(0.85) // dropping is never near-free
+    const comp = diffBitmaps(orig, dropped).components
+    expect(comp?.completeness).toBeLessThan(1)
+  })
+
+  it('keeping everything on a mostly-blank slide still scores near 1', () => {
+    const orig = bitmap(200, 200, bg)
+    block(orig, 20, 30, 120, 24)
+    block(orig, 20, 180, 90, 8)
+    const same = bitmap(200, 200, bg)
+    block(same, 20, 30, 120, 24)
+    block(same, 20, 180, 90, 8)
+    expect(diffBitmaps(orig, same).score).toBeGreaterThanOrEqual(0.98)
+  })
+})

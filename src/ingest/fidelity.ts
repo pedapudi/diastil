@@ -31,6 +31,9 @@ export interface FidelityScore {
    * (truncated chamfer), layout (coarse ink Dice), and appearance
    * (multi-scale blurred color difference); see diffBitmaps */
   score: number
+  /** the named axes behind the score; null when a blank/degenerate case
+   * decided it without measuring */
+  components: ScoreComponents | null
   diffPixels: number
   totalPixels: number
   /** pixels that differ from the background in either raster — the mass the
@@ -227,17 +230,34 @@ export function diffHeatmapDataUrl(a: ImageData, b: ImageData): string | null {
  * reported for those explanations. */
 export function diffBitmaps(a: ImageData, b: ImageData): FidelityScore {
   const c = classifyPixels(a, b)
-  const score = visualScore(a, b)
-  return { score, diffPixels: c.diff, totalPixels: c.total, contentPixels: c.content }
+  const v = visualScore(a, b)
+  return {
+    score: v.score, components: v.components,
+    diffPixels: c.diff, totalPixels: c.total, contentPixels: c.content,
+  }
 }
 
 const CHAMFER_MAX_FRAC = 0.04 // displacement saturates at 4% of height
 const APP_SCALES: Array<[radius: number, weight: number]> = [[1, 0.5], [3, 0.3], [8, 0.2]]
 
-function visualScore(a: ImageData, b: ImageData): number {
+/** the composite's named axes — kept SEPARATE so failures are diagnosable:
+ * a low appearance with high displacement/layout is a color/typography
+ * problem, the reverse is a layout problem. Repair prompts say which. */
+export interface ScoreComponents {
+  displacement: number
+  layout: number
+  appearance: number
+  /** fraction of the original's ink CELLS that the candidate still covers —
+   * the anti-gaming axis: every term above is ink-mass-weighted, which
+   * makes SMALL elements (a footer, a caption) nearly free to drop; cell
+   * completeness charges per dropped REGION, and multiplies the score */
+  completeness: number
+}
+
+function visualScore(a: ImageData, b: ImageData): { score: number; components: ScoreComponents | null } {
   const w = Math.min(a.width, b.width)
   const h = Math.min(a.height, b.height)
-  if (w < 2 || h < 2) return 0
+  if (w < 2 || h < 2) return { score: 0, components: null }
   // content = differs from the raster's OWN background: a retinted-but-
   // faithful conversion keeps its mask; the appearance term sees the tint
   const maskA = inkMask(a, w, h, estimateBackground(a))
@@ -245,13 +265,20 @@ function visualScore(a: ImageData, b: ImageData): number {
   let nA = 0
   let nB = 0
   for (let i = 0; i < w * h; i++) { nA += maskA[i]; nB += maskB[i] }
-  if (nA === 0 && nB === 0) return 1 // two blank slides agree
-  if (nA === 0 || nB === 0) return 0 // content invented, or destroyed wholesale
-  const displacement = chamferSim(maskA, maskB, w, h)
-  const layout = layoutSim(maskA, maskB, w, h)
-  const appearance = appearanceSim(a, b, maskA, maskB, w, h)
-  const score = 0.35 * displacement + 0.3 * layout + 0.35 * appearance
-  return Math.round(Math.max(0, Math.min(1, score)) * 1000) / 1000
+  if (nA === 0 && nB === 0) return { score: 1, components: null } // two blank slides agree
+  if (nA === 0 || nB === 0) return { score: 0, components: null } // content invented or destroyed
+  const r3 = (n: number): number => Math.round(Math.max(0, Math.min(1, n)) * 1000) / 1000
+  const components: ScoreComponents = {
+    displacement: r3(chamferSim(maskA, maskB, w, h)),
+    layout: r3(layoutSim(maskA, maskB, w, h)),
+    appearance: r3(appearanceSim(a, b, maskA, maskB, w, h)),
+    completeness: r3(cellCompleteness(maskA, maskB, w, h)),
+  }
+  // completeness MULTIPLIES (exponent > 1 for teeth): dropping content can
+  // never be traded against improving what remains
+  const base = 0.35 * components.displacement + 0.3 * components.layout + 0.35 * components.appearance
+  const score = base * Math.pow(components.completeness, 1.5)
+  return { score: r3(score), components }
 }
 
 function inkMask(img: ImageData, w: number, h: number, bg: [number, number, number]): Uint8Array {
@@ -315,6 +342,50 @@ function distanceTransform(mask: Uint8Array, w: number, h: number): Float32Array
   }
   for (let i = 0; i < w * h; i++) d[i] /= 3
   return d
+}
+
+/** Anti-dropping guard: of the 16×9 cells where the ORIGINAL has real ink,
+ * what fraction does the candidate still cover (≥20% of the original's
+ * mass there)? Pixel terms price a dropped footer at its ink mass (~2%);
+ * this prices it at its CELLS, so deleting content to game the score
+ * always costs more than keeping it. */
+function cellCompleteness(maskA: Uint8Array, maskB: Uint8Array, w: number, h: number): number {
+  const GX = 16
+  const GY = 9
+  const cellsA = new Float32Array(GX * GY)
+  const cellsB = new Float32Array(GX * GY)
+  for (let y = 0; y < h; y++) {
+    const gy = Math.min(GY - 1, Math.floor((y / h) * GY))
+    for (let x = 0; x < w; x++) {
+      const gx = Math.min(GX - 1, Math.floor((x / w) * GX))
+      const c = gy * GX + gx
+      cellsA[c] += maskA[y * w + x]
+      cellsB[c] += maskB[y * w + x]
+    }
+  }
+  const cellPx = (w / GX) * (h / GY)
+  let inked = 0
+  let covered = 0
+  for (let cy = 0; cy < GY; cy++) {
+    for (let cx = 0; cx < GX; cx++) {
+      const c = cy * GX + cx
+      if (cellsA[c] < cellPx * 0.03) continue // no meaningful original ink here
+      inked++
+      // covered when candidate ink exists HERE or in a neighboring cell —
+      // displacement is chamfer's job; completeness only asks "does this
+      // content still exist anywhere near where it was?"
+      let near = 0
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = cx + dx
+          const ny = cy + dy
+          if (nx >= 0 && ny >= 0 && nx < GX && ny < GY) near += cellsB[ny * GX + nx]
+        }
+      }
+      if (near >= cellsA[c] * 0.2) covered++
+    }
+  }
+  return inked > 0 ? covered / inked : 1
 }
 
 /** continuous Dice coefficient of ink mass on a coarse grid — same

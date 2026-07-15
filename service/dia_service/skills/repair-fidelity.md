@@ -16,11 +16,31 @@ You receive:
   "code block lost its background", "second column missing", "list items
   render centered but source is left-aligned". It may include structural
   hints (locators of the affected region) and the relevant source excerpt.
-- Optionally, three attached images: (1) the ORIGINAL slide as rendered,
+- Optionally, attached images: (1) the ORIGINAL slide as rendered,
   (2) the current CANDIDATE as rendered, (3) a diff heatmap where red
-  marks mismatched regions and dim grayscale marks matches. When images
-  are present, they are the ground truth — repair what they show; the
+  marks mismatched regions and dim grayscale marks matches, and possibly
+  close-up crops of the worst region or reviewer-highlighted regions
+  (the mismatch text says which, and in what order). When images are
+  present, they are the ground truth — repair what they show; the
   `<mismatch>` text is only a machine summary of the same diff.
+
+## Diagnose FIRST, then fix
+
+The mismatch names its axes (displacement · layout · appearance ·
+completeness) and often the exact discrepancies ("title: 64px vs 39px").
+Before writing any HTML, decide per axis what differs:
+
+- **placement** off → move content (margins, anchoring, columns) —
+  do not restyle or rewrite it
+- **appearance** off → fix colors/typography/surfaces — do not move it
+- **composition** off → restructure which areas hold content
+- **completeness** off, or "MISSING from the candidate" lines →
+  RESTORE the missing content — never delete content to reduce the
+  diff; a repair that drops source text is rejected automatically
+- when the text says your previous attempt was rejected and why,
+  take a genuinely different approach — do not resubmit it
+
+Fix what the diagnosis names, keep everything else byte-identical.
 
 ## Output
 
