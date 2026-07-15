@@ -51,6 +51,7 @@ export function closeSlideFocus(): void {
   if (!focus) return
   const f = focus
   focus = null
+  document.querySelector('.de-app')?.classList.remove('de-focus-on')
   setDrawTool(null) // a draw mode must not outlive the focus
   f.home.parent.insertBefore(f.slide, f.home.next)
   f.overlay.remove()
@@ -73,6 +74,9 @@ export function openSlideFocus(slide: HTMLElement): void {
   closeStudio()
   closeSlideFocus()
   ensureStudioStyle()
+
+  // the minimap yields while a slide is focused — one slide, one stage
+  document.querySelector('.de-app')?.classList.add('de-focus-on')
 
   const overlay = h('div', `dia-studio ${ARTIFACT}`)
   overlay.setAttribute('role', 'dialog')

@@ -308,6 +308,9 @@
   color: var(--ink-soft);
 }
 .de-style-row .dn-seg { flex-wrap: wrap; }
+/* slide focus owns the whole left side — the minimap yields its column */
+.de-app.de-focus-on .de-minimap { display: none; }
+
 /* storyboard drawer: element lanes × step columns, docked at the bottom */
 .de-sb {
   position: fixed; left: 50%; transform: translateX(-50%);
