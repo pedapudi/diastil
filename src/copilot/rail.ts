@@ -10,10 +10,12 @@ import { service } from '../service/client'
 import { batch } from '../model/ops'
 import { rasterizeToDataUrl } from '../ingest/fidelity'
 import { embeddedOriginals } from '../editor/compare'
+import { scrollToSlide } from '../editor/table'
 import {
   installMarquee, renderHighlightBoxes, stampHighlights, type HighlightRegion,
 } from '../editor/highlights'
-import { compileOps } from './compile'
+import { compileOps, resolveTarget } from './compile'
+import { clearPreview, previewIsActive, startPreview } from './preview'
 import { renderMarkdown } from './markdown'
 
 const HEALTH_MIN_INTERVAL = 30_000
@@ -529,6 +531,20 @@ export function mountCopilot(host: HTMLElement): void {
     return { body, box, raw: '' }
   }
 
+  /** the slide a proposal lands on — for the preview badge and scroll */
+  function affectedSlide(ops: ProposedOp[]): HTMLElement | null {
+    const deck = state.deck
+    if (!deck) return null
+    for (const p of ops) {
+      try {
+        const el = resolveTarget(p.target, deck.root, state.slides(), state.currentSlide)
+        const slide = el?.closest<HTMLElement>('section.dia-slide')
+        if (slide) return slide
+      } catch { /* keep looking */ }
+    }
+    return null
+  }
+
   function appendOpsCard(ops: ProposedOp[], dry: ReturnType<typeof compileOps>): void {
     const card = div('dia-cop-card')
     const list = div('dia-cop-card-ops')
@@ -553,22 +569,31 @@ export function mountCopilot(host: HTMLElement): void {
       line.textContent = '⚠ the model sent no readable proposals'
       list.appendChild(line)
     }
+    const status = div('dia-cop-card-note dia-cop-preview-note')
     const actions = div('dia-cop-card-actions')
     const apply = document.createElement('button')
     apply.type = 'button'
     apply.className = 'dn-btn dia-cop-apply'
     apply.textContent = dry.ops.length === ops.length ? 'apply' : `apply ${dry.ops.length}/${ops.length}`
+    const previewBtn = document.createElement('button')
+    previewBtn.type = 'button'
+    previewBtn.className = 'dn-btn'
+    previewBtn.textContent = 'preview'
+    previewBtn.hidden = true
     const reject = document.createElement('button')
     reject.type = 'button'
     reject.className = 'dn-btn'
     reject.textContent = 'reject'
-    actions.append(apply, reject)
-    card.append(list, actions)
+    actions.append(apply, previewBtn, reject)
+    card.append(list, status, actions)
     log.appendChild(card)
     scrollDown()
 
+    let settled = false
     const settle = (note: string) => {
+      settled = true
       actions.remove()
+      status.remove()
       const done = div('dia-cop-card-note')
       done.textContent = note
       card.appendChild(done)
@@ -577,10 +602,37 @@ export function mountCopilot(host: HTMLElement): void {
       settle(ops.length === 0 ? 'nothing usable arrived' : 'nothing to apply — no target resolved')
       return
     }
+
+    // the proposal PREVIEWS on the live slide the moment the card arrives —
+    // the decision is made by looking, not by reading op labels
+    let staged = dry.ops
+    const preview = (compiled: typeof staged) => {
+      staged = compiled
+      const slide = affectedSlide(ops)
+      startPreview(compiled, slide, (reason) => {
+        if (settled) return
+        status.textContent = `preview cleared — ${reason} · press preview to stage it again`
+        previewBtn.hidden = false
+      })
+      const idx = slide ? state.slides().indexOf(slide) : -1
+      if (idx >= 0) scrollToSlide(idx)
+      status.textContent =
+        `● previewing${idx >= 0 ? ` on slide ${idx + 1}` : ''} — the dashed frame shows the proposal; apply keeps it, reject restores`
+      previewBtn.hidden = true
+    }
+    preview(dry.ops)
+
     apply.addEventListener('click', () => {
-      // recompile at apply time: the document may have changed since the
-      // card rendered, and the ops must bind to what is on screen NOW
-      const { ops: compiled, skipped } = compileOps(ops)
+      let compiled = staged
+      let skipped = dry.skipped
+      if (previewIsActive(staged)) {
+        clearPreview('accepted', false)
+      } else {
+        // the preview was cleared (document changed) — recompile against NOW
+        const fresh = compileOps(ops)
+        compiled = fresh.ops
+        skipped = fresh.skipped
+      }
       if (compiled.length === 0) {
         settle(`nothing to apply — no target resolved (${skipped.map((s) => s.op.label).join(' · ')})`)
         return
@@ -591,7 +643,18 @@ export function mountCopilot(host: HTMLElement): void {
         ? 'applied · in undo history'
         : `applied ${compiled.length}/${ops.length} · skipped: ${skipped.map((s) => s.op.label).join(' · ')}`)
     })
-    reject.addEventListener('click', () => settle('rejected'))
+    previewBtn.addEventListener('click', () => {
+      const fresh = compileOps(ops)
+      if (fresh.ops.length === 0) {
+        status.textContent = 'cannot preview — no target resolves against the current document'
+        return
+      }
+      preview(fresh.ops)
+    })
+    reject.addEventListener('click', () => {
+      if (previewIsActive(staged)) clearPreview('rejected', false)
+      settle('rejected — the slide is unchanged')
+    })
   }
 
   /** follow the stream only when the reader is already at the bottom —

@@ -46,6 +46,19 @@ section.dia-slide svg.dia-scene-full { pointer-events: none; }
 section.dia-slide svg.dia-scene-full > :not(.dia-editor-artifact) { pointer-events: auto; }
 :host([data-dia-drawing]) section.dia-slide svg { pointer-events: bounding-box; }
 [contenteditable] { outline: 2px solid var(--accent); outline-offset: 2px; cursor: text; }
+/* copilot proposal preview: dashed frame + corner chip over the previewed
+ * slide — inspect the change, then apply or reject in the rail */
+section.dia-slide > .dia-preview-badge {
+  position: absolute; inset: 0; z-index: 44; pointer-events: none;
+  border: 2.5px dashed var(--accent);
+}
+section.dia-slide > .dia-preview-badge::after {
+  content: 'copilot preview — apply or reject in the rail';
+  position: absolute; top: 8px; right: 8px;
+  font: 10.5px/1.9 ui-monospace, monospace; letter-spacing: .04em;
+  padding: 0 9px; border-radius: 4px;
+  background: var(--accent); color: var(--paper, #fff);
+}
 /* highlight-for-context: user-shaded regions the copilot receives.
  * THEME-PROOF by construction: orange stroke, white OUTER halo, dark INNER
  * line — whatever the background, one of the halos contrasts with it. */

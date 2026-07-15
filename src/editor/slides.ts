@@ -8,6 +8,7 @@ import type { Deck } from '../types'
 import { state } from '../state'
 import { loadDeck } from '../model/parse'
 import { serializeDeck } from '../model/serialize'
+import { clearPreview } from '../copilot/preview'
 import { startImport } from '../ingest/pipeline'
 import { SERVICE_BASE } from '../service/client'
 import { setImportReport } from './table'
@@ -161,6 +162,9 @@ export async function openDeck(canvasHost: HTMLElement): Promise<void> {
 /** serializeDeck keeps top-level artifact styles and data-dia-current;
  * strip them for the duration of the serialization, then restore. */
 function serializeClean(deck: Deck): string {
+  // a staged copilot preview is NOT part of the document — a save or
+  // present must never serialize one
+  clearPreview('saving the deck')
   const root = deck.root
   const artifacts = [...root.querySelectorAll<HTMLStyleElement>('style.dia-editor-artifact')]
     .map((el) => ({ el, next: el.nextSibling, parent: el.parentNode }))
