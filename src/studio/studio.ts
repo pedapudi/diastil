@@ -495,6 +495,7 @@ input[type='range'].dia-st-range { flex: 1; accent-color: var(--accent); }
 .dia-studio .dia-st-selbox { fill: none !important; stroke: var(--accent, #59c2ff) !important; stroke-width: 1 !important; stroke-dasharray: 4 3; }
 .dia-studio .dia-st-handle { fill: var(--paper, #fff) !important; stroke: var(--accent, #59c2ff) !important; stroke-width: 1.2 !important; pointer-events: auto; }
 .dia-studio .dia-st-rot { cursor: grab; }
+.dia-studio .dia-st-anchor { fill: var(--accent) !important; stroke: var(--paper) !important; stroke-width: 1 !important; pointer-events: all; cursor: crosshair; }
 .dia-studio .dia-st-marquee { fill: color-mix(in srgb, var(--accent) 14%, transparent) !important; stroke: var(--accent) !important; stroke-width: 1 !important; stroke-dasharray: 3 3; }
 .dia-studio .dia-st-draft { fill: none !important; stroke: var(--accent) !important; stroke-width: 1.2 !important; stroke-dasharray: 5 3; }
 `

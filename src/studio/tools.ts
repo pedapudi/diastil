@@ -11,7 +11,7 @@ import { batch, insertEl, moveEl, moveSceneNode, removeEl, setAttr } from '../mo
 import { pxScale, showToast } from '../scene/overlay'
 import { openPointEditor, closePointEditor, canPointEdit } from '../scene/points'
 import { getNodeGeom, routeEdgesOf, setNodeGeom } from '../scene/route'
-import { insertShapeNode } from '../scene/interact'
+import { insertEdgeFlow, insertShapeNode } from '../scene/interact'
 import type { StudioSession } from './studio'
 import { isSceneArt } from './studio'
 import { refreshPanels } from './panels'
@@ -93,6 +93,9 @@ export function mountTools(s: StudioSession, host: HTMLElement): void {
   const ov = document.createElementNS(NS, 'g') as SVGGElement
   ov.setAttribute('class', `${ARTIFACT} dia-st-ov`)
   s.svg.appendChild(ov)
+  // the scene machinery yields THIS surface to the studio (and only this
+  // one — other svgs in a focused slide keep their canvas behavior)
+  s.svg.classList.add('dia-studio-surface')
 
   ctx = { s, buttons, tool: 'select', ov, offPointer: () => {} }
   installPointer(ctx)
@@ -101,7 +104,7 @@ export function mountTools(s: StudioSession, host: HTMLElement): void {
 export function disposeTools(): void {
   if (!ctx) return
   closePointEditor()
-  ctx.s.svg.classList.remove('dia-studio-drawing')
+  ctx.s.svg.classList.remove('dia-studio-drawing', 'dia-studio-surface')
   ctx.s.svg.style.removeProperty('cursor')
   ctx.ov.remove()
   ctx.offPointer()
@@ -416,6 +419,26 @@ function renderSelection(c: ToolCtx): void {
     c.ov.appendChild(hd)
   }
 
+  // a single picked scene node offers ANCHOR DOTS — drag one onto another
+  // node to create an edge, the same gesture as the canvas
+  const solo = c.s.picked.size === 1 ? [...c.s.picked][0] : null
+  if (solo && isNodeEl(solo) && isSceneArt(c.s.svg)) {
+    const g = getNodeGeom(solo)
+    const anchors: Array<[string, number, number]> = [
+      ['N', g.x + g.w / 2, g.y], ['S', g.x + g.w / 2, g.y + g.h],
+      ['E', g.x + g.w, g.y + g.h / 2], ['W', g.x, g.y + g.h / 2],
+    ]
+    for (const [side, x, y] of anchors) {
+      const dot = document.createElementNS(NS, 'circle')
+      dot.setAttribute('class', 'dia-st-anchor')
+      dot.setAttribute('cx', String(x))
+      dot.setAttribute('cy', String(y))
+      dot.setAttribute('r', String(4.5 / k))
+      dot.addEventListener('pointerdown', (e) => beginConnect(e, solo, side))
+      c.ov.appendChild(dot)
+    }
+  }
+
   // rotate: a round handle floated above the top-center. Scene nodes are
   // axis-aligned geometry (data-x/y/w/h) — no rotation while one is picked
   if (![...c.s.picked].some(isNodeEl)) {
@@ -427,6 +450,40 @@ function renderSelection(c: ToolCtx): void {
     rot.addEventListener('pointerdown', (e) => beginRotate(e, box))
     c.ov.appendChild(rot)
   }
+}
+
+/** drag an anchor dot onto another node → one InsertEdge op, canvas-style */
+function beginConnect(e: PointerEvent, node: SVGGElement, side: string): void {
+  if (!ctx) return
+  e.preventDefault()
+  e.stopPropagation()
+  const c = ctx
+  const s = c.s
+  const g = getNodeGeom(node)
+  const from = {
+    x: side === 'E' ? g.x + g.w : side === 'W' ? g.x : g.x + g.w / 2,
+    y: side === 'S' ? g.y + g.h : side === 'N' ? g.y : g.y + g.h / 2,
+  }
+  const temp = document.createElementNS(NS, 'path')
+  temp.setAttribute('class', 'dia-st-draft')
+  c.ov.appendChild(temp)
+  drag((ev) => {
+    const p = toArt(s.svg, ev.clientX, ev.clientY)
+    temp.setAttribute('d', `M${r2(from.x)},${r2(from.y)} L${r2(p.x)},${r2(p.y)}`)
+  }, (ev) => {
+    temp.remove()
+    const p = toArt(s.svg, ev.clientX, ev.clientY)
+    const target = [...s.svg.querySelectorAll<SVGGElement>(':scope > [data-dia-node]')].find((n) => {
+      if (n === node) return false
+      const ng = getNodeGeom(n)
+      return p.x >= ng.x && p.x <= ng.x + ng.w && p.y >= ng.y && p.y <= ng.y + ng.h
+    })
+    if (target) {
+      insertEdgeFlow(s.svg, node.getAttribute('data-dia-node') ?? '',
+        target.getAttribute('data-dia-node') ?? '', `${side},auto`)
+    }
+    refreshAll()
+  })
 }
 
 /* ---------- pointer machine ---------- */

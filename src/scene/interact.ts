@@ -135,9 +135,10 @@ function onPointerDown(e: PointerEvent): void {
   if (e.button !== 0) return
   const target = e.target as Element | null
   if (!(target instanceof Element)) return
-  // artwork visiting the studio is the studio's alone — deck-level scene
-  // handling here would thrash the selection under the modal
-  if (target.closest('.dia-studio')) return
+  // the studio's OWN surface is the studio's alone — but other svgs
+  // inside a focus overlay (scene figures on the focused slide) keep
+  // their full canvas behavior: drags, anchors, floating toolbars
+  if (target.closest('svg')?.closest('svg.dia-studio-surface, .dia-st-stage > svg')) return
   const scene = sceneFor(target)
   if (!scene) return
   // ⇧ escalates the grab PAST the svg to its containing block (a figure
@@ -216,7 +217,7 @@ function freeTargetOf(scene: SVGSVGElement, target: Element): SVGGraphicsElement
 function onDblClick(e: MouseEvent): void {
   const target = e.target as Element | null
   if (!(target instanceof Element)) return
-  if (target.closest('.dia-studio')) return
+  if (target.closest('svg')?.closest('svg.dia-studio-surface, .dia-st-stage > svg')) return
   if (target.closest('[data-dia-handle],[data-dia-anchor],[data-dia-endpoint]')) return
   // verbatim <text> anywhere on an editable svg surface (dia-scene or plain
   // imported svg) edits in place — labels inside node/edge groups keep their
@@ -662,7 +663,8 @@ function beginCreateEdge(
 }
 
 /** drop on a node → ONE InsertEdge op (anchors: "sourceSide,sinkSide") */
-function insertEdgeFlow(scene: SVGSVGElement, from: string, to: string, anchors = 'auto,auto'): void {
+/** exported for the studio: its anchor dots create edges the same way */
+export function insertEdgeFlow(scene: SVGSVGElement, from: string, to: string, anchors = 'auto,auto'): void {
   const edgeEl = createEdge(scene, from, to) // builds + routes, appended
   edgeEl.setAttribute('data-anchors', anchors)
   edgeEl.remove()                            // detach; the op does the insert
