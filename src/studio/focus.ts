@@ -1,13 +1,13 @@
 /* Slide focus: a WHOLE SLIDE on the studio stage, with the FULL studio
- * toolset. The slide reparents into a stage that replaces the table (the
- * inspector rail stays live), and the studio's vector machinery — select /
- * pen / shapes / freehand / text, transforms, groups, layers, properties —
- * mounts on the slide's full-slide drawing layer (created on first use).
- * The scene machinery deliberately ignores presses inside studio overlays,
- * so the studio tools OWN the layer here; in select mode the layer passes
- * empty-space presses through, keeping the slide's text and blocks
- * editable in place. One surface at a time: opening the svg studio closes
- * focus and vice versa — studios never nest. */
+ * toolset — and ISOLATION for deep-diving one drawing without leaving.
+ *
+ * The slide reparents into a stage that replaces the table (topbar and
+ * the inspector rail stay live, so the copilot works here too). The
+ * studio's vector machinery mounts on ONE svg at a time — the slide's
+ * full-slide drawing layer by default, or an ISOLATED drawing: everything
+ * else dims and ignores presses until esc steps back out. 'Open in
+ * studio' anywhere routes here; studios never nest and never go
+ * fullscreen-modal. serializeClean() closes focus before any save. */
 
 import { state } from '../state'
 import { insertEl } from '../model/ops'
@@ -17,18 +17,29 @@ import {
 } from './studio'
 import { mountTools, disposeTools, currentTool, deletePicked, exitGroup, nudgePicked, setTool, TOOLS } from './tools'
 import { mountPanels, disposePanels, refreshPanels } from './panels'
+import { openImportDialog } from './svgimport'
 import { ensureSceneStyleRules } from '../scene/interact'
+import { setToolbarSuppressed } from '../scene/toolbar'
 import { insertTextOnSlide } from '../editor/textedit'
 import { insertMathOnSlide } from '../editor/math'
 import { assignFreshIds } from '../editor/slides'
 
 const ARTIFACT = 'dia-editor-artifact'
 
+interface Isolation {
+  svg: SVGSVGElement
+  dims: Array<{ el: HTMLElement | SVGElement; opacity: string; pe: string }>
+}
+
 interface FocusSession {
   slide: HTMLElement
   overlay: HTMLElement
   home: { parent: ParentNode; next: Node | null }
   studio: StudioSession | null
+  isolated: Isolation | null
+  bindSession: (svg: SVGSVGElement) => void
+  isolate: (svg: SVGSVGElement) => void
+  exitIsolation: () => void
   offBus: () => void
   offKey: () => void
   offPlace: () => void
@@ -45,10 +56,20 @@ export function focusedSlide(): HTMLElement | null {
   return focus?.slide ?? null
 }
 
+/** THE studio entry: focus the drawing's slide and isolate the drawing.
+ * openStudio() routes here from every 'open in studio' surface. */
+export function focusIsolate(svg: SVGSVGElement): void {
+  const slide = svg.closest<HTMLElement>('section.dia-slide')
+  if (!slide) return
+  if (!focus || focus.slide !== slide) openSlideFocus(slide)
+  focus?.isolate(svg)
+}
+
 export function closeSlideFocus(): void {
   if (!focus) return
   const f = focus
   focus = null
+  f.exitIsolation()
   document.querySelector('.de-app')?.classList.remove('de-focus-on')
   if (f.studio) {
     disposeTools()
@@ -73,7 +94,7 @@ export function toggleSlideFocus(slide: HTMLElement): void {
   openSlideFocus(slide)
 }
 
-/** the slide's full-slide drawing layer — the studio tools' surface */
+/** the slide's full-slide drawing layer — the default tool surface */
 function diagramLayerOf(slide: HTMLElement): SVGSVGElement {
   let layer = slide.querySelector<SVGSVGElement>(':scope > svg.dia-scene-full')
   if (layer) return layer
@@ -103,12 +124,9 @@ export function openSlideFocus(slide: HTMLElement): void {
 
   const head = h('header', 'dia-st-head')
   const idx = state.slides().indexOf(slide)
-  head.append(
-    h('span', 'dia-st-title', 'slide focus'),
-    h('span', 'dia-st-hint',
-      `slide ${idx + 1} — text and blocks edit in place; vector tools draw on the slide's layer`),
-    h('span', 'dia-st-spacer'),
-  )
+  const hint = h('span', 'dia-st-hint',
+    `slide ${idx + 1} — text and blocks edit in place; vector tools draw on the slide's layer`)
+  head.append(h('span', 'dia-st-title', 'slide focus'), hint, h('span', 'dia-st-spacer'))
   const done = button('done', 'return the slide to the deck (esc)')
   done.classList.add('dia-st-done')
   done.addEventListener('click', closeSlideFocus)
@@ -150,7 +168,7 @@ export function openSlideFocus(slide: HTMLElement): void {
   const home = { parent: slide.parentNode, next: slide.nextSibling }
   stage.appendChild(slide)
 
-  /* ----- the rail: inserts + the FULL vector toolset ----- */
+  /* ----- the rail: inserts + the vector toolset for ONE svg at a time ----- */
   toolsEl.append(h('div', 'dia-st-sect', 'insert'))
   const bText = button('+ text', 'add a text block and start typing')
   bText.addEventListener('click', () => insertTextOnSlide(slide))
@@ -160,20 +178,33 @@ export function openSlideFocus(slide: HTMLElement): void {
     if (el) state.selection = { kind: 'element', el, slide }
   })
   toolsEl.append(bText, bMath)
+  const vectorWrap = h('div', '')
+  vectorWrap.style.display = 'contents'
+  toolsEl.append(vectorWrap)
 
   const f: FocusSession = {
-    slide, overlay, home, studio: null,
+    slide, overlay, home, studio: null, isolated: null,
+    bindSession: () => {}, isolate: () => {}, exitIsolation: () => {},
     offBus: () => {}, offKey: () => {}, offPlace: () => {},
   }
   focus = f
 
-  /** wire the studio machinery to the slide's drawing layer */
-  const mountVector = (): void => {
-    if (f.studio) return
-    const layer = diagramLayerOf(slide)
+  const clearSession = (): void => {
+    if (f.studio) {
+      disposeTools()
+      disposePanels()
+      dropSession(f.studio)
+      f.studio = null
+    }
+    vectorWrap.replaceChildren()
+  }
+
+  /** the vector machinery, bound to one svg (the layer, or an isolate) */
+  const bindSession = (svg: SVGSVGElement): void => {
+    clearSession()
     const s: StudioSession = {
-      svg: layer, overlay, stage,
-      home: { parent: layer.parentNode as ParentNode, next: layer.nextSibling },
+      svg, overlay, stage,
+      home: { parent: svg.parentNode as ParentNode, next: svg.nextSibling },
       picked: new Set(), entered: [],
       zoom: 1, panX: 0, panY: 0,
       offBus: () => {}, offKey: () => {},
@@ -181,39 +212,72 @@ export function openSlideFocus(slide: HTMLElement): void {
     }
     f.studio = s
     adoptSession(s)
-    const vectorHost = h('div', '')
-    vectorHost.style.display = 'contents'
-    toolsEl.append(vectorHost)
-    mountTools(s, vectorHost)
+    mountTools(s, vectorWrap)
+    const imp = button('import svg…', 'add artwork from pasted markup or a file (lands in this drawing)')
+    imp.addEventListener('click', () => { if (f.studio) openImportDialog(f.studio) })
+    vectorWrap.append(imp)
     const panelHost = h('div', 'dia-st-rail')
     panelHost.style.cssText = 'border-left: 0; border-top: 1px solid var(--rule, #333); width: auto; padding: 10px 0 0; margin-top: 10px;'
-    toolsEl.append(panelHost)
+    vectorWrap.append(panelHost)
     mountPanels(s, panelHost)
   }
-  // the toolset is ALWAYS visible — a slide that already draws gets the
-  // live machinery; otherwise placeholder buttons stand in, and the first
-  // tool you actually use creates the drawing layer and swaps them out
-  const placeholders = h('div', '')
-  placeholders.style.display = 'contents'
-  const activate = (name: Parameters<typeof setTool>[0]): void => {
-    placeholders.remove()
-    mountVector()
-    setTool(name)
-  }
-  if (slide.querySelector(':scope > svg.dia-scene-full')) {
-    mountVector()
-  } else {
-    placeholders.append(h('div', 'dia-st-sect', 'tools'))
+  f.bindSession = bindSession
+
+  const showPlaceholders = (): void => {
+    clearSession()
+    const ph = h('div', '')
+    ph.style.display = 'contents'
+    ph.append(h('div', 'dia-st-sect', 'tools'))
     for (const t of TOOLS) {
       const b = button(t.label, `${t.tip} — the first use adds the slide’s drawing layer`)
       const kbd = document.createElement('kbd')
       kbd.textContent = t.key
       b.append(kbd)
       b.addEventListener('click', () => activate(t.name))
-      placeholders.append(b)
+      ph.append(b)
     }
-    toolsEl.append(placeholders)
+    vectorWrap.append(ph)
   }
+  const activate = (name: Parameters<typeof setTool>[0]): void => {
+    bindSession(diagramLayerOf(slide))
+    setTool(name)
+  }
+
+  /* ----- isolation: one drawing, everything else dims ----- */
+  const isolate = (svg: SVGSVGElement): void => {
+    f.exitIsolation()
+    const iso: Isolation = { svg, dims: [] }
+    for (const c of [...slide.children]) {
+      if (!(c instanceof HTMLElement) && !(c instanceof SVGElement)) continue
+      if (c === svg || c.contains(svg) || c.classList.contains(ARTIFACT)) continue
+      iso.dims.push({ el: c, opacity: c.style.opacity, pe: c.style.pointerEvents })
+      c.style.opacity = '0.15'
+      c.style.pointerEvents = 'none'
+    }
+    f.isolated = iso
+    if (svg.classList.contains('dia-scene')) setToolbarSuppressed(true)
+    state.selection = { kind: 'none' }
+    bindSession(svg)
+    hint.textContent = `isolated drawing — everything else is dimmed; esc steps back to the slide`
+  }
+  const exitIsolation = (): void => {
+    const iso = f.isolated
+    if (!iso) return
+    f.isolated = null
+    for (const d of iso.dims) {
+      d.opacity ? d.el.style.opacity = d.opacity : d.el.style.removeProperty('opacity')
+      d.pe ? d.el.style.pointerEvents = d.pe : d.el.style.removeProperty('pointer-events')
+    }
+    setToolbarSuppressed(false)
+    hint.textContent = `slide ${idx + 1} — text and blocks edit in place; vector tools draw on the slide's layer`
+    const layer = slide.querySelector<SVGSVGElement>(':scope > svg.dia-scene-full')
+    layer ? bindSession(layer) : showPlaceholders()
+  }
+  f.isolate = isolate
+  f.exitIsolation = exitIsolation
+
+  const layer = slide.querySelector<SVGSVGElement>(':scope > svg.dia-scene-full')
+  layer ? bindSession(layer) : showPlaceholders()
 
   /* ----- zoom / pan ----- */
   const view = { zoom: 1, x: 0, y: 0 }
@@ -260,7 +324,7 @@ export function openSlideFocus(slide: HTMLElement): void {
     window.addEventListener('pointerup', up)
   }, true)
 
-  /* ----- keys: full studio chain, then focus ----- */
+  /* ----- keys: full studio chain, then isolation, then focus ----- */
   const isTyping = (e: KeyboardEvent): boolean => {
     const t = e.composedPath()[0]
     return t instanceof HTMLElement &&
@@ -271,17 +335,23 @@ export function openSlideFocus(slide: HTMLElement): void {
     if (e.key === 'Escape') {
       e.stopPropagation()
       e.preventDefault()
-      // back out one layer at a time: tool → picked → group → selection → focus
+      // back out one layer at a time:
+      // tool → picked → group → ISOLATION → selection → focus
       if (f.studio) {
         if (currentTool() !== 'select') { setTool('select'); return }
         if (f.studio.picked.size > 0) { f.studio.picked.clear(); refreshPanels(f.studio); return }
         if (f.studio.entered.length > 0) { exitGroup(); return }
       }
+      if (f.isolated) { exitIsolation(); return }
       if (state.selection.kind !== 'none') { state.selection = { kind: 'none' }; return }
       closeSlideFocus()
       return
     }
-    if (!f.studio) return
+    if (!f.studio) {
+      const tool = TOOLS.find((t) => t.key === e.key.toLowerCase())
+      if (tool && !e.metaKey && !e.ctrlKey) { e.stopPropagation(); activate(tool.name) }
+      return
+    }
     if (e.key === 'Delete' || e.key === 'Backspace') {
       if (f.studio.picked.size > 0) { e.preventDefault(); e.stopPropagation(); deletePicked() }
       return
@@ -299,13 +369,6 @@ export function openSlideFocus(slide: HTMLElement): void {
     const tool = TOOLS.find((t) => t.key === e.key.toLowerCase())
     if (tool && !e.metaKey && !e.ctrlKey) { e.stopPropagation(); setTool(tool.name) }
   }
-  const onKeyPre = (e: KeyboardEvent): void => {
-    // tool shortcuts work BEFORE the layer exists too — first use creates it
-    if (f.studio || isTyping(e) || e.metaKey || e.ctrlKey) return
-    const tool = TOOLS.find((t) => t.key === e.key.toLowerCase())
-    if (tool) { e.stopPropagation(); activate(tool.name) }
-  }
-  document.addEventListener('keydown', onKeyPre, true)
   document.addEventListener('keydown', onKey, true)
 
   const offBus = state.bus.on((ev) => {
@@ -313,10 +376,7 @@ export function openSlideFocus(slide: HTMLElement): void {
   })
 
   f.offBus = offBus
-  f.offKey = () => {
-    document.removeEventListener('keydown', onKey, true)
-    document.removeEventListener('keydown', onKeyPre, true)
-  }
+  f.offKey = () => document.removeEventListener('keydown', onKey, true)
   f.offPlace = () => {
     ro?.disconnect()
     window.removeEventListener('resize', place)

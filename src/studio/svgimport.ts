@@ -7,8 +7,8 @@
 import { state } from '../state'
 import { batch, insertEl } from '../model/ops'
 import type { StudioSession } from './studio'
-import { h, button, openStudio } from './studio'
-import { focusedSlide } from './focus'
+import { h, button } from './studio'
+import { focusIsolate } from './focus'
 import { refreshAll } from './tools'
 
 const NS = 'http://www.w3.org/2000/svg'
@@ -118,11 +118,8 @@ export function newDrawingOnSlide(slide: HTMLElement): void {
   const foot = slide.querySelector(':scope > .dia-caption.foot')
   const index = foot ? [...slide.children].indexOf(foot) : slide.children.length
   state.apply(batch('Insert drawing', [insertEl(slide, index, figure, 'Insert drawing figure')]))
-  if (focusedSlide() === slide) {
-    state.selection = { kind: 'element', el: svg as unknown as HTMLElement, slide }
-    return
-  }
-  openStudio(svg)
+  // straight into isolation: the drawing opens focused and dimmed-around
+  focusIsolate(svg)
 }
 
 function round2(n: number): number {

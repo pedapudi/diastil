@@ -1,29 +1,11 @@
-/* SVG studio — a large modal drawing surface for one svg element.
- *
- * The selected <svg> is REPARENTED into the studio stage and back on close,
- * so element identity is preserved: every op created during the session
- * references the same nodes the op log already knows, and undo works after
- * the studio closes. The overlay itself is a .dia-editor-artifact inside the
- * deck shadow root — deck theme tokens (var(--dia-*)) keep resolving on the
- * artwork, and serialization never sees studio chrome. serializeClean()
- * closes the studio first, so a save can never catch the svg mid-visit.
- *
- * Scope: import, creation, and update of ordinary svg artwork — the
- * "illustrator" surface. Scenes (svg.dia-scene) keep their own semantic
- * editor; the studio refuses them. */
+/* Studio core: the session registry, the shared chrome styles, and the
+ * 'open in studio' ROUTER. The studio is no longer a fullscreen modal —
+ * opening a drawing focuses its slide and ISOLATES the drawing there
+ * (see focus.ts), so the inspector rail and the copilot stay available
+ * and studios can never nest. Tools/panels operate on whatever session
+ * is adopted; serializeClean() closes the focus before any save. */
 
 import { state } from '../state'
-import {
-  mountTools, disposeTools, currentTool, deletePicked, duplicatePicked, enterGroup,
-  exitGroup, groupPicked, hitOf, isPlainGroup, nudgePicked, pick, reorderPicked,
-  setTool, TOOLS, ungroupPicked,
-} from './tools'
-import { mountPanels, disposePanels, refreshPanels } from './panels'
-import { openImportDialog } from './svgimport'
-import { setToolbarSuppressed } from '../scene/toolbar'
-import { insertShapeNode } from '../scene/interact'
-import { canPointEdit, openPointEditor } from '../scene/points'
-import { closeMenu, openMenu, SEP, type Entry } from '../editor/menu'
 
 const ARTIFACT = 'dia-editor-artifact'
 
@@ -56,9 +38,9 @@ export function registerSlideFocusClose(fn: () => void): void {
   closeSlideFocusHook = fn
 }
 
-/** focus mounts the tool machinery on a slide's drawing layer without the
- * reparent lifecycle — it still needs to BE the session so every tool,
- * panel, and menu helper operates on it */
+/** focus binds the tool machinery to a slide's drawing (the layer or an
+ * isolated figure) — it must BE the session so every tool, panel, and
+ * menu helper operates on it */
 export function adoptSession(s: StudioSession): void {
   session = s
 }
@@ -75,10 +57,8 @@ export function studioSession(): StudioSession | null {
   return session
 }
 
-/** true when the studio can take this svg. Scenes are welcome — the studio
- * is the WORKBENCH (big canvas, zoom, layers) while the scene machinery
- * stays the MODEL: node picks map to geometry ops and edges stay derived.
- * Full-slide layers are the slide itself and keep their in-place editing. */
+/** what 'open in studio' accepts: any svg except the full-slide layer,
+ * which is the slide itself (focus binds it as the DEFAULT surface) */
 export function canStudio(el: Element): el is SVGSVGElement {
   return el instanceof SVGSVGElement && !el.classList.contains('dia-scene-full')
 }
@@ -87,262 +67,20 @@ export function isSceneArt(svg: SVGSVGElement): boolean {
   return svg.classList.contains('dia-scene')
 }
 
+/** every live session is focus-embedded — closing the studio closes focus */
 export function closeStudio(): void {
   if (!session) return
-  if (session.embedded) { closeSlideFocusHook?.(); return }
-  const s = session
-  session = null
-  closeMenu()
-  disposeTools()
-  disposePanels()
-  s.svg.classList.remove('dia-studio-art')
-  s.svg.style.removeProperty('transform')
-  const nextOk = s.home.next && s.home.next.parentNode === s.home.parent
-  try { s.home.parent.insertBefore(s.svg, nextOk ? s.home.next : null) } catch { /* document replaced */ }
-  s.overlay.remove()
-  s.offBus()
-  s.offKey()
-  if (isSceneArt(s.svg)) setToolbarSuppressed(false)
-  state.deck?.root.getElementById('dia-studio-style')?.remove()
+  closeSlideFocusHook?.()
 }
 
+/** 'open in studio', from anywhere: focus the drawing's slide and isolate
+ * the drawing there. Dynamic import breaks the module cycle. */
 export function openStudio(svg: SVGSVGElement): void {
-  const deck = state.deck
-  if (!deck || !canStudio(svg) || !svg.parentNode) return
-  closeStudio()
-  closeSlideFocusHook?.() // never nest studios — one surface at a time
-  ensureStudioStyle()
-
-  const overlay = h('div', `dia-studio ${ARTIFACT}`)
-  overlay.setAttribute('role', 'dialog')
-  overlay.setAttribute('aria-modal', 'true')
-
-  /* ----- header: wordmark register, sans controls, mono data ----- */
-  const head = h('header', 'dia-st-head')
-  const title = h('span', 'dia-st-title', 'svg studio')
-  const hint = h('span', 'dia-st-hint', 'edits land as ops — undo works after you close')
-  const imp = button('import svg…', 'replace or add artwork from pasted markup or a file')
-  imp.addEventListener('click', () => { if (session) openImportDialog(session) })
-  const done = button('done', 'return the drawing to its slide (esc)')
-  done.classList.add('dia-st-done')
-  done.addEventListener('click', closeStudio)
-  head.append(title, hint, h('span', 'dia-st-spacer'), imp, done)
-
-  /* ----- three columns: tools | stage | panels ----- */
-  const body = h('div', 'dia-st-body')
-  const toolsEl = h('div', 'dia-st-tools')
-  const stageWrap = h('div', 'dia-st-stagewrap')
-  const stage = h('div', 'dia-st-stage')
-  stageWrap.append(stage)
-  const railEl = h('div', 'dia-st-rail')
-  body.append(toolsEl, stageWrap, railEl)
-
-  const foot = h('footer', 'dia-st-foot')
-  const zoomLabel = h('span', 'dia-st-zoom', '100%')
-  foot.append(
-    h('span', 'dia-st-keys', 'wheel zoom · space-drag pan · del removes · esc closes'),
-    h('span', 'dia-st-spacer'), zoomLabel,
-  )
-
-  overlay.append(head, body, foot)
-  deck.root.appendChild(overlay)
-
-  const home = { parent: svg.parentNode, next: svg.nextSibling }
-  // a visiting scene leaves its floating bars behind
-  if (isSceneArt(svg)) {
-    state.selection = { kind: 'none' }
-    setToolbarSuppressed(true)
-  }
-  svg.classList.add('dia-studio-art')
-  stage.appendChild(svg)
-
-  const s: StudioSession = {
-    svg, overlay, stage, home,
-    picked: new Set(),
-    entered: [],
-    zoom: 1, panX: 0, panY: 0,
-    offBus: () => {},
-    offKey: () => {},
-  }
-  session = s
-
-  /* ----- zoom / pan ----- */
-  const applyView = (): void => {
-    stage.style.transform = `translate(${s.panX}px, ${s.panY}px) scale(${s.zoom})`
-    zoomLabel.textContent = `${Math.round(s.zoom * 100)}%`
-  }
-  fitToStage(s, stageWrap)
-  applyView()
-
-  stageWrap.addEventListener('wheel', (e) => {
-    e.preventDefault()
-    const factor = Math.exp(-e.deltaY * 0.0015)
-    const next = Math.min(16, Math.max(0.1, s.zoom * factor))
-    // zoom about the cursor: keep the point under it fixed
-    const r = stageWrap.getBoundingClientRect()
-    const cx = e.clientX - r.left
-    const cy = e.clientY - r.top
-    s.panX = cx - (cx - s.panX) * (next / s.zoom)
-    s.panY = cy - (cy - s.panY) * (next / s.zoom)
-    s.zoom = next
-    applyView()
-  }, { passive: false })
-
-  /* ----- right-click: the studio's verbs for what's under the pointer ----- */
-  stageWrap.addEventListener('contextmenu', (e) => {
-    e.preventDefault()
-    openMenu(e.clientX, e.clientY, studioEntries(s, e.composedPath()[0] ?? null))
-  })
-
-  let spaceDown = false
-  let panFrom: { x: number; y: number; px: number; py: number } | null = null
-  stageWrap.addEventListener('pointerdown', (e) => {
-    if (!spaceDown && e.button !== 1) return
-    e.preventDefault()
-    e.stopPropagation()
-    panFrom = { x: e.clientX, y: e.clientY, px: s.panX, py: s.panY }
-    const move = (ev: PointerEvent): void => {
-      if (!panFrom) return
-      s.panX = panFrom.px + (ev.clientX - panFrom.x)
-      s.panY = panFrom.py + (ev.clientY - panFrom.y)
-      applyView()
-    }
-    const up = (): void => {
-      panFrom = null
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
-  }, true)
-
-  /* ----- keyboard: studio owns the keys while open ----- */
-  const onKey = (e: KeyboardEvent): void => {
-    if (e.key === ' ' && e.type === 'keydown' && !isTyping(e)) {
-      spaceDown = true
-      stageWrap.classList.add('is-panning')
-      e.preventDefault()
-      return
-    }
-    if (e.type !== 'keydown') return
-    if (e.key === 'Escape') {
-      e.stopPropagation()
-      e.preventDefault()
-      // esc backs out one level: active drawing → selection → studio
-      if (!toolsHandleEscape()) closeStudio()
-      return
-    }
-    if (isTyping(e)) return
-    e.stopPropagation()
-    if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deletePicked(); return }
-    const NUDGE: Record<string, [number, number]> = {
-      ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1],
-    }
-    if (NUDGE[e.key]) {
-      e.preventDefault()
-      const k = e.shiftKey ? 10 : 1
-      nudgePicked(NUDGE[e.key][0] * k, NUDGE[e.key][1] * k)
-      return
-    }
-    const tool = TOOLS.find((t) => t.key === e.key.toLowerCase())
-    if (tool && !e.metaKey && !e.ctrlKey) { setTool(tool.name); return }
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
-      e.preventDefault()
-      e.shiftKey ? state.redo() : state.undo()
-    }
-  }
-  const onKeyUp = (e: KeyboardEvent): void => {
-    if (e.key === ' ') { spaceDown = false; stageWrap.classList.remove('is-panning') }
-  }
-  document.addEventListener('keydown', onKey, true)
-  document.addEventListener('keyup', onKeyUp, true)
-  s.offKey = () => {
-    document.removeEventListener('keydown', onKey, true)
-    document.removeEventListener('keyup', onKeyUp, true)
-  }
-
-  /* ----- bus: stay honest under ops/undo/redo; die with the document ----- */
-  s.offBus = state.bus.on((e) => {
-    if (e.type === 'deck-loaded') { closeStudio(); return }
-    if (e.type === 'op' || e.type === 'undo' || e.type === 'redo') {
-      for (const el of [...s.picked]) if (el.parentNode !== s.svg) s.picked.delete(el)
-      refreshPanels(s)
-    }
-  })
-
-  mountTools(s, toolsEl)
-  mountPanels(s, railEl)
-  setTool('select')
+  if (!canStudio(svg)) return
+  void import('./focus').then((m) => m.focusIsolate(svg))
 }
 
-/** center the artwork in the stage at a comfortable initial zoom */
-function fitToStage(s: StudioSession, wrap: HTMLElement): void {
-  const wr = wrap.getBoundingClientRect()
-  const box = s.svg.getBoundingClientRect()
-  const w = box.width || 480
-  const h2 = box.height || 300
-  if (wr.width === 0) return
-  s.zoom = Math.min(2.5, Math.max(0.1, Math.min((wr.width * 0.72) / w, (wr.height * 0.72) / h2)))
-  s.panX = (wr.width - w * s.zoom) / 2
-  s.panY = (wr.height - h2 * s.zoom) / 2
-}
-
-/** the studio's context verbs — every item is an existing tool action */
-function studioEntries(s: StudioSession, target: EventTarget | null): Entry[] {
-  const items: Entry[] = []
-  const hit = hitOf(target)
-  if (hit) {
-    if (!s.picked.has(hit)) pick(hit, false)
-    if (hit instanceof SVGPathElement && canPointEdit(hit)) {
-      items.push({ label: 'edit points', run: () => openPointEditor({ kind: 'free', scene: s.svg, el: hit }) })
-    }
-    if (isPlainGroup(hit)) {
-      items.push(
-        { label: 'enter group', run: () => enterGroup(hit) },
-        { label: 'ungroup', run: ungroupPicked },
-      )
-    }
-    if (s.picked.size > 1) items.push({ label: `group ${s.picked.size} elements`, run: groupPicked })
-    items.push(
-      { label: 'duplicate', run: duplicatePicked },
-      { label: 'bring to front', run: () => reorderPicked(true) },
-      { label: 'send to back', run: () => reorderPicked(false) },
-      SEP,
-      { label: s.picked.size > 1 ? `delete ${s.picked.size} elements` : 'delete', run: deletePicked, danger: true },
-      SEP,
-    )
-  } else if (s.entered.length > 0) {
-    items.push({ label: 'exit group', run: exitGroup }, SEP)
-  }
-  if (isSceneArt(s.svg)) items.push({ label: 'insert node', run: () => insertShapeNode(s.svg, 'node') })
-  items.push(
-    { label: 'import svg…', run: () => openImportDialog(s) },
-    SEP,
-    { label: 'done — close studio', run: closeStudio },
-  )
-  return items
-}
-
-/** esc backs out one layer: drawing → selection → entered group → studio */
-function toolsHandleEscape(): boolean {
-  if (!session) return false
-  if (currentTool() !== 'select') { setTool('select'); return true }
-  if (session.picked.size > 0) {
-    session.picked.clear()
-    refreshPanels(session)
-    return true
-  }
-  if (session.entered.length > 0) { exitGroup(); return true }
-  return false
-}
-
-function isTyping(e: KeyboardEvent): boolean {
-  const t = e.composedPath()[0]
-  return t instanceof HTMLElement &&
-    (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
-}
-
-/* ---------- studio chrome css (artifact style inside the shadow root) ---------- */
+/* ---------- shared chrome (style + tiny DOM helpers) ---------- */
 
 export function ensureStudioStyle(): void {
   const root = state.deck?.root
@@ -428,11 +166,6 @@ const STUDIO_CSS = `
   margin: 0 !important; width: 1280px;
   box-shadow: 0 0 0 1px var(--rule, #444), 0 18px 60px rgba(0,0,0,.35);
 }
-.dia-st-stage > svg.dia-studio-art {
-  display: block;
-  background: var(--dia-paper, transparent);
-  box-shadow: 0 0 0 1px var(--rule, #444), 0 18px 60px rgba(0,0,0,.35);
-}
 .dia-st-rail {
   flex: none; width: 252px; overflow-y: auto;
   border-left: 1px solid var(--rule, #333); background: var(--panel, #222);
@@ -490,7 +223,7 @@ input[type='range'].dia-st-range { flex: 1; accent-color: var(--accent); }
   border: 1px solid var(--rule, #444); border-radius: 5px; padding: 8px;
 }
 .dia-st-import .dia-st-err { color: var(--bad, #e05); font-size: 12px; }
-/* overlay artifacts inside the artwork svg */
+/* overlay artifacts inside the edited svg — deck-proof (!important) */
 .dia-studio .dia-st-ov { pointer-events: none; }
 .dia-studio .dia-st-ov * { vector-effect: non-scaling-stroke; }
 .dia-studio .dia-st-selbox { fill: none !important; stroke: var(--accent, #59c2ff) !important; stroke-width: 1 !important; stroke-dasharray: 4 3; }

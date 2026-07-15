@@ -27,7 +27,10 @@ let wired = false
 export function installElementDragging(): void {
   if (wired) return
   wired = true
-  state.bus.on((e) => { if (e.type === 'deck-loaded') wire() })
+  state.bus.on((e) => {
+    if (e.type === 'deck-loaded') wire()
+    if (e.type === 'selection' || e.type === 'op' || e.type === 'undo' || e.type === 'redo') positionGrip()
+  })
   if (state.deck) wire()
 }
 
@@ -44,6 +47,60 @@ function wire(): void {
     const t = e.composedPath()[0]
     if (t instanceof HTMLImageElement) e.preventDefault()
   }, { signal: ac.signal })
+  window.addEventListener('scroll', positionGrip, { capture: true, signal: ac.signal })
+  window.addEventListener('resize', positionGrip, { signal: ac.signal })
+}
+
+/* ---------- the grab handle ----------
+ * Selected svgs (and any element) are awkward to move: presses on svg
+ * surfaces belong to the scene machinery, so the block itself has no
+ * grabbable area. A small ✥ grip floats at the selection's top edge —
+ * dragging it ALWAYS moves the selected element, whatever it is. */
+
+let grip: HTMLButtonElement | null = null
+
+function ensureGrip(root: ShadowRoot): HTMLButtonElement {
+  if (grip?.isConnected) return grip
+  grip = document.createElement('button')
+  grip.type = 'button'
+  grip.className = 'dia-editor-artifact dia-grab'
+  grip.textContent = '✥'
+  grip.title = 'drag to move the selected element'
+  // theme-proof by construction, like the highlight boxes
+  grip.style.cssText =
+    'position: fixed; z-index: 60; width: 22px; height: 22px; display: none;' +
+    'align-items: center; justify-content: center; padding: 0;' +
+    'font: 13px/1 ui-monospace, monospace; cursor: grab;' +
+    'color: #fff; background: #ff9500; border: 1.5px solid rgba(0,0,0,.45);' +
+    'border-radius: 50%; box-shadow: 0 0 0 2px rgba(255,255,255,.85), 0 3px 10px rgba(0,0,0,.3);'
+  grip.addEventListener('pointerdown', (e) => {
+    const sel = state.selection
+    if (sel.kind !== 'element') return
+    e.preventDefault()
+    e.stopPropagation()
+    beginMove(sel.el, e, { immediate: true })
+  })
+  root.appendChild(grip)
+  return grip
+}
+
+function positionGrip(): void {
+  const root = state.deck?.root
+  if (!root) return
+  const g = ensureGrip(root)
+  const sel = state.selection
+  if (sel.kind !== 'element' || !sel.el.isConnected) {
+    g.style.display = 'none'
+    return
+  }
+  const r = sel.el.getBoundingClientRect()
+  if (r.width === 0 && r.height === 0) {
+    g.style.display = 'none'
+    return
+  }
+  g.style.display = 'flex'
+  g.style.left = `${Math.round(r.left + r.width / 2 - 11)}px`
+  g.style.top = `${Math.round(Math.max(2, r.top - 26))}px`
 }
 
 function onPointerDown(e: PointerEvent): void {
@@ -108,6 +165,7 @@ function beginMove(el: HTMLElement, e: PointerEvent, opts: { immediate: boolean 
       const x = base.x + (ev.clientX - c0.x)
       const y = base.y + (ev.clientY - c0.y)
       el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)${base.rest ? ' ' + base.rest : ''}`
+      positionGrip() // the grab handle rides along
       ev.preventDefault()
     },
     () => {
