@@ -308,8 +308,14 @@
   color: var(--ink-soft);
 }
 .de-style-row .dn-seg { flex-wrap: wrap; }
-/* slide focus owns the whole left side — the minimap yields its column */
-.de-app.de-focus-on .de-minimap { display: none; }
+/* slide focus owns the whole left side — the minimap yields its column.
+ * The layout is a GRID and the minimap must STAY IN THE FLOW: collapsing
+ * it with display:none makes the remaining children auto-place one column
+ * early (main fell into the minimap track, the rail swallowed the 1fr).
+ * Instead its TRACK goes to zero and the element clips inside it. */
+.de-app.de-focus-on .de-layout { grid-template-columns: 0 minmax(0, 1fr) var(--de-rail-w, 300px); }
+.de-app.de-focus-on .de-layout.de-rail-off { grid-template-columns: 0 minmax(0, 1fr); }
+.de-app.de-focus-on .de-minimap { overflow: hidden; min-width: 0; padding: 0; border: 0; }
 
 /* storyboard drawer: element lanes × step columns, docked at the bottom */
 .de-sb {
