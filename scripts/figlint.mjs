@@ -160,6 +160,24 @@ function nearText(svg, p) {
   return svg.texts.some((t) => Math.hypot(t.x - p.x, t.y - p.y) <= 18)
 }
 
+/** length of the part of segment a→b inside the box (Liang–Barsky) */
+function clipLength(a, b, bx) {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  let t0 = 0
+  let t1 = 1
+  for (const [p, q] of [
+    [-dx, a.x - bx.x], [dx, bx.x + bx.w - a.x],
+    [-dy, a.y - bx.y], [dy, bx.y + bx.h - a.y],
+  ]) {
+    if (p === 0) { if (q < 0) return 0; continue }
+    const r = q / p
+    if (p < 0) { if (r > t1) return 0; if (r > t0) t0 = r }
+    else { if (r < t0) return 0; if (r < t1) t1 = r }
+  }
+  return Math.hypot(dx, dy) * Math.max(0, t1 - t0)
+}
+
 function onAnyPathPoint(svg, p, eps, skip) {
   for (const pts of svg.lines) {
     if (pts === skip) continue
@@ -190,6 +208,32 @@ for (const svg of svgs) {
     } else if (shaft && !lands) {
       console.log(`slide ${svg.slide}: ARROW POINTS AT NOTHING — apex (${ch.apex.x}, ${ch.apex.y}) touches no box, path, or label`)
       bad++
+    }
+  }
+  // connectors route AROUND boxes: flag any segment that passes THROUGH a
+  // box interior. Decoration fully inside (or on) a box is welcome; a line
+  // that stops at an edge has no interior span. Liang–Barsky clip length.
+  for (const pts of svg.lines) {
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1]
+      const b = pts[i]
+      for (const bx of svg.boxes) {
+        const within = (p) => p.x >= bx.x - EPS && p.x <= bx.x + bx.w + EPS &&
+          p.y >= bx.y - EPS && p.y <= bx.y + bx.h + EPS
+        // a TERMINAL inside a box is decoration or a leader pointing at
+        // something within — but an interior BEND inside a box means the
+        // connector turns inside it: still a pass-through
+        const aExempt = i === 1 && within(a)
+        const bExempt = i === pts.length - 1 && within(b)
+        if (aExempt || bExempt) continue
+        // clip against the SHRUNKEN interior: a line running along a box
+        // edge (grid lines on chart cells) is not a pass-through
+        const inner = { x: bx.x + EPS, y: bx.y + EPS, w: bx.w - 2 * EPS, h: bx.h - 2 * EPS }
+        if (inner.w > 0 && inner.h > 0 && clipLength(a, b, inner) > 6) {
+          console.log(`slide ${svg.slide}: CONNECTOR CROSSES A BOX — segment (${a.x},${a.y})→(${b.x},${b.y}) passes through box at (${bx.x},${bx.y})`)
+          bad++
+        }
+      }
     }
   }
   for (const pts of svg.lines) {
