@@ -61,9 +61,16 @@ section.dia-slide { position: relative; }
 </head>
 <body>
 <section class="dia-slide dia-cover">
-  <div class="dia-kicker">diastil</div>
+  <svg viewBox="0 0 140 26" role="img" aria-label="diastīl mark — slides distilled to one file"
+       style="width: 112px; height: 22px; margin-bottom: 14px; overflow: visible;">
+    <path d="M4,5 L72,9" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.6; stroke-linecap: round; opacity: .55;"/>
+    <path d="M4,13 L80,13" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.6; stroke-linecap: round; opacity: .8;"/>
+    <path d="M4,21 L72,17" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.6; stroke-linecap: round; opacity: .55;"/>
+    <circle cx="98" cy="13" r="4.5" style="fill: var(--dia-accent);"/>
+  </svg>
+  <div class="dia-kicker">diastīl</div>
   <h1 class="dia-title dia-cover-title">A deck that edits like a document and draws like a canvas</h1>
-  <p class="dia-body">demo deck · six slides · one scene diagram</p>
+  <p class="dia-body">demo deck · eight slides · drawings, connectors, math, steps</p>
 </section>
 
 <section class="dia-slide">
@@ -119,6 +126,40 @@ section.dia-slide { position: relative; }
 
 <section class="dia-slide dia-columns">
   <div>
+    <div class="dia-kicker">Drawing</div>
+    <h1 class="dia-title">Shapes, connectors, and free strokes — one surface</h1>
+    <div class="dia-body dia-stack">
+      <p>A drawing is a scene: nodes carry geometry as data, connectors are derived and re-route around whatever moves.</p>
+      <p>Drag a connector's middle dot to steer it — the bend below is a <code>data-via</code> waypoint, not a hand-written path.</p>
+      <p>Freeform art lives alongside: the underline and the arrow are pen strokes; the star is a freeform path node you can reshape point by point.</p>
+    </div>
+  </div>
+  <div class="dia-figure">
+    <svg class="dia-scene" viewBox="0 0 420 300" role="img" aria-label="drawing showcase">
+      <g data-dia-node="sketch" data-shape="cloud" data-x="18" data-y="26" data-w="128" data-h="60">
+        <text class="dia-node-label">sketch</text>
+      </g>
+      <g data-dia-node="ship" data-shape="rounded" data-x="262" data-y="30" data-w="120" data-h="52" data-dia-emphasis="">
+        <text class="dia-node-label">ship</text>
+      </g>
+      <g data-dia-node="spark" data-shape="path" data-x="36" data-y="176" data-w="86" data-h="84"
+         data-path="M50,0 L61.8,31.9 L95.6,34.55 L69.1,55.9 L79.4,88.15 L50,70 L20.6,88.15 L30.9,55.9 L4.4,34.55 L38.2,31.9 Z">
+        <text class="dia-node-label">idea</text>
+      </g>
+      <g data-dia-edge="sketch->ship" data-anchors="E,W" data-route="ortho" data-label="related"></g>
+      <g data-dia-edge="spark->sketch" data-anchors="N,S" data-route="curve" data-via="36,120" data-label="steered"></g>
+      <path d="M170,180 C196,164 210,196 238,178 C258,166 270,188 292,176"
+            style="fill: none; stroke: var(--dia-accent); stroke-width: 2.2; stroke-linecap: round;"/>
+      <path d="M306,172 L342,148 M342,148 L330,150 M342,148 L340,160"
+            style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.8; stroke-linecap: round;"/>
+      <text x="188" y="216" style="font: 12px Georgia, serif; font-style: italic; fill: var(--dia-ink-soft);">drawn by hand, still data</text>
+    </svg>
+    <div class="dia-caption">fig 2 · double-click a connector to label it; drag its middle dot to bend it</div>
+  </div>
+</section>
+
+<section class="dia-slide dia-columns">
+  <div>
     <div class="dia-kicker">Photosetting</div>
     <h1 class="dia-title">Images carry crop and focal point as style</h1>
     <p class="dia-body">The figure's focal point is data, so exports never re-encode pixels.</p>
@@ -155,6 +196,7 @@ section.dia-slide { position: relative; }
 <section class="dia-slide dia-cover">
   <div class="dia-kicker">End</div>
   <h1 class="dia-title">Edit this deck to prove it round-trips</h1>
+  <p class="dia-caption" style="margin-top: 18px;">diastīl · one file, distilled <svg viewBox="0 0 12 12" style="width: 9px; height: 9px;"><circle cx="6" cy="6" r="4.5" style="fill: var(--dia-accent);"/></svg></p>
 </section>
 
 <script id="dia-runtime">

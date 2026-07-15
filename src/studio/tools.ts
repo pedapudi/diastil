@@ -11,7 +11,7 @@ import { batch, insertEl, moveEl, moveSceneNode, removeEl, setAttr } from '../mo
 import { pxScale, showToast } from '../scene/overlay'
 import { openPointEditor, closePointEditor, canPointEdit } from '../scene/points'
 import { getNodeGeom, routeEdgesOf, setNodeGeom } from '../scene/route'
-import { beginEdgeViaDrag, insertEdgeFlow, insertShapeNode } from '../scene/interact'
+import { beginEdgeViaDrag, insertEdgeFlow, insertShapeNode, openEdgeLabelEdit, openLabelEdit } from '../scene/interact'
 import type { StudioSession } from './studio'
 import { isSceneArt } from './studio'
 import { refreshPanels } from './panels'
@@ -550,9 +550,22 @@ function installPointer(c: ToolCtx): void {
   }
   const dbl = (e: MouseEvent): void => {
     if (c.tool === 'pen') { finishPen(false); return }
-    // dblclick a group → enter it (isolation); dblclick empty space → exit
     if (c.tool !== 'select') return
+    // dblclick edits LABELS in place — a connector's annotation ("related")
+    // or a node's caption, the same editors as the canvas
+    const edgeEl = (e.target as Element | null)?.closest?.('[data-dia-edge]')
+    if (edgeEl instanceof SVGGElement && isSceneArt(c.s.svg)) {
+      e.preventDefault()
+      openEdgeLabelEdit(c.s.svg, edgeEl)
+      return
+    }
     const hit = topLevelOf(c, e.target)
+    if (hit && isNodeEl(hit) && isSceneArt(c.s.svg)) {
+      e.preventDefault()
+      openLabelEdit(c.s.svg, hit)
+      return
+    }
+    // dblclick a group → enter it (isolation); dblclick empty space → exit
     if (hit && isPlainGroup(hit)) enterGroup(hit)
     else if (!hit && c.s.entered.length > 0) exitGroup()
   }

@@ -5,6 +5,7 @@
  * a group appended to the open drawing, or a fresh drawing on a slide. */
 
 import { state } from '../state'
+import { ensureSceneStyleRules } from '../scene/interact'
 import { batch, insertEl } from '../model/ops'
 import type { StudioSession } from './studio'
 import { h, button } from './studio'
@@ -103,12 +104,13 @@ function importAsGroup(target: SVGSVGElement, imported: SVGSVGElement): SVGGElem
   return group
 }
 
-/** a fresh drawing on a slide: empty viewBoxed svg inserted as an op,
- * then opened in the studio (the inspector's "+ drawing" entry).
- * While THIS slide is focused, the drawing lands in place instead —
- * focus already carries the full toolset, and studios never nest. */
+/** THE drawing on a slide: one artifact kind for everything — a dia-scene
+ * figure, so nodes, connectors, AND freeform vector art coexist in it.
+ * Inserted as an op and opened isolated in the studio. */
 export function newDrawingOnSlide(slide: HTMLElement): void {
+  ensureSceneStyleRules()
   const svg = document.createElementNS(NS, 'svg') as SVGSVGElement
+  svg.setAttribute('class', 'dia-scene')
   svg.setAttribute('viewBox', '0 0 480 300')
   svg.setAttribute('role', 'img')
   svg.style.width = '100%'

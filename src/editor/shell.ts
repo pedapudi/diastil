@@ -316,7 +316,7 @@ export function mountEditor(host: HTMLElement): void {
   installTextEditing(canvasHost)
   installElementDragging()
   installHistory(canvasHost)
-  installContextMenu(canvasHost, { insertDiagram })
+  installContextMenu(canvasHost)
   mountThemePicker(pickerSlot)
   mountTypePicker(pickerSlot)
   mountCopilot(copilotPane)
@@ -501,13 +501,9 @@ export function mountEditor(host: HTMLElement): void {
         const rowEl = h('div', 'de-style-row')
         rowEl.append(h('span', 'de-style-k', 'insert'))
         const segEl = h('span', 'dn-seg')
-        const b = h('button', '', '+ diagram')
-        b.type = 'button'
-        b.title = 'add a full-slide diagram layer — shapes anywhere on the slide'
-        b.addEventListener('click', () => { insertDiagram(slide); renderInspect() })
         const bd = h('button', '', '+ drawing')
         bd.type = 'button'
-        bd.title = 'add freeform svg artwork and open it in the studio'
+        bd.title = 'add a drawing — shapes, connectors, and freeform art in one; opens isolated in the studio'
         bd.addEventListener('click', () => newDrawingOnSlide(slide))
         const bt = h('button', '', '+ text')
         bt.type = 'button'
@@ -520,7 +516,7 @@ export function mountEditor(host: HTMLElement): void {
           const el = insertMathOnSlide(slide)
           if (el) state.selection = { kind: 'element', el, slide }
         })
-        segEl.append(bt, b, bd, bm)
+        segEl.append(bt, bd, bm)
         rowEl.append(segEl)
         inspectBody.append(rowEl)
       }
@@ -766,21 +762,6 @@ export function mountEditor(host: HTMLElement): void {
     dr.append(seg2)
     rows.push(dr)
     return rows
-  }
-
-  /** add a FULL-SLIDE diagram layer: an absolutely-positioned scene over the
-   * whole slide (viewBox = slide aspect) — shapes, nodes, edges, and drawn
-   * strokes can land anywhere, layered with the slide's text. Idle clicks
-   * pass through to the text; painted content stays interactive. */
-  function insertDiagram(slide: HTMLElement): void {
-    ensureSceneStyleRules()
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-    svg.setAttribute('class', 'dia-scene dia-scene-full')
-    svg.setAttribute('viewBox', '0 0 1280 720')
-    svg.setAttribute('aria-label', 'diagram layer')
-    assignFreshIds(svg as unknown as HTMLElement)
-    state.apply(insertEl(slide, slide.children.length, svg, 'InsertDiagramLayer'))
-    state.selection = { kind: 'element', el: svg as unknown as HTMLElement, slide }
   }
 
   /** one per-element style control row: current value highlighted, every

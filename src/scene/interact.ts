@@ -1103,7 +1103,7 @@ export function spawnConnectedNode(scene: SVGSVGElement, node: SVGGElement): voi
 
 let closeLabelEdit: (() => void) | null = null
 
-function openLabelEdit(scene: SVGSVGElement, node: SVGGElement): void {
+export function openLabelEdit(scene: SVGSVGElement, node: SVGGElement): void {
   closeLabelEdit?.()
   flushNudge()
   let label = node.querySelector<SVGTextElement>('.dia-node-label')
