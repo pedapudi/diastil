@@ -308,6 +308,48 @@
   color: var(--ink-soft);
 }
 .de-style-row .dn-seg { flex-wrap: wrap; }
+/* storyboard drawer: element lanes × step columns, docked at the bottom */
+.de-sb {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: 14px; z-index: 480;
+  max-width: min(940px, calc(100vw - 40px)); max-height: 42vh; overflow: auto;
+  padding: 10px 14px 12px;
+  box-shadow: 0 14px 44px rgba(0, 0, 0, .32);
+  font-family: var(--sans); font-size: calc(12px * var(--dt-font-scale, 1));
+  color: var(--ink);
+}
+.de-sb-head { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; }
+.de-sb-head button {
+  font: inherit; font-size: calc(11.5px * var(--dt-font-scale, 1));
+  background: transparent; color: var(--ink-soft);
+  border: 1px solid var(--rule); border-radius: 5px; padding: 2px 9px; cursor: pointer;
+}
+.de-sb-head button:hover { border-color: var(--accent); color: var(--ink); }
+.de-sb-spacer { flex: 1; }
+.de-sb-dim { color: var(--ink-faint); font-weight: 400; }
+.de-sb-grid { display: grid; gap: 2px 0; align-items: center; }
+.de-sb-lane {
+  font-family: var(--mono); font-size: calc(10.5px * var(--dt-font-scale, 1));
+  color: var(--ink-soft); cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 10px;
+}
+.de-sb-lane:hover { color: var(--ink); }
+.de-sb-col {
+  font-family: var(--mono); font-size: calc(10.5px * var(--dt-font-scale, 1));
+  background: transparent; color: var(--ink-faint);
+  border: 0; border-bottom: 1px solid var(--rule-soft); padding: 2px 0; cursor: pointer;
+}
+.de-sb-col:hover { color: var(--accent); }
+.de-sb-col.dn-on { color: var(--accent); border-bottom-color: var(--accent); }
+.de-sb-cell {
+  font-size: calc(13px * var(--dt-font-scale, 1)); line-height: 1.4;
+  background: transparent; color: var(--ink-faint);
+  border: 0; cursor: pointer; border-radius: 4px;
+}
+.de-sb-cell:hover { background: var(--rule-soft); color: var(--ink); }
+.de-sb-cell.is-on { color: var(--accent); }
+.de-sb-hint { margin-top: 7px; color: var(--ink-faint); font-size: calc(11px * var(--dt-font-scale, 1)); }
+
 /* right-click context menu: chrome register, clamped fixed panel */
 .de-menu {
   position: fixed; z-index: 520; min-width: 196px; padding: 5px;

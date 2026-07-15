@@ -26,6 +26,7 @@ import { installElementDragging } from './elemdrag'
 import { legendOpen, toggleLegend, closeLegend } from './legend'
 import { installTextEditing, insertTextOnSlide } from './textedit'
 import { installContextMenu } from './contextmenu'
+import { toggleStoryboard } from './storyboard'
 import { buildSlideTree } from './tree'
 import { openCompare } from './compare'
 import { bootFromCli, openDeck, saveDeck, presentDeck } from './slides'
@@ -579,6 +580,16 @@ export function mountEditor(host: HTMLElement): void {
       })
       tRow.append(allBtn)
       inspectBody.append(tRow)
+
+      // the storyboard: element lanes × step columns for this slide's build
+      const sbRow = h('div', 'de-style-row')
+      sbRow.append(h('span', 'de-style-k', 'steps'))
+      const sbBtn = h('button', 'dn-btn', 'storyboard')
+      sbBtn.type = 'button'
+      sbBtn.title = 'arrange the slide’s reveal moments on a board — preview each moment live'
+      sbBtn.addEventListener('click', () => toggleStoryboard(slide))
+      sbRow.append(sbBtn)
+      inspectBody.append(sbRow)
     }
 
     // a selected svg (scene background click) gets CREATION tools here in
