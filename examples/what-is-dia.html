@@ -121,7 +121,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
   <div class="dia-body lede">The saved file is the format: one self-contained HTML page that
   presents itself, restyles from tokens, and stays editable by you, a text editor,
   or any coding agent. No build step. No private data model. No lock-in.</div>
-  <div class="dia-caption foot"><span>01 / 16</span><span class="wordmark">diastīl</span></div>
+  <div class="dia-caption foot"><span>01 / 18</span><span class="wordmark">diastīl</span></div>
 </section>
 
 <section class="dia-slide" data-dia-transition="rise">
@@ -146,7 +146,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
       <code>validate.py</code> behind <code>dia validate</code> — identical rule ids,
       exit 1 on any error. The contract gate for humans and agents alike.</p></div>
   </div>
-  <div class="dia-caption foot"><span>02 / 16</span><span class="wordmark">diastīl</span></div>
+  <div class="dia-caption foot"><span>02 / 18</span><span class="wordmark">diastīl</span></div>
 </section>
 
 <section class="dia-slide" data-dia-transition="rise">
@@ -205,7 +205,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
       <figcaption class="dia-caption">the whole format is one file — theme, slides, runtime</figcaption>
     </figure>
   </div>
-  <div class="dia-caption foot"><span>03 / 16</span><span class="wordmark">diastīl</span></div>
+  <div class="dia-caption foot"><span>03 / 18</span><span class="wordmark">diastīl</span></div>
 </section>
 
 <section class="dia-slide" data-dia-transition="rise">
@@ -261,7 +261,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
       Editor artifacts strip on save; a saved deck re-serializes to <em>identical bytes</em>,
       so text-editor diffs stay clean.</p></div>
   </div>
-  <div class="dia-caption foot"><span>04 / 16</span><span class="wordmark">diastīl</span></div>
+  <div class="dia-caption foot"><span>04 / 18</span><span class="wordmark">diastīl</span></div>
 </section>
 
 <section class="dia-slide" data-dia-transition="rise">
@@ -304,7 +304,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
   </div>
   <div class="formula"><code>&lt;g data-dia-node="decide" data-shape="diamond" data-x="180" data-y="84" data-w="112" data-h="64"&gt;</code></div>
   <p class="dia-caption sub">the drawing above is nine declarations like this one — a diff-able diagram any agent can edit</p>
-  <div class="dia-caption foot"><span>05 / 16</span><span class="wordmark">diastīl</span></div>
+  <div class="dia-caption foot"><span>05 / 18</span><span class="wordmark">diastīl</span></div>
 </section>
 
 <section class="dia-slide" data-dia-transition="rise">
@@ -387,7 +387,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
       spacing; faces, weights, and colors bind to tokens; delays become steps;
       exact shapes lift deterministically into scenes.</p></div>
   </div>
-  <div class="dia-caption foot"><span>06 / 16</span><span class="wordmark">diastīl</span></div>
+  <div class="dia-caption foot"><span>06 / 18</span><span class="wordmark">diastīl</span></div>
 </section>
 
 <section class="dia-slide" data-dia-transition="rise">
@@ -449,7 +449,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
       composition is mass on a grid (L), color at three scales (A)</figcaption>
     </figure>
   </div>
-  <div class="dia-caption foot"><span>07 / 16</span><span class="wordmark">diastīl</span></div>
+  <div class="dia-caption foot"><span>07 / 18</span><span class="wordmark">diastīl</span></div>
 </section>
 
 <section class="dia-slide" data-dia-transition="rise">
@@ -509,7 +509,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
     · close-up crop pairs of the worst region · what the last rejected attempt did wrong.
     A repair that deletes source text is rejected <strong>outright</strong>; every candidate stays selectable — the human outranks the metric.</p>
   </div>
-  <div class="dia-caption foot"><span>08 / 16</span><span class="wordmark">diastīl</span></div>
+  <div class="dia-caption foot"><span>08 / 18</span><span class="wordmark">diastīl</span></div>
 </section>
 
 <section class="dia-slide" data-dia-transition="rise">
@@ -548,7 +548,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
       <figcaption class="dia-caption">good = above the floor; the floor never returns</figcaption>
     </figure>
   </div>
-  <div class="dia-caption foot"><span>09 / 16</span><span class="wordmark">diastīl</span></div>
+  <div class="dia-caption foot"><span>09 / 18</span><span class="wordmark">diastīl</span></div>
 </section>
 
 <section class="dia-slide" data-dia-transition="rise">
@@ -581,11 +581,155 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
         <code>dia validate</code> as the acceptance test for all of them.</p></div>
     </div>
   </div>
-  <div class="dia-caption foot"><span>10 / 16</span><span class="wordmark">diastīl</span></div>
+  <div class="dia-caption foot"><span>10 / 18</span><span class="wordmark">diastīl</span></div>
 </section>
 
 <section class="dia-slide" data-dia-transition="rise">
-  <div class="dia-kicker">how to use it · 11</div>
+  <div class="dia-kicker">implementation · context engineering · 11</div>
+  <h2 class="dia-title">The model is integrated as a <em>context-engineering</em> problem.</h2>
+  <div class="dia-columns">
+    <div class="dia-body">
+      <p>A deck is <strong>too big to send whole</strong> — eighteen slides of markup
+      and screenshots drown the one region that matters, and attention degrades
+      long before the token budget runs out.</p>
+      <p>It is also <strong>too visual to send as text</strong> — overlap, contrast,
+      a connector cutting through a node: none of it survives a DOM dump. A
+      screenshot alone loses the other half: ids, roles, tokens — everything an
+      op can target.</p>
+      <p>So every skill <strong>rightsizes</strong>: it assembles the smallest
+      words-plus-pixels slice that still determines the answer, and every piece
+      of it earns its bytes.</p>
+      <div class="formula">context(ask) <b>=</b> smallest slice s ⊆ deck <b>s.t.</b> answer(s) <b>=</b> answer(deck)
+<em>rightsizing</em> is selection, not truncation — keep what decides, drop what distracts</div>
+    </div>
+    <figure class="dia-figure" style="width: 100%; margin: 0;">
+      <svg viewBox="0 0 430 312" role="img" aria-label="one region-repair prompt, drawn to scale" style="width: 100%; font-family: var(--dia-face-label); font-size: 10px;">
+        <text x="10" y="14" style="fill: var(--dia-ink-soft); letter-spacing: .1em;">ONE REGION-REPAIR PROMPT, DRAWN TO SCALE</text>
+
+        <rect x="10" y="26" width="410" height="58" rx="4" style="fill: none; stroke: var(--dia-rule); stroke-width: 1.2;"></rect>
+        <g style="fill: none; stroke: var(--dia-ink-faint); stroke-width: 1;">
+          <rect x="16" y="36" width="17" height="30"></rect><rect x="38" y="36" width="17" height="30"></rect>
+          <rect x="60" y="36" width="17" height="30"></rect><rect x="82" y="36" width="17" height="30"></rect>
+          <rect x="104" y="36" width="17" height="30"></rect><rect x="126" y="36" width="17" height="30"></rect>
+          <rect x="170" y="36" width="17" height="30"></rect><rect x="192" y="36" width="17" height="30"></rect>
+          <rect x="214" y="36" width="17" height="30"></rect><rect x="236" y="36" width="17" height="30"></rect>
+          <rect x="258" y="36" width="17" height="30"></rect><rect x="280" y="36" width="17" height="30"></rect>
+          <rect x="302" y="36" width="17" height="30"></rect><rect x="324" y="36" width="17" height="30"></rect>
+          <rect x="346" y="36" width="17" height="30"></rect><rect x="368" y="36" width="17" height="30"></rect>
+          <rect x="390" y="36" width="17" height="30"></rect>
+        </g>
+        <rect x="148" y="36" width="17" height="30" style="fill: none; stroke: var(--dia-accent); stroke-width: 1.6;"></rect>
+        <rect x="151" y="52" width="8" height="8" style="fill: var(--dia-accent); fill-opacity: .4;"></rect>
+        <text x="16" y="79" style="fill: var(--dia-ink-faint);">the deck — 18 slides · markup + pixels ≈ 0.9 MB</text>
+
+        <path d="M156,84 V150 M152,150 L156,156 L160,150" style="fill: none; stroke: var(--dia-accent); stroke-width: 1.6;"></path>
+        <text x="170" y="104" style="fill: var(--dia-ink-soft);">select the slide</text>
+        <text x="170" y="118" style="fill: var(--dia-ink-soft);">crop to the shaded region</text>
+        <text x="170" y="132" style="fill: var(--dia-ink-soft);">pair the words with the pixels</text>
+        <text x="10" y="149" style="fill: var(--dia-ink-soft);">the assembled prompt</text>
+
+        <rect x="10" y="156" width="410" height="52" rx="4" style="fill: none; stroke: var(--dia-accent); stroke-width: 1.6;"></rect>
+        <rect x="214" y="157" width="104" height="50" style="fill: var(--dia-accent); fill-opacity: .08;"></rect>
+        <rect x="318" y="157" width="72" height="50" style="fill: var(--dia-accent); fill-opacity: .08;"></rect>
+        <path d="M52,157 V207 M170,157 V207 M214,157 V207 M318,157 V207 M390,157 V207" style="stroke: var(--dia-rule); stroke-width: 1;"></path>
+        <g style="stroke: var(--dia-ink-faint); stroke-width: 1; fill: none;">
+          <path d="M18,174 h26 M18,182 h20 M18,190 h24"></path>
+          <path d="M60,174 h96 M60,182 h74 M60,190 h88 M60,198 h60"></path>
+          <path d="M178,174 h28 M178,182 h22 M178,190 h26"></path>
+          <path d="M398,174 h14 M398,182 h10"></path>
+        </g>
+        <g style="stroke: var(--dia-ink-soft); stroke-width: 1.1; fill: none;">
+          <path d="M226,198 L248,172 L262,188 L272,178 L288,198 Z"></path>
+          <circle cx="296" cy="172" r="4"></circle>
+          <path d="M328,196 L344,178 L354,188 L362,180 L376,196 Z"></path>
+        </g>
+
+        <path d="M31,208 V214 M192,208 V214 M354,208 V214" style="stroke: var(--dia-ink-faint); stroke-width: 1;"></path>
+        <text x="31" y="224" text-anchor="middle" style="fill: var(--dia-ink-soft);">skill</text>
+        <text x="192" y="224" text-anchor="middle" style="fill: var(--dia-ink-soft);">tokens</text>
+        <text x="354" y="224" text-anchor="middle" style="fill: var(--dia-ink-soft);">original, cropped</text>
+        <path d="M111,208 V236 M266,208 V236 M405,208 V236" style="stroke: var(--dia-ink-faint); stroke-width: 1;"></path>
+        <text x="111" y="246" text-anchor="middle" style="fill: var(--dia-ink-soft);">slide markup</text>
+        <text x="266" y="246" text-anchor="middle" style="fill: var(--dia-ink-soft);">render, cropped</text>
+        <text x="405" y="246" text-anchor="end" style="fill: var(--dia-ink-soft);">memory</text>
+
+        <rect x="10" y="266" width="12" height="12" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1;"></rect>
+        <text x="28" y="276" style="fill: var(--dia-ink-soft);">words — markup · tokens · rejection memory</text>
+        <rect x="286" y="266" width="12" height="12" style="fill: var(--dia-accent); fill-opacity: .12; stroke: var(--dia-accent); stroke-width: 1;"></rect>
+        <text x="304" y="276" style="fill: var(--dia-ink-soft);">pixels — crops</text>
+        <text x="10" y="302" style="fill: var(--dia-ink-faint);">≈ 2% of the deck reaches the model — and nearly half of it as pixels</text>
+      </svg>
+      <figcaption class="dia-caption">every skill builds its own slice — repair shown; translate, judge, and lift budget the same way</figcaption>
+    </figure>
+  </div>
+  <div class="dia-caption foot"><span>11 / 18</span><span class="wordmark">diastīl</span></div>
+</section>
+
+<section class="dia-slide" data-dia-transition="rise">
+  <div class="dia-kicker">implementation · context engineering · 12</div>
+  <h2 class="dia-title">Rightsized in <em>both channels</em> — why a VLM, specifically.</h2>
+  <p class="sub dia-body">Markup says what things <strong>are</strong>; pixels say how they <strong>look</strong>.
+  A prompt that carries both, rightsized, lets the model check each channel against the other.</p>
+  <div class="dia-columns">
+    <figure class="dia-figure" style="width: 100%; margin: 0;">
+      <svg viewBox="0 0 430 330" role="img" aria-label="scope versus modality quadrants" style="width: 100%; font-family: var(--dia-face-label); font-size: 10px;">
+        <path d="M88,300 H394 M88,300 V46" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.2;"></path>
+        <text x="80" y="106" text-anchor="end" style="fill: var(--dia-ink-soft);">rightsized</text>
+        <text x="80" y="233" text-anchor="end" style="fill: var(--dia-ink-soft);">whole deck</text>
+        <text x="172" y="318" text-anchor="middle" style="fill: var(--dia-ink-soft);">words only</text>
+        <text x="334" y="318" text-anchor="middle" style="fill: var(--dia-ink-soft);">words + pixels</text>
+
+        <rect x="96" y="172" width="152" height="118" rx="4" style="fill: none; stroke: var(--dia-rule); stroke-width: 1.2;"></rect>
+        <text x="108" y="194" style="fill: var(--dia-ink);">everything, as text</text>
+        <text x="108" y="214" style="fill: var(--dia-ink-faint);">lost in the middle ·</text>
+        <text x="108" y="228" style="fill: var(--dia-ink-faint);">blind to overlap, color,</text>
+        <text x="108" y="242" style="fill: var(--dia-ink-faint);">and everything spatial</text>
+
+        <rect x="258" y="172" width="152" height="118" rx="4" style="fill: none; stroke: var(--dia-rule); stroke-width: 1.2;"></rect>
+        <text x="270" y="194" style="fill: var(--dia-ink);">everything, twice</text>
+        <text x="270" y="214" style="fill: var(--dia-ink-faint);">token blowout — the</text>
+        <text x="270" y="228" style="fill: var(--dia-ink-faint);">defect is one crop</text>
+        <text x="270" y="242" style="fill: var(--dia-ink-faint);">among fifty</text>
+
+        <rect x="96" y="44" width="152" height="118" rx="4" style="fill: none; stroke: var(--dia-rule); stroke-width: 1.2;"></rect>
+        <text x="108" y="66" style="fill: var(--dia-ink);">small but sightless</text>
+        <text x="108" y="86" style="fill: var(--dia-ink-faint);">can name the region ·</text>
+        <text x="108" y="100" style="fill: var(--dia-ink-faint);">cannot see what broke,</text>
+        <text x="108" y="114" style="fill: var(--dia-ink-faint);">or that a fix worked</text>
+
+        <rect x="258" y="44" width="152" height="118" rx="4" style="fill: none; stroke: var(--dia-accent); stroke-width: 1.8;"></rect>
+        <text x="394" y="66" text-anchor="end" style="fill: var(--dia-accent); font-size: 13px;">★</text>
+        <text x="270" y="66" style="fill: var(--dia-ink);">small · grounded ·</text>
+        <text x="270" y="80" style="fill: var(--dia-ink);">cross-checkable</text>
+        <text x="270" y="100" style="fill: var(--dia-accent);">every dia skill</text>
+        <text x="270" y="114" style="fill: var(--dia-accent);">operates here</text>
+      </svg>
+      <figcaption class="dia-caption">two axes decide a prompt: scope and modality — only one quadrant affords verification</figcaption>
+    </figure>
+    <div class="dia-body">
+      <div class="grid2">
+        <div class="panel"><div class="panel-k">repair a region</div>
+          <p>The shaded region’s crop + that slide’s markup → targeted ops,
+          hit-tested back to the pixels they claim to fix.</p></div>
+        <div class="panel"><div class="panel-k">judge fidelity</div>
+          <p>Original beside render + the axis rubric → verdicts with visual
+          evidence — the score that gates conversion.</p></div>
+        <div class="panel"><div class="panel-k">redraw as svg</div>
+          <p>The original’s pixels + extracted geometry → vector art bound to
+          deck tokens, editable in the studio.</p></div>
+        <div class="panel"><div class="panel-k">lift math</div>
+          <p>Formula glyphs as pixels + the text around them →
+          <code>data-dia-tex</code>, re-rendered as native MathML.</p></div>
+      </div>
+      <p class="dia-caption" style="margin-top: 14px;">one habit, everywhere: the words never travel without
+      the pixels that can falsify them.</p>
+    </div>
+  </div>
+  <div class="dia-caption foot"><span>12 / 18</span><span class="wordmark">diastīl</span></div>
+</section>
+
+<section class="dia-slide" data-dia-transition="rise">
+  <div class="dia-kicker">how to use it · 13</div>
   <h2 class="dia-title">Five commands.</h2>
   <div class="dia-columns">
     <div class="dia-body">
@@ -606,11 +750,11 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
       beyond Python. Headless? every command takes <code>--no-open</code>.</p>
     </div>
   </div>
-  <div class="dia-caption foot"><span>11 / 16</span><span class="wordmark">diastīl</span></div>
+  <div class="dia-caption foot"><span>13 / 18</span><span class="wordmark">diastīl</span></div>
 </section>
 
 <section class="dia-slide" data-dia-transition="rise">
-  <div class="dia-kicker">the numbers · 12</div>
+  <div class="dia-kicker">the numbers · 14</div>
   <h2 class="dia-title">Held by tests, not intentions.</h2>
   <div class="grid4">
     <div class="panel"><div class="panel-k">suite</div>
@@ -626,11 +770,11 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
       <p>Forced renders are flagged, looping animations noted, islands counted —
       every loss is visible in the report, never silent.</p></div>
   </div>
-  <div class="dia-caption foot"><span>12 / 16</span><span class="wordmark">diastīl</span></div>
+  <div class="dia-caption foot"><span>14 / 18</span><span class="wordmark">diastīl</span></div>
 </section>
 
 <section class="dia-slide" data-dia-transition="rise">
-  <div class="dia-kicker">grammar tour · 13</div>
+  <div class="dia-kicker">grammar tour · 15</div>
   <h2 class="dia-title">Everything on these slides is <em>the dialect</em>.</h2>
   <div class="grid2">
     <div class="panel"><div class="panel-k">on this deck</div>
@@ -640,14 +784,14 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
       pinned footers via elastic margins.</p></div>
     <div class="panel"><div class="panel-k">restyle it yourself</div>
       <p>Open this file in diastil and switch the theme — every color, face, and
-      size on all fourteen slides reads a token. Or edit it in any text editor;
+      size on all eighteen slides reads a token. Or edit it in any text editor;
       <code>dia validate</code> will keep you honest.</p></div>
   </div>
-  <div class="dia-caption foot"><span>13 / 16</span><span class="wordmark">diastīl</span></div>
+  <div class="dia-caption foot"><span>15 / 18</span><span class="wordmark">diastīl</span></div>
 </section>
 
 <section class="dia-slide dia-cover" data-dia-transition="rise">
-  <div class="dia-kicker">the thesis · 14</div>
+  <div class="dia-kicker">the thesis · 16</div>
   <h2 class="dia-title" style="max-width: 30ch;">Plain files. Measured conversion.<br>
   <span class="u">Promote only what the pixels prove.</span></h2>
   <div class="dia-body lede">
@@ -656,13 +800,13 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
     document path imports anything — a deck you make today opens in twenty years.</p>
   </div>
   <div class="dia-caption foot">
-    <span>14 / 16 · written, validated, and screenshotted by an agent, using the skills dia ships</span>
+    <span>16 / 18 · written, validated, and screenshotted by an agent, using the skills dia ships</span>
     <span class="wordmark">diastīl</span>
   </div>
 </section>
 
 <section class="dia-slide" data-dia-transition="rise">
-  <div class="dia-kicker">architecture · the document core · 15</div>
+  <div class="dia-kicker">architecture · the document core · 17</div>
   <h2 class="dia-title">One document, one <em>op channel</em>.</h2>
   <figure class="dia-figure" style="margin: 0; width: 100%;">
     <svg viewBox="0 0 1180 470" role="img" aria-label="the document core" style="width: 100%; font-family: var(--dia-face-label); font-size: 11px;">
@@ -745,11 +889,11 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
       <text x="340" y="458" style="fill: var(--dia-ink-faint);">every surface and agent writes through the same channel — nothing edits the document behind the log</text>
     </svg>
   </figure>
-  <div class="dia-caption foot"><span>15 / 16</span><span class="wordmark">diastīl</span></div>
+  <div class="dia-caption foot"><span>17 / 18</span><span class="wordmark">diastīl</span></div>
 </section>
 
 <section class="dia-slide" data-dia-transition="rise">
-  <div class="dia-kicker">architecture · verified ingest · 16</div>
+  <div class="dia-kicker">architecture · verified ingest · 18</div>
   <h2 class="dia-title">Nothing converts <em>unmeasured</em>.</h2>
   <figure class="dia-figure" style="margin: 0; width: 100%;">
     <svg viewBox="0 0 1180 480" role="img" aria-label="the ingest and inference plane" style="width: 100%; font-family: var(--dia-face-label); font-size: 11px;">
@@ -832,7 +976,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
   </figure>
   <div class="dia-math" style="font-size: var(--dia-scale-4); color: var(--dia-ink); margin: 2px 0 10px;" data-dia-tex="\mathrm{score} \;=\; \bigl(0.35\,D \;+\; 0.30\,L \;+\; 0.35\,A\bigr)\cdot C^{3/2}"><math display="block" class="tml-display" style="display:block math;"><mrow><mpadded lspace="0"><mi>score</mi></mpadded><mspace width="0.2778em"></mspace><mo>=</mo><mspace width="0.2778em"></mspace><mo fence="true" symmetric="true" minsize="1.2em" maxsize="1.2em">(</mo><mn>0.35</mn><mspace width="0.1667em"></mspace><mi>D</mi><mspace width="0.2778em"></mspace><mo>+</mo><mspace width="0.2778em"></mspace><mn>0.30</mn><mspace width="0.1667em"></mspace><mi>L</mi><mspace width="0.2778em"></mspace><mo>+</mo><mspace width="0.2778em"></mspace><mn>0.35</mn><mspace width="0.1667em"></mspace><mi>A</mi><mo fence="true" symmetric="true" minsize="1.2em" maxsize="1.2em">)</mo><mo>⋅</mo><msup><mi>C</mi><mrow class="tml-med-pad"><mn>3</mn><mi>/</mi><mn>2</mn></mrow></msup></mrow></math></div>
   <p class="dia-caption sub" style="text-align: center;">the visual-consistency metric — displacement, layout, appearance, gated by completeness so dropping content can never win</p>
-  <div class="dia-caption foot"><span>16 / 16</span><span class="wordmark">diastīl</span></div>
+  <div class="dia-caption foot"><span>18 / 18</span><span class="wordmark">diastīl</span></div>
 </section>
 <script id="dia-runtime">
 /* dia runtime v1 — embedded in every saved deck.
