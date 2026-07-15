@@ -12,7 +12,7 @@ import { showToast as showEditToast } from '../scene/overlay'
 const ROLE_SELECTOR = '.dia-title, .dia-kicker, .dia-body, .dia-caption'
 
 let canvas!: HTMLElement
-let editing: { el: HTMLElement; original: string } | null = null
+let editing: { el: HTMLElement; original: string; math?: boolean } | null = null
 
 const supportsPlaintextOnly = ((): boolean => {
   const d = document.createElement('div')
@@ -93,6 +93,10 @@ function onDblClick(e: MouseEvent): void {
 }
 
 function editableFor(target: HTMLElement, slide: HTMLElement): HTMLElement | null {
+  // math edits as its SOURCE: double-click swaps the rendered MathML for
+  // the data-dia-tex text, commit re-renders — math is ordinary text here
+  const math = target.closest<HTMLElement>('.dia-math')
+  if (math && slide.contains(math) && math !== slide) return math
   const role = target.closest<HTMLElement>(ROLE_SELECTOR)
   if (role && slide.contains(role) && role !== slide) {
     if (role.childElementCount === 0) return role
@@ -124,7 +128,9 @@ function beginEdit(el: HTMLElement): void {
   // capture prev BEFORE editing starts, so the op's inverse is the original.
   // innerHTML, not textContent: leaves may carry inline markup (strong/em/…)
   // which the commit must preserve, not flatten
-  editing = { el, original: el.innerHTML }
+  const math = el.classList.contains('dia-math')
+  editing = { el, original: el.innerHTML, math }
+  if (math) el.textContent = el.getAttribute('data-dia-tex') ?? ''
   el.setAttribute('contenteditable', supportsPlaintextOnly ? 'plaintext-only' : 'true')
   el.spellcheck = false
   el.addEventListener('keydown', onEditKey)
@@ -155,10 +161,17 @@ function onEditBlur(): void {
 
 function commitEdit(): void {
   if (!editing) return
-  const { el, original } = editing
+  const { el, original, math } = editing
   const html = el.innerHTML
   const text = (el.textContent ?? '').trim()
   cleanupEdit(el)
+  // a math element's edit surface IS its TeX — re-render or keep the old
+  // rendering (an unparseable edit toasts and changes nothing)
+  if (math) {
+    el.innerHTML = original
+    if (text && text !== (el.getAttribute('data-dia-tex') ?? '').trim()) commitAsMath(el, text, true)
+    return
+  }
   // typing LaTeX as the WHOLE text turns the element into math: either
   // explicitly delimited ($…$ / $$…$$), or simply starting with a TeX
   // command (\frac{a}{b}…). Explicit math reports its errors; bare text
