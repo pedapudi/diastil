@@ -1374,6 +1374,72 @@ export function openTextEdit(scene: SVGSVGElement, textEl: SVGTextElement): void
   input.addEventListener('blur', commit)
 }
 
+/** in-place editor for a PLAIN svg <text> (studio artwork rather than a
+ * node label) — the same seamless input, positioned over the text's own
+ * box; an empty commit deletes the element (invisible text is unfindable) */
+export function openSvgTextEdit(svg: SVGSVGElement, el: SVGTextElement, onDone?: () => void): void {
+  closeLabelEdit?.()
+  const prev = el.textContent ?? ''
+  const cs = getComputedStyle(el)
+
+  const input = document.createElement('input')
+  input.className = 'dia-label-input'
+  input.value = prev
+  input.style.color = cs.fill
+  input.style.fontFamily = cs.fontFamily
+  input.style.textAlign = 'left'
+
+  const place = (): void => {
+    const ctm = el.getScreenCTM()
+    if (!ctm) return
+    let b: DOMRect
+    try { b = el.getBBox() } catch { return }
+    const tl = new DOMPoint(b.x, b.y).matrixTransform(ctm)
+    const br = new DOMPoint(b.x + b.width, b.y + b.height).matrixTransform(ctm)
+    input.style.left = `${Math.min(tl.x, br.x)}px`
+    input.style.top = `${Math.min(tl.y, br.y)}px`
+    input.style.width = `${Math.max(80, Math.abs(br.x - tl.x) + 24)}px`
+    input.style.height = `${Math.abs(br.y - tl.y)}px`
+    input.style.fontSize = `${(parseFloat(cs.fontSize) || 16) * pxScale(svg)}px`
+  }
+  place()
+  el.style.visibility = 'hidden'
+  document.body.appendChild(input)
+  input.focus()
+  input.select()
+
+  const ac = new AbortController()
+  window.addEventListener('scroll', place, { capture: true, signal: ac.signal })
+  window.addEventListener('resize', place, { signal: ac.signal })
+
+  let done = false
+  const close = (): void => {
+    if (done) return
+    done = true
+    ac.abort()
+    input.remove()
+    el.style.visibility = ''
+    closeLabelEdit = null
+  }
+  closeLabelEdit = close
+
+  const commit = (): void => {
+    if (done) return
+    const value = input.value.trim()
+    close() // visibility restored BEFORE the op, so undo can't resurrect a hidden element
+    if (value === '') state.apply(removeEl(el, 'Delete empty text'))
+    else if (value !== prev) state.apply(setSvgTextOp(el, value, 'SetText drawing text'))
+    onDone?.()
+  }
+
+  input.addEventListener('keydown', (ke) => {
+    ke.stopPropagation()
+    if (ke.key === 'Enter') commit()
+    else if (ke.key === 'Escape') { close(); onDone?.() }
+  })
+  input.addEventListener('blur', commit)
+}
+
 /* ======================================================= scene-local ops */
 
 /** SetText for SVG <text> — mirrors ops.setText semantics with proper invert */

@@ -15,8 +15,8 @@ import {
   adoptSession, dropSession, h, button, closeStudio, ensureStudioStyle,
   registerSlideFocusClose, type StudioSession,
 } from './studio'
-import { mountTools, disposeTools, currentTool, deletePicked, exitGroup, nudgePicked, setTool, SCENE_INSERTS, TOOLS } from './tools'
-import { mountPanels, disposePanels, refreshPanels } from './panels'
+import { mountTools, disposeTools, clearPicked, currentTool, deletePicked, exitGroup, nudgePicked, setTool, SCENE_INSERTS, TOOLS } from './tools'
+import { mountPanels, disposePanels } from './panels'
 import { openImportDialog } from './svgimport'
 import { ensureSceneStyleRules, insertShapeNode } from '../scene/interact'
 import { setToolbarSuppressed } from '../scene/toolbar'
@@ -362,7 +362,7 @@ export function openSlideFocus(slide: HTMLElement): void {
       // tool → picked → group → ISOLATION → selection → focus
       if (f.studio) {
         if (currentTool() !== 'select') { setTool('select'); return }
-        if (f.studio.picked.size > 0) { f.studio.picked.clear(); refreshPanels(f.studio); return }
+        if (f.studio.picked.size > 0) { clearPicked(); return }
         if (f.studio.entered.length > 0) { exitGroup(); return }
       }
       if (f.isolated) { exitIsolation(); return }

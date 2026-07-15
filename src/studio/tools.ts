@@ -11,7 +11,7 @@ import { batch, insertEl, moveEl, moveSceneNode, removeEl, setAttr } from '../mo
 import { pxScale, showToast } from '../scene/overlay'
 import { openPointEditor, closePointEditor, canPointEdit } from '../scene/points'
 import { getNodeGeom, routeEdgesOf, setNodeGeom } from '../scene/route'
-import { beginEdgeViaDrag, insertEdgeFlow, insertShapeNode, openEdgeLabelEdit, openLabelEdit } from '../scene/interact'
+import { beginEdgeViaDrag, insertEdgeFlow, insertShapeNode, openEdgeLabelEdit, openLabelEdit, openSvgTextEdit } from '../scene/interact'
 import type { MiscIcon } from '../scene/icons'
 import type { StudioSession } from './studio'
 import { isSceneArt } from './studio'
@@ -30,7 +30,7 @@ export const TOOLS: Array<{ name: ToolName; label: string; key: string; tip: str
   { name: 'ellipse', label: 'ellipse', key: 'e', icon: 'ellipse', tip: 'drag an ellipse · shift for a circle' },
   { name: 'line', label: 'line', key: 'l', icon: 'line', tip: 'drag a line · shift snaps to 45°' },
   { name: 'freehand', label: 'freehand', key: 'f', icon: 'freehand', tip: 'draw by hand — the stroke is smoothed to a path' },
-  { name: 'text', label: 'text', key: 't', icon: 'text', tip: 'click to place text — edit the words in the rail' },
+  { name: 'text', label: 'label', key: 't', icon: 'text', tip: 'place label text inside the drawing — type right away, double-click re-edits (+ text above adds a prose block instead)' },
 ]
 
 /** icons for the studio's scene-insert buttons */
@@ -260,6 +260,15 @@ export function reorderPicked(toFront: boolean): void {
   state.apply(ops.length === 1 ? ops[0] : batch(label, ops))
   // the overlay artifact renders the handles — it stays topmost, outside ops
   s.svg.appendChild(ctx.ov)
+  refreshAll()
+}
+
+/** THE deselection path — every picked-set clear repaints the overlay AND
+ * the panels together, so the selection box can never go stale (esc, the
+ * focus chrome, and outside-the-drawing presses all come through here) */
+export function clearPicked(): void {
+  if (!ctx || ctx.s.picked.size === 0) return
+  ctx.s.picked.clear()
   refreshAll()
 }
 
@@ -558,8 +567,8 @@ function installPointer(c: ToolCtx): void {
   const dbl = (e: MouseEvent): void => {
     if (c.tool === 'pen') { finishPen(false); return }
     if (c.tool !== 'select') return
-    // dblclick edits LABELS in place — a connector's annotation ("related")
-    // or a node's caption, the same editors as the canvas
+    // dblclick edits WORDS in place, wherever words live — a connector's
+    // annotation, a node's caption, or plain label text in the artwork
     const edgeEl = (e.target as Element | null)?.closest?.('[data-dia-edge]')
     if (edgeEl instanceof SVGGElement && isSceneArt(c.s.svg)) {
       e.preventDefault()
@@ -572,6 +581,11 @@ function installPointer(c: ToolCtx): void {
       openLabelEdit(c.s.svg, hit)
       return
     }
+    if (hit instanceof SVGTextElement) {
+      e.preventDefault()
+      beginTextEdit(c, hit)
+      return
+    }
     // dblclick a group → enter it (isolation); dblclick empty space → exit
     if (hit && isPlainGroup(hit)) enterGroup(hit)
     else if (!hit && c.s.entered.length > 0) exitGroup()
@@ -579,12 +593,30 @@ function installPointer(c: ToolCtx): void {
   const key = (e: KeyboardEvent): void => {
     if (c.tool === 'pen' && e.key === 'Enter') { e.stopPropagation(); finishPen(false) }
   }
+  // select-mode presses OUTSIDE the drawing: the surface passes empty space
+  // through to the slide (so its text stays editable), which means the svg's
+  // own handler never sees them — the STAGE does. Any such press releases
+  // the studio selection, and truly blank space starts a marquee. Every
+  // creation tool ends back in select with its element picked, so this is
+  // the one deselection path they all share.
+  const stageWrap = c.s.stage.parentElement
+  const stageDown = (e: PointerEvent): void => {
+    if (e.button !== 0 || c.tool !== 'select') return
+    if (e.composedPath().includes(svg)) return // the surface's own handler owns it
+    clearPicked()
+    const t = e.target
+    const blank = t === c.s.stage || t === stageWrap ||
+      (t instanceof Element && t.matches('section.dia-slide'))
+    if (blank) beginMarquee(c, e)
+  }
   svg.addEventListener('pointerdown', down)
   svg.addEventListener('dblclick', dbl)
+  stageWrap?.addEventListener('pointerdown', stageDown)
   document.addEventListener('keydown', key, true)
   c.offPointer = () => {
     svg.removeEventListener('pointerdown', down)
     svg.removeEventListener('dblclick', dbl)
+    stageWrap?.removeEventListener('pointerdown', stageDown)
     document.removeEventListener('keydown', key, true)
   }
 }
@@ -995,11 +1027,22 @@ function textDown(c: ToolCtx, e: PointerEvent): void {
   el.setAttribute('x', String(r2(p.x)))
   el.setAttribute('y', String(r2(p.y)))
   el.setAttribute('style', 'fill: var(--dia-ink, currentColor); font-size: 16px; font-family: var(--dia-face-label, inherit);')
-  el.textContent = 'text'
+  el.textContent = 'label'
   state.apply(insertEl(contextOf(s), insertIndex(s), el, 'Place text'))
   s.picked.clear()
   s.picked.add(el)
   setTool('select')
+  // placing a label IS starting to type — no second gesture required
+  beginTextEdit(c, el)
+}
+
+/** the in-place words editor for plain <text> — a deleted (emptied)
+ * element must also leave the picked set, or the box outlives it */
+function beginTextEdit(c: ToolCtx, el: SVGTextElement): void {
+  openSvgTextEdit(c.s.svg, el, () => {
+    if (!el.isConnected) c.s.picked.delete(el)
+    refreshAll()
+  })
 }
 
 /* ---------- shared ---------- */
