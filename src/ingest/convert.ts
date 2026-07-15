@@ -5,6 +5,7 @@
  * reappear in the converted slide. Confidence is structural and honest:
  * mappedTextChars / totalTextChars × 0.9 when islands remain. */
 
+import temml from 'temml'
 import { defaultThemeCss } from '../model/parse'
 import type { RegionNote, ImportReport } from '../types'
 import { STAMP, norm, type ElementSample, type ExtractedSlide, type Extraction } from './extract'
@@ -723,6 +724,9 @@ function convertContainerChildren(el: Element, ctx: Ctx): Node[] {
     if (!(n instanceof Element)) continue
     const tag = n.tagName.toUpperCase()
     if (DROP.has(tag)) continue
+    // math renders as inline spans but must NOT join a text run — it
+    // converts whole, as a .dia-math (see mathNode)
+    if (n.matches(MATH_ROOTS)) { flush(); out.push(mathNode(n, ctx)); continue }
     if (INLINE.has(tag)) { seg.push(n); continue }
     flush()
     out.push(...convertNode(n, ctx))
@@ -761,9 +765,58 @@ function inlineSegment(container: Element, nodes: ChildNode[], ctx: Ctx): HTMLEl
   return node
 }
 
+/* ---------- math recovery ----------
+ * KaTeX/MathJax render math as positioned spans that convert to MANGLED
+ * text; the TeX source usually rides along (KaTeX embeds an annotation,
+ * MathJax keeps script[type="math/tex"]). Recover the source, re-render
+ * to native MathML, and emit the dialect's .dia-math — imported formulas
+ * become as editable as authored ones. Raw <math> passes through. */
+
+const MATH_ROOTS = 'math, .katex-display, .katex, mjx-container, .MathJax'
+
+function mathTexOf(el: Element): string | null {
+  const ann = el.querySelector('annotation[encoding="application/x-tex"]')
+  if (ann?.textContent?.trim()) return ann.textContent.trim()
+  const script = el.querySelector('script[type^="math/tex"]') ?? (el.matches('script[type^="math/tex"]') ? el : null)
+  if (script?.textContent?.trim()) return script.textContent.trim()
+  return null
+}
+
+function buildMathEl(el: Element): HTMLElement {
+  const tex = mathTexOf(el)
+  const display = el.matches('.katex-display, mjx-container[display="true"], math[display="block"]') ||
+    !!el.querySelector(':scope math[display="block"]')
+  const out = document.createElement(display ? 'div' : 'span')
+  out.className = 'dia-math'
+  if (tex) {
+    out.setAttribute('data-dia-tex', tex)
+    try {
+      out.innerHTML = temml.renderToString(tex, { displayMode: display, throwOnError: true })
+    } catch { /* fall through to the source MathML */ }
+  }
+  if (!out.firstChild) {
+    const mml = el.tagName.toLowerCase() === 'math' ? el : el.querySelector('math')
+    if (mml) out.appendChild(mml.cloneNode(true))
+    else out.textContent = norm(el.textContent ?? '')
+  }
+  return out
+}
+
+function mathNode(el: Element, ctx: Ctx): HTMLElement {
+  const out = buildMathEl(el)
+  ctx.notes.push({
+    node: out, kind: 'low-structure',
+    note: out.hasAttribute('data-dia-tex')
+      ? 'math recovered — TeX source preserved on the element'
+      : 'math carried as MathML (no TeX source found)',
+  })
+  return out
+}
+
 function convertNode(el: Element, ctx: Ctx): Node[] {
   const tag = el.tagName.toUpperCase()
   if (DROP.has(tag)) return [] // scripts stripped — rendered content already captured
+  if (el.matches(MATH_ROOTS)) return [mathNode(el, ctx)]
   if (el.matches(CHROME_SEL)) {
     ctx.notes.push({
       node: null,
@@ -1062,6 +1115,12 @@ function inlineLeaf(el: Element, ctx: Ctx): HTMLElement {
 
 function cleanInnerHtml(el: Element): string {
   const clone = el.cloneNode(true) as Element
+  // rendered math INSIDE a text block: the span forest becomes .dia-math
+  // here too, so no path can carry mangled formula glyphs into the deck
+  for (const m of [...clone.querySelectorAll(MATH_ROOTS)]) {
+    if (!clone.contains(m)) continue // nested renderer wrappers: outermost won
+    m.replaceWith(buildMathEl(m))
+  }
   for (const s of clone.querySelectorAll('script, style, noscript')) s.remove()
   stripStamps(clone)
   return clone.innerHTML

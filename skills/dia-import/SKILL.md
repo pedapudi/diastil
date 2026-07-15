@@ -28,6 +28,7 @@ and every slide is pixel-diffed against the original's rendering.
 | one-visible-at-a-time bespoke decks (runtime hides non-current slides, state class like `slide on`) | detected and converted; hidden slides are force-revealed for sampling and fidelity |
 | utility-class styling (Tailwind-shaped) | class soup dissolved into token-bound roles |
 | JS-built static content (d3, mermaid output) | executed, captured; SVGs kept as figures, liftable to scenes |
+| rendered math (KaTeX, MathJax, raw MathML) | becomes `.dia-math` — the TeX source is recovered from the renderer's annotation and re-typeset to native MathML; without a source the MathML is carried as-is. Never the renderer's positioned spans |
 | animated SVGs (SMIL or CSS keyframes) | kept verbatim WITH the animation — `@keyframes` are harvested from the source stylesheets and embedded inside the svg; never lifted (lifting would kill the motion) |
 | genuinely interactive JS (canvas animations, sims) | **island** — preserved verbatim, still runs |
 | absolute-positioned "PDF-like" pages | converted, flagged low-structure |

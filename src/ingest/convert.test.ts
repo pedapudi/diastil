@@ -553,3 +553,51 @@ describe('list-marker ladder', () => {
     expect(ul.style.listStyle).toBe('')
   })
 })
+
+/* Math recovery: KaTeX/MathJax positioned spans convert to MANGLED text —
+ * the TeX source rides along in an annotation, so the converter recovers
+ * it, re-renders to native MathML, and emits the dialect's .dia-math. */
+describe('math recovery from rendered formulas', () => {
+  it('converts a KaTeX block to .dia-math with the TeX source', () => {
+    const katex = '<span data-dia-x="1" class="katex-display"><span class="katex">'
+      + '<span class="katex-mathml"><math><semantics><mrow><mi>E</mi></mrow>'
+      + '<annotation encoding="application/x-tex">E = mc^2</annotation></semantics></math></span>'
+      + '<span class="katex-html"><span class="mord">E=mc</span></span></span></span>'
+    const doc = convertToDoc(minimalSlide({
+      html: `<div data-dia-x="0">${katex}</div>`,
+      samples: { 0: sample(), 1: sample({ ownChars: 0, ownText: '' }) },
+      texts: [],
+    }))
+    const math = doc.querySelector('.dia-math')
+    expect(math).not.toBeNull()
+    expect(math?.getAttribute('data-dia-tex')).toBe('E = mc^2')
+    expect(math?.querySelector('math')).not.toBeNull()
+    // the mangled positioned spans must NOT survive
+    expect(doc.querySelector('.katex')).toBeNull()
+  })
+
+  it('keeps raw MathML without a TeX source', () => {
+    const doc = convertToDoc(minimalSlide({
+      html: '<div data-dia-x="0"><math data-dia-x="1" display="block"><mi>x</mi></math></div>',
+      samples: { 0: sample(), 1: sample({ ownChars: 0, ownText: '' }) },
+      texts: [],
+    }))
+    const math = doc.querySelector('.dia-math')
+    expect(math).not.toBeNull()
+    expect(math?.hasAttribute('data-dia-tex')).toBe(false)
+    expect(math?.querySelector('math, mi')).not.toBeNull()
+  })
+
+  it('keeps inline math out of the surrounding text run', () => {
+    const katex = '<span data-dia-x="2" class="katex"><span class="katex-mathml"><math><semantics><mrow/>'
+      + '<annotation encoding="application/x-tex">\\alpha</annotation></semantics></math></span></span>'
+    const doc = convertToDoc(minimalSlide({
+      html: `<div data-dia-x="0"><p data-dia-x="1">rate ${katex} rises</p></div>`,
+      samples: { 0: sample(), 1: sample({ ownText: 'rate  rises' }), 2: sample({ ownChars: 0, ownText: '' }) },
+      texts: ['rate  rises'],
+    }))
+    expect(doc.querySelector('.dia-math')?.getAttribute('data-dia-tex')).toBe('\\alpha')
+    expect(doc.body.textContent).toContain('rate')
+    expect(doc.body.textContent).toContain('rises')
+  })
+})
