@@ -56,6 +56,12 @@ section.dia-slide {{
 .dia-body p {{ margin: 0 0 10px; }}
 .dia-caption {{ font-family: var(--dia-face-label); font-size: var(--dia-scale-1);
   color: var(--dia-ink-soft); }}
+li::before {{ content: var(--dia-marker, none); color: var(--dia-marker-ink, var(--dia-accent)); margin-right: 0.55em; }}
+li:has(> .dia-marker) {{ list-style: none; display: grid; grid-template-columns: auto 1fr; column-gap: 0.55em; align-items: start; }}
+.dia-marker {{ color: var(--dia-marker-ink, var(--dia-accent)); }}
+.dia-marker > svg, .dia-marker > img {{ width: 1.1em; height: 1.1em; display: block; margin-top: 0.2em; }}
+.dia-marker.dia-marker-chip {{ display: inline-grid; place-items: center; width: 1.5em; height: 1.5em;
+  border-radius: 999px; background: var(--dia-accent); color: var(--dia-paper); font-size: 0.72em; }}
 .dia-columns {{ display: grid; grid-template-columns: 1.05fr 1fr; gap: var(--dia-gap); }}
 .dia-stack {{ display: flex; flex-direction: column; gap: calc(var(--dia-gap) / 2); }}
 .dia-figure {{ align-self: center; }}

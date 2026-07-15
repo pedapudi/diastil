@@ -9,7 +9,7 @@ import demoDeckRaw from '../../examples/demo-deck.html?raw'
 import type { Deck } from '../types'
 import { state } from '../state'
 import { loadDeck } from '../model/parse'
-import { insertEl, setAttr, setStyleProp, setToken } from '../model/ops'
+import { batch as batchOps, insertEl, setAttr, setStyleProp, setToken } from '../model/ops'
 import { routeAll } from '../scene/route'
 import {
   ensureSceneStyleRules, expandSceneCanvas, fitSceneCanvas, getDrawTool,
@@ -515,6 +515,8 @@ export function mountEditor(host: HTMLElement): void {
         faceRow(el),
         inkRow(el),
       )
+      const list = el.closest('ul, ol') as HTMLElement | null
+      if (list) inspectBody.append(listRow(list))
 
       // write-target line: computed honestly from the bound token and the
       // number of elements sharing this role class across the deck
@@ -692,6 +694,56 @@ export function mountEditor(host: HTMLElement): void {
     })
     row.append(sel)
     return row
+  }
+
+  /** list: marker style for the WHOLE list — native bullets/numbers, plain,
+   * or a custom glyph via the --dia-marker token (theme paints its ink) */
+  function listRow(list: HTMLElement): HTMLElement {
+    const row = h('div', 'de-style-row')
+    row.append(h('span', 'de-style-k', 'list'))
+    const seg = h('span', 'dn-seg')
+    const currentGlyph = list.style.getPropertyValue('--dia-marker').replace(/^"|"$/g, '')
+    const type = list.style.getPropertyValue('list-style-type') || list.style.listStyle
+    const options: Array<[string, () => void, boolean]> = [
+      ['• bullets', () => {
+        state.apply(batchListStyle(list, 'disc', null))
+      }, !currentGlyph && !/none/.test(type)],
+      ['1. numbers', () => {
+        state.apply(batchListStyle(list, 'decimal', null))
+      }, false],
+      ['plain', () => {
+        state.apply(batchListStyle(list, 'none', null))
+      }, !currentGlyph && /none/.test(type)],
+    ]
+    for (const [labelText, run, on] of options) {
+      const b = h('button', on ? 'dn-on' : '', labelText)
+      b.type = 'button'
+      b.addEventListener('click', () => { run(); renderInspect() })
+      seg.append(b)
+    }
+    row.append(seg)
+    // custom glyph: one token, every item — the theme binds its ink
+    const glyph = document.createElement('input')
+    glyph.type = 'text'
+    glyph.className = 'de-tok-num de-list-glyph'
+    glyph.placeholder = '▸'
+    glyph.value = currentGlyph
+    glyph.title = 'custom marker glyph for every item (sets --dia-marker; clear to return to native bullets)'
+    glyph.addEventListener('change', () => {
+      const v = glyph.value.trim()
+      state.apply(batchListStyle(list, v ? 'none' : 'disc', v || null))
+      renderInspect()
+    })
+    row.append(glyph)
+    return row
+  }
+
+  /** one op: list-style-type + --dia-marker move together */
+  function batchListStyle(list: HTMLElement, type: string, glyph: string | null) {
+    return batchOps(`ListStyle ${glyph ?? type}`, [
+      setStyleProp(list, 'list-style-type', type === 'disc' ? '' : type),
+      setStyleProp(list, '--dia-marker', glyph ? `"${glyph.replace(/"/g, '')}"` : ''),
+    ])
   }
 
   /** ink: token colors as resolved chips (auto = dashed, theme decides) plus

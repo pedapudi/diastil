@@ -70,6 +70,27 @@ Containers over grid/flex: `dia-stack` (vertical flow), `dia-columns`
 (side-by-side), `dia-cover` (centered cover), `dia-figure` (media slot).
 Unknown extra classes are allowed — they're deck-owned styling hooks.
 
+### Lists and markers
+
+Lists are native `<ul>/<ol>/<li>` — no wrapper role. Markers are a
+detection ladder, richest form wins:
+
+- **native**: plain lists keep browser bullets/numbers, restyled by the
+  theme (`li::marker`)
+- **glyph token**: a custom glyph for the whole list is ONE declaration —
+  `<ul style="--dia-marker: '▸'; list-style: none">…` — the theme's
+  `li::before` renders it on every item, ink from `--dia-marker-ink`
+  (defaults to the accent), so lists retheme with the deck
+- **marker slot**: arbitrary visual markers (svg icons, images, chips,
+  per-item variants like ✓/✗) are REAL content in a classed slot:
+  `<li><span class="dia-marker">…</span> text</li>` — the theme lays the
+  item on a hanging grid (marker column + text column). Chips:
+  `class="dia-marker dia-marker-chip"` renders a filled accent circle
+  (step numbers, badges)
+
+Import applies the same ladder automatically: uniform css-drawn bullets
+collapse to the glyph token; icon/variant markers become slots.
+
 ## Media
 
 Images carry crop and focal point as style, so photosetting is attribute

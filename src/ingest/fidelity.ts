@@ -746,6 +746,9 @@ export function inlinePseudoContent(liveRoot: HTMLElement, clone: HTMLElement): 
       if (!m || m[1] === '') continue
       if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0) continue
       const span = liveRoot.ownerDocument.createElement('span')
+      // the class lets conversion RECOGNIZE materialized pseudo content
+      // (list-marker detection); it is unstyled and harmless elsewhere
+      span.className = 'dia-pseudo-marker'
       span.textContent = m[1]
       const style: string[] = [`color: ${cs.color}`]
       if (cs.fontWeight !== '400') style.push(`font-weight: ${cs.fontWeight}`)

@@ -503,3 +503,53 @@ describe('animated svgs survive conversion', () => {
     expect(doc.querySelector('[data-dia-node]')).not.toBeNull()
   })
 })
+
+describe('list-marker ladder', () => {
+  const TOKENS = { '--dia-ink': 'rgb(20, 20, 20)', '--dia-ink-soft': 'rgb(110, 110, 110)', '--dia-accent': 'rgb(180, 85, 45)' }
+  const listSlide = (lis: string) => minimalSlide({
+    html: `<div data-dia-x="0"><h1 data-dia-x="1">Title</h1><ul data-dia-x="2">${lis}</ul></div>`,
+    texts: [],
+    samples: {
+      0: sample({ x: 0, y: 0, w: 1280, h: 720, ownChars: 0, ownText: '' }),
+      1: sample({ y: 60, h: 60, ownText: 'Title' }),
+      2: sample({ y: 160, h: 200, ownChars: 0, ownText: '' }),
+    },
+  })
+  const convert = (lis: string) => {
+    const conv = convertSlide(listSlide(lis), 0, [], 0, TOKENS)
+    return new DOMParser().parseFromString(conv.html, 'text/html')
+  }
+  const marker = (color: string, glyph = '▸') =>
+    `<span class="dia-pseudo-marker" style="color: ${color}">${glyph}</span>`
+
+  it('uniform glyphs collapse to ONE --dia-marker token, accent-bound ink', () => {
+    const doc = convert(
+      `<li>${marker('rgb(180, 85, 45)')}alpha</li><li>${marker('rgb(180, 85, 45)')}beta</li>`)
+    const ul = doc.querySelector<HTMLElement>('ul')!
+    expect(ul.getAttribute('style')).toContain('--dia-marker: "▸"')
+    // accent-matching ink stays with the theme default (var(--dia-accent))
+    expect(ul.getAttribute('style') ?? '').not.toContain('--dia-marker-ink')
+    expect(doc.querySelector('li span')).toBeNull() // spans stripped
+  })
+
+  it('per-item glyph variants become nameable .dia-marker slots', () => {
+    const doc = convert(
+      `<li>${marker('rgb(20, 200, 60)', '✓')}done</li><li>${marker('rgb(220, 40, 40)', '✗')}missed</li>`)
+    const slots = [...doc.querySelectorAll('li > span.dia-marker')]
+    expect(slots.map((s) => s.textContent)).toEqual(['✓', '✗'])
+    expect(doc.querySelector('.dia-pseudo-marker')).toBeNull()
+  })
+
+  it('icon markers wrap into .dia-marker slots', () => {
+    const doc = convert(
+      '<li><svg data-dia-x="3" viewBox="0 0 10 10"><path d="M1,5 L4,8 L9,2"/></svg>checked item</li>')
+    expect(doc.querySelector('li > span.dia-marker > svg')).not.toBeNull()
+  })
+
+  it('plain lists keep their native markers untouched', () => {
+    const doc = convert('<li>plain one</li><li>plain two</li>')
+    const ul = doc.querySelector<HTMLElement>('ul')!
+    expect(ul.getAttribute('style') ?? '').not.toContain('--dia-marker')
+    expect(ul.style.listStyle).toBe('')
+  })
+})

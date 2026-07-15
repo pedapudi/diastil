@@ -280,7 +280,8 @@ function findEl(target: string): HTMLElement | null {
 const ROLE_ALIASES: Record<string, string> = {
   title: '.dia-title', kicker: '.dia-kicker', body: '.dia-body',
   caption: '.dia-caption', footnote: '.dia-footnote', figure: '.dia-figure',
-  island: '[data-dia-island]', list: 'ul, ol', table: 'table', image: 'img',
+  island: '[data-dia-island]', list: 'ul, ol', item: 'li', marker: '.dia-marker',
+  table: 'table', image: 'img',
 }
 
 /** Resolve a proposal target to an element. Models rarely emit perfect

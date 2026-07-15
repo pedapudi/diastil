@@ -160,6 +160,7 @@ export function convertSlide(
   rebindSizes(section, ctx.sample, scalePx, designW)
   applyTypography(section, ctx)
   applyInk(section, ctx, tokens)
+  applyListMarkers(section, ctx)
   applyBuildSteps(section, ctx, slide)
   applyVerticalRhythm(section, srcRoot, ctx, slide)
   if (slide.hasLoopingAnimation) {
@@ -415,6 +416,74 @@ function applyInk(section: HTMLElement, ctx: Ctx, tokens: Record<string, string>
     if (s.fontStyle && /^(italic|oblique)/.test(s.fontStyle) && !el.style.fontStyle) {
       el.style.fontStyle = 'italic'
     }
+  }
+}
+
+/** LIST MARKERS — a detection ladder, honest at each rung.
+ *
+ * Extraction materializes css-drawn bullets (::before content) as tagged
+ * spans; source lists also carry real icon markers (svg/img first children).
+ * The ladder decides how much SEMANTICS each list earns:
+ *   1. uniform text glyph  → one --dia-marker token on the list (retheme-able
+ *      deck-wide; ink binds to var(--dia-*) when it matches a token)
+ *   2. per-item glyph variants (✓/✗/…) → .dia-marker slots per item — the
+ *      variation is MEANING, kept faithfully but nameable and restylable
+ *   3. icon markers (svg/img sized like a glyph) → wrapped in .dia-marker
+ *      slots; the theme's hanging grid handles alignment
+ * Anything else keeps today's literal carry. */
+function applyListMarkers(section: HTMLElement, ctx: Ctx): void {
+  for (const list of section.querySelectorAll<HTMLElement>('ul, ol')) {
+    const items = [...list.children].filter((c): c is HTMLElement => c.tagName === 'LI')
+    if (items.length === 0) continue
+    const pseudo = items.map((li) => {
+      const first = li.firstElementChild
+      return first instanceof HTMLSpanElement && first.classList.contains('dia-pseudo-marker')
+        ? first : null
+    })
+    if (pseudo.every((m): m is HTMLSpanElement => m !== null)) {
+      const texts = pseudo.map((m) => (m.textContent ?? '').trim())
+      const colors = pseudo.map((m) => m.style.color)
+      const uniform = texts.every((t) => t === texts[0]) && colors.every((c) => c === colors[0])
+      if (uniform && texts[0].length > 0 && texts[0].length <= 3) {
+        for (const m of pseudo) m.remove()
+        list.style.setProperty('--dia-marker', `"${texts[0].replace(/"/g, '')}"`)
+        const ink = colors[0] ? ctx.tokenColor(colors[0]) ?? colors[0] : ''
+        if (ink && ink !== 'var(--dia-accent)') list.style.setProperty('--dia-marker-ink', ink)
+        list.style.listStyle = 'none'
+        list.style.paddingLeft = '0'
+        continue
+      }
+      // per-item variants — meaning, not styling: keep each, as a slot
+      for (const m of pseudo) {
+        m.classList.remove('dia-pseudo-marker')
+        m.classList.add('dia-marker')
+        const ink = m.style.color ? ctx.tokenColor(m.style.color) : null
+        if (ink) m.style.color = ink
+      }
+      list.style.listStyle = 'none'
+      list.style.paddingLeft = '0'
+      continue
+    }
+    // icon markers: a leading svg/img at glyph scale becomes a slot
+    for (const li of items) {
+      const first = li.firstElementChild
+      if (!first || first.classList.contains('dia-marker')) continue
+      if (!/^(svg|img)$/i.test(first.tagName)) continue
+      const s = ctx.sample(first)
+      if (s && (s.w > 56 || s.h > 56)) continue // a figure, not a marker
+      const slot = document.createElement('span')
+      slot.className = 'dia-marker'
+      li.insertBefore(slot, first)
+      slot.appendChild(first)
+      list.style.listStyle = 'none'
+      list.style.paddingLeft = '0'
+    }
+  }
+  // leftover materialized pseudo spans (kickers, decorations, non-list
+  // ::before) stay as content — drop the recognition tag, keep the span
+  for (const rest of section.querySelectorAll('.dia-pseudo-marker')) {
+    rest.classList.remove('dia-pseudo-marker')
+    if (rest.getAttribute('class') === '') rest.removeAttribute('class')
   }
 }
 

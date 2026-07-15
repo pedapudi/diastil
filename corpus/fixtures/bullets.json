@@ -1,0 +1,39 @@
+{
+  "name": "bullets",
+  "capturedAt": "2026-07-15T00:58:18.716Z",
+  "slideCount": 1,
+  "confidence": [
+    1
+  ],
+  "warnings": [
+    "no slide structure detected — the whole body was imported as one slide",
+    "confidence = mapped text chars / total text chars, ×0.9 where islands remain — structural, not visual",
+    "fidelity pass did not run — visual match unverified"
+  ],
+  "regionKinds": {},
+  "islands": 0,
+  "tokens": {
+    "--dia-paper": "rgb(255, 255, 255)",
+    "--dia-ink": "rgb(0, 0, 0)",
+    "--dia-ink-soft": "rgb(77, 77, 77)",
+    "--dia-accent": "#b4552d",
+    "--dia-rule": "rgb(209, 209, 209)",
+    "--dia-face-display": "Georgia, serif",
+    "--dia-face-body": "Georgia, serif",
+    "--dia-face-label": "ui-monospace, \"SF Mono\", Menlo, monospace",
+    "--dia-scale-1": "1.08cqw",
+    "--dia-scale-2": "1.35cqw",
+    "--dia-scale-3": "2.24cqw",
+    "--dia-scale-4": "2.89cqw",
+    "--dia-scale-5": "3.72cqw",
+    "--dia-scale-6": "4.65cqw",
+    "--dia-scale-7": "5.81cqw",
+    "--dia-gap": "2.03cqw",
+    "--dia-pad": "3.75%"
+  },
+  "originalSlideCount": 1,
+  "fidelity": [
+    0.654
+  ],
+  "deckHtml": "<!doctype html>\n<html lang=\"en\" data-dia-version=\"1\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>bullets</title>\n<script type=\"text/x-dia-original\" id=\"dia-originals\">{\"version\":1,\"slides\":[\"\\u003c!doctype html>\\n\\u003chtml>\\n\\u003chead>\\n\\u003cmeta charset=\\\"utf-8\\\">\\n\\n\\u003cstyle>\\n\\nbody { margin: 0; font-family: Georgia, serif; }\\n.slide { width: 1280px; height: 720px; padding: 48px; box-sizing: border-box; }\\nh1 { font-size: 44px; }\\nul.custom { list-style: none; padding: 0; }\\nul.custom li { padding-left: 1.2em; position: relative; margin-bottom: 8px; }\\nul.custom li::before { content: \\\"▸\\\"; position: absolute; left: 0; color: #b4552d; font-weight: 700; }\\n\\n\\u003c/style>\\n\\u003c/head>\\n\\u003cbody>\\n\\u003cdiv>\\n\\u003cdiv class=\\\"slide\\\">\\n  \\u003ch1>Custom bullets\\u003c/h1>\\n  \\u003cul class=\\\"custom\\\">\\n    \\u003cli>\\u003cspan class=\\\"dia-pseudo-marker\\\" style=\\\"color: rgb(180, 85, 45); font-weight: 700; font-size: 16px; position: absolute; left: 0px; top: 0px\\\">▸\\u003c/span>first point with a css-drawn marker\\u003c/li>\\n    \\u003cli>\\u003cspan class=\\\"dia-pseudo-marker\\\" style=\\\"color: rgb(180, 85, 45); font-weight: 700; font-size: 16px; position: absolute; left: 0px; top: 0px\\\">▸\\u003c/span>second point, same marker\\u003c/li>\\n    \\u003cli>\\u003cspan class=\\\"dia-pseudo-marker\\\" style=\\\"color: rgb(180, 85, 45); font-weight: 700; font-size: 16px; position: absolute; left: 0px; top: 0px\\\">▸\\u003c/span>third point\\u003c/li>\\n  \\u003c/ul>\\n\\u003c/div>\\n\\n\\u003c/div>\\n\\u003c/body>\\n\\u003c/html>\\n\"]}</script>\n<style id=\"dia-theme\">\n:root {\n  --dia-paper: rgb(255, 255, 255);\n  --dia-ink: rgb(0, 0, 0);\n  --dia-ink-soft: rgb(77, 77, 77);\n  --dia-accent: #b4552d;\n  --dia-rule: rgb(209, 209, 209);\n  --dia-face-display: Georgia, serif;\n  --dia-face-body: Georgia, serif;\n  --dia-face-label: ui-monospace, \"SF Mono\", Menlo, monospace;\n  --dia-scale-1: 1.08cqw;\n  --dia-scale-2: 1.35cqw;\n  --dia-scale-3: 2.24cqw;\n  --dia-scale-4: 2.89cqw;\n  --dia-scale-5: 3.72cqw;\n  --dia-scale-6: 4.65cqw;\n  --dia-scale-7: 5.81cqw;\n  --dia-gap: 2.03cqw;\n  --dia-pad: 3.75%;\n}\nsection.dia-slide {\n  aspect-ratio: 16 / 9;\n  /* the padding lives INSIDE the ratio — content-box sizing would add it\n   * on top and make every padded slide taller than 16:9 */\n  box-sizing: border-box;\n  /* a slide is one screen: content that runs long clips, exactly as the\n   * imported originals clipped it, instead of spilling over the next slide */\n  overflow: hidden;\n  container-type: inline-size; /* cqw-sized type scales with the slide */\n  position: relative; /* slides anchor absolutely-positioned decorations */\n  background: var(--dia-paper);\n  color: var(--dia-ink);\n  padding: var(--dia-pad);\n  font-family: var(--dia-face-body);\n}\n.dia-kicker { font-family: var(--dia-face-label); font-size: var(--dia-scale-1);\n  letter-spacing: .14em; text-transform: uppercase; color: var(--dia-accent); }\n.dia-title { font-family: var(--dia-face-display); font-size: var(--dia-scale-5);\n  line-height: 1.14; font-weight: 700; margin: 0; }\n.dia-body { font-size: var(--dia-scale-2); line-height: 1.55; color: var(--dia-ink-soft); }\n.dia-caption { font-family: var(--dia-face-label); font-size: var(--dia-scale-1);\n  color: var(--dia-ink-soft); }\n.dia-columns { display: grid; grid-template-columns: 1fr 1fr; gap: var(--dia-gap); }\n.dia-stack { display: flex; flex-direction: column; gap: calc(var(--dia-gap) / 2); }\n.dia-figure { align-self: center; }\n/* list markers are a ROLE, not per-item literals: a list sets --dia-marker\n * (glyph) and optionally --dia-marker-ink once; ::before renders it on\n * every item. Rich markers (icons, chips, per-item variants) live in a\n * .dia-marker slot — real dialect content, laid out on a hanging grid. */\nli::before { content: var(--dia-marker, none); color: var(--dia-marker-ink, var(--dia-accent)); margin-right: 0.55em; }\nli:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: auto 1fr; column-gap: 0.55em; align-items: start; }\n.dia-marker { color: var(--dia-marker-ink, var(--dia-accent)); }\n.dia-marker > svg, .dia-marker > img { width: 1.1em; height: 1.1em; display: block; margin-top: 0.2em; }\n.dia-marker.dia-marker-chip { display: inline-grid; place-items: center; width: 1.5em; height: 1.5em;\n  border-radius: 999px; background: var(--dia-accent); color: var(--dia-paper); font-size: 0.72em; }\n.dia-scene { width: 100%; }\n.dia-scene .dia-node-shape { fill: var(--dia-node-fill, var(--dia-paper)); stroke: var(--dia-node-stroke, var(--dia-ink)); stroke-width: var(--dia-node-stroke-w, 1.3); }\n.dia-scene .dia-node-label { font: 12px var(--dia-face-body); fill: var(--dia-node-ink, var(--dia-ink)); }\n.dia-scene .dia-edge-path { stroke: var(--dia-edge-stroke, var(--dia-ink)); stroke-width: var(--dia-edge-w, 1.2); fill: none; color: var(--dia-edge-stroke, var(--dia-ink)); }\n.dia-scene .dia-edge-label { font: 10px var(--dia-face-label); fill: var(--dia-edge-ink, var(--dia-ink-soft)); }\n.dia-scene [data-dia-emphasis] .dia-node-shape { stroke: var(--dia-accent); stroke-width: 2; }\n.dia-draw { fill: none; stroke: var(--dia-ink); stroke-linecap: round; stroke-linejoin: round; }\n</style>\n</head>\n<body>\n<section class=\"dia-slide\"><h1 class=\"dia-title\" style=\"margin-top: 6.05cqw;\">Custom bullets</h1><ul class=\"dia-body\" style=\"--dia-marker: &quot;▸&quot;; list-style: none; padding-left: 0px; margin-top: 2.3cqw;\">\n    <li>first point with a css-drawn marker</li>\n    <li>second point, same marker</li>\n    <li>third point</li>\n  </ul></section>\n<script id=\"dia-runtime\">\n</script>\n</body>\n</html>\n"
+}

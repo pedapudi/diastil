@@ -108,6 +108,7 @@ describe('corpus fixtures', () => {
  * improves; lowering one is a reviewed decision with a reason in the diff. */
 const FIDELITY_FLOORS: Record<string, { min: number; mean: number }> = {
   ambit: { min: 0.46, mean: 0.62 }, // captured min 0.48, mean 0.644
+  bullets: { min: 0.6, mean: 0.6 }, // captured 0.654 — pins the marker ladder
   demo: { min: 0.52, mean: 0.75 },  // captured min 0.55, mean 0.791
   steps: { min: 0.85, mean: 0.9 },  // captured 0.88/0.97
 }
