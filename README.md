@@ -6,7 +6,8 @@ everything machine-facing stays `diastil`/`dia`) — a browser-based
 WYSIWYG editor for HTML/CSS/JS slide decks. The condensation mark — three slide-lines
 converging to one accent drop — draws the second reading, *distill*:
 many sources, one verified document. Brand rules:
-[docs/BRAND.md](docs/BRAND.md).
+[docs/BRAND.md](docs/BRAND.md); visual defaults (light-first, role
+tokens, colorful artwork): [docs/HOUSE-STYLE.md](docs/HOUSE-STYLE.md).
 
 *Dia* (the projection slide) + *Stil* (style). The CLI clips to `dia`.
 

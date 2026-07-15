@@ -74,7 +74,10 @@ const COLOR_THEMES: ReadonlyArray<readonly [string, string, Swatches]> = [
   ['ubuntu', 'ubuntu', ['#300A24', '#3D1530', '#EEEEEC', '#8AE234', '#CC0000', '#34E2E2']],
 ]
 
-const THEME_DEFAULT = 'monokai'
+// the house default is LIGHT (docs/HOUSE-STYLE.md): warm paper chrome,
+// matching the paper-and-ink decks dia scaffolds. Dark themes remain a
+// preference, one click away, remembered per machine.
+const THEME_DEFAULT = 'paper'
 const themeById = new Map(COLOR_THEMES.map((t) => [t[0], t]))
 
 function normalizeTheme(v: string | null | undefined): string {
