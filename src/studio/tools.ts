@@ -204,6 +204,50 @@ export function refreshAll(): void {
   refreshPanels(ctx.s)
 }
 
+/** the top-level element (in the current context) owning a pointer target */
+export function hitOf(target: EventTarget | null): SVGGraphicsElement | null {
+  return ctx ? topLevelOf(ctx, target) : null
+}
+
+/** duplicate one element in place — scene nodes mint a fresh id */
+export function duplicateOne(s: StudioSession, el: SVGGraphicsElement): SVGGraphicsElement {
+  const copy = el.cloneNode(true) as SVGGraphicsElement
+  if (isNodeEl(copy)) {
+    const base = copy.getAttribute('data-dia-node') ?? 'node'
+    let id = `${base}-copy`
+    for (let n = 2; s.svg.querySelector(`[data-dia-node="${id}"]`); n++) id = `${base}-copy${n}`
+    copy.setAttribute('data-dia-node', id)
+  }
+  const parent = el.parentNode as Element
+  state.apply(insertEl(parent, [...parent.children].indexOf(el) + 1, copy, 'Duplicate drawing element'))
+  return copy
+}
+
+export function duplicatePicked(): void {
+  if (!ctx || ctx.s.picked.size === 0) return
+  const s = ctx.s
+  const copies = pickables(s).filter((el) => s.picked.has(el)).map((el) => duplicateOne(s, el))
+  s.picked.clear()
+  for (const c of copies) s.picked.add(c)
+  refreshAll()
+}
+
+/** restack the picked elements to the top or bottom of their context */
+export function reorderPicked(toFront: boolean): void {
+  if (!ctx || ctx.s.picked.size === 0) return
+  const s = ctx.s
+  const parent = contextOf(s)
+  const ordered = pickables(s).filter((el) => s.picked.has(el))
+  const label = toFront ? 'Bring to front' : 'Send to back'
+  // append-order keeps the selection's relative stacking on both moves
+  const ops = (toFront ? ordered : [...ordered].reverse()).map((el) =>
+    moveEl(el, parent, toFront ? parent.children.length + ordered.length : 0, label))
+  state.apply(ops.length === 1 ? ops[0] : batch(label, ops))
+  // the overlay artifact renders the handles — it stays topmost, outside ops
+  s.svg.appendChild(ctx.ov)
+  refreshAll()
+}
+
 /** studio-side pick (used by the layers panel) */
 export function pick(el: SVGGraphicsElement, add: boolean): void {
   if (!ctx) return

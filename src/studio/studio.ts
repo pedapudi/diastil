@@ -13,10 +13,17 @@
  * editor; the studio refuses them. */
 
 import { state } from '../state'
-import { mountTools, disposeTools, currentTool, deletePicked, exitGroup, nudgePicked, setTool, TOOLS } from './tools'
+import {
+  mountTools, disposeTools, currentTool, deletePicked, duplicatePicked, enterGroup,
+  exitGroup, groupPicked, hitOf, isPlainGroup, nudgePicked, pick, reorderPicked,
+  setTool, TOOLS, ungroupPicked,
+} from './tools'
 import { mountPanels, disposePanels, refreshPanels } from './panels'
 import { openImportDialog } from './svgimport'
 import { setToolbarSuppressed } from '../scene/toolbar'
+import { insertShapeNode } from '../scene/interact'
+import { canPointEdit, openPointEditor } from '../scene/points'
+import { closeMenu, openMenu, SEP, type Entry } from '../editor/menu'
 
 const ARTIFACT = 'dia-editor-artifact'
 
@@ -64,6 +71,7 @@ export function closeStudio(): void {
   if (!session) return
   const s = session
   session = null
+  closeMenu()
   disposeTools()
   disposePanels()
   s.svg.classList.remove('dia-studio-art')
@@ -157,6 +165,12 @@ export function openStudio(svg: SVGSVGElement): void {
     applyView()
   }, { passive: false })
 
+  /* ----- right-click: the studio's verbs for what's under the pointer ----- */
+  stageWrap.addEventListener('contextmenu', (e) => {
+    e.preventDefault()
+    openMenu(e.clientX, e.clientY, studioEntries(s, e.composedPath()[0] ?? null))
+  })
+
   let spaceDown = false
   let panFrom: { x: number; y: number; px: number; py: number } | null = null
   stageWrap.addEventListener('pointerdown', (e) => {
@@ -248,6 +262,42 @@ function fitToStage(s: StudioSession, wrap: HTMLElement): void {
   s.zoom = Math.min(2.5, Math.max(0.1, Math.min((wr.width * 0.72) / w, (wr.height * 0.72) / h2)))
   s.panX = (wr.width - w * s.zoom) / 2
   s.panY = (wr.height - h2 * s.zoom) / 2
+}
+
+/** the studio's context verbs — every item is an existing tool action */
+function studioEntries(s: StudioSession, target: EventTarget | null): Entry[] {
+  const items: Entry[] = []
+  const hit = hitOf(target)
+  if (hit) {
+    if (!s.picked.has(hit)) pick(hit, false)
+    if (hit instanceof SVGPathElement && canPointEdit(hit)) {
+      items.push({ label: 'edit points', run: () => openPointEditor({ kind: 'free', scene: s.svg, el: hit }) })
+    }
+    if (isPlainGroup(hit)) {
+      items.push(
+        { label: 'enter group', run: () => enterGroup(hit) },
+        { label: 'ungroup', run: ungroupPicked },
+      )
+    }
+    if (s.picked.size > 1) items.push({ label: `group ${s.picked.size} elements`, run: groupPicked })
+    items.push(
+      { label: 'duplicate', run: duplicatePicked },
+      { label: 'bring to front', run: () => reorderPicked(true) },
+      { label: 'send to back', run: () => reorderPicked(false) },
+      SEP,
+      { label: s.picked.size > 1 ? `delete ${s.picked.size} elements` : 'delete', run: deletePicked, danger: true },
+      SEP,
+    )
+  } else if (s.entered.length > 0) {
+    items.push({ label: 'exit group', run: exitGroup }, SEP)
+  }
+  if (isSceneArt(s.svg)) items.push({ label: 'insert node', run: () => insertShapeNode(s.svg, 'node') })
+  items.push(
+    { label: 'import svg…', run: () => openImportDialog(s) },
+    SEP,
+    { label: 'done — close studio', run: closeStudio },
+  )
+  return items
 }
 
 /** esc backs out one layer: drawing → selection → entered group → studio */

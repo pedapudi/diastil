@@ -8,7 +8,7 @@ import { state } from '../state'
 import { batch, insertEl, moveEl, removeEl, setAttr, setStyleProp, setText } from '../model/ops'
 import type { StudioSession } from './studio'
 import { h } from './studio'
-import { enterGroup, exitGroup, isEdgeEl, isNodeEl, isPlainGroup, pick, pickables, refreshAll } from './tools'
+import { duplicateOne, enterGroup, exitGroup, isEdgeEl, isNodeEl, isPlainGroup, pick, pickables, refreshAll } from './tools'
 import { attachPickerProxy } from '../editor/colorwell'
 
 /** scene nodes style through their custom props (the scene rules read
@@ -268,15 +268,7 @@ function layerRow(s: StudioSession, el: SVGGraphicsElement, all: SVGGraphicsElem
   const dup = lbtn('⧉', 'duplicate')
   dup.addEventListener('click', (e) => {
     e.stopPropagation()
-    const copy = el.cloneNode(true) as SVGGraphicsElement
-    if (isNodeEl(copy)) {
-      // node ids key the edge references — a copy needs its own
-      const base = copy.getAttribute('data-dia-node') ?? 'node'
-      let id = `${base}-copy`
-      for (let n = 2; s.svg.querySelector(`[data-dia-node="${id}"]`); n++) id = `${base}-copy${n}`
-      copy.setAttribute('data-dia-node', id)
-    }
-    state.apply(insertEl(s.svg, [...s.svg.children].indexOf(el) + 1, copy, 'Duplicate drawing element'))
+    const copy = duplicateOne(s, el)
     s.picked.clear()
     s.picked.add(copy)
     refreshAll()
