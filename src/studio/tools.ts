@@ -452,7 +452,32 @@ function renderSelection(c: ToolCtx): void {
   }
 }
 
-/** drag an anchor dot onto another node → one InsertEdge op, canvas-style */
+/** the four anchor points of a node's box */
+function anchorPointsOf(n: SVGGElement): Array<[string, number, number]> {
+  const g = getNodeGeom(n)
+  return [
+    ['N', g.x + g.w / 2, g.y], ['S', g.x + g.w / 2, g.y + g.h],
+    ['E', g.x + g.w, g.y + g.h / 2], ['W', g.x, g.y + g.h / 2],
+  ]
+}
+
+/** the node whose box (inflated by eps) contains p — nearest wins */
+function hitNodeAt(s: StudioSession, p: { x: number; y: number }, skip: SVGGElement, eps: number): SVGGElement | null {
+  let best: SVGGElement | null = null
+  let bestD = Infinity
+  for (const n of s.svg.querySelectorAll<SVGGElement>(':scope > [data-dia-node]')) {
+    if (n === skip) continue
+    const g = getNodeGeom(n)
+    if (p.x < g.x - eps || p.x > g.x + g.w + eps || p.y < g.y - eps || p.y > g.y + g.h + eps) continue
+    const d = Math.hypot(p.x - (g.x + g.w / 2), p.y - (g.y + g.h / 2))
+    if (d < bestD) { bestD = d; best = n }
+  }
+  return best
+}
+
+/** drag an anchor dot onto another node → one InsertEdge op, canvas-style:
+ * the TARGET's anchor dots light up while you hover it, and dropping ON a
+ * dot pins the side the edge lands on (anywhere else on the node = auto) */
 function beginConnect(e: PointerEvent, node: SVGGElement, side: string): void {
   if (!ctx) return
   e.preventDefault()
@@ -464,23 +489,46 @@ function beginConnect(e: PointerEvent, node: SVGGElement, side: string): void {
     x: side === 'E' ? g.x + g.w : side === 'W' ? g.x : g.x + g.w / 2,
     y: side === 'S' ? g.y + g.h : side === 'N' ? g.y : g.y + g.h / 2,
   }
+  const k = pxScale(s.svg)
+  const snap = 12 / k
   const temp = document.createElementNS(NS, 'path')
   temp.setAttribute('class', 'dia-st-draft')
-  c.ov.appendChild(temp)
+  const cand = document.createElementNS(NS, 'g') as SVGGElement
+  c.ov.append(temp, cand)
+
+  const sinkSideAt = (target: SVGGElement, p: { x: number; y: number }): string | null => {
+    for (const [ts, x, y] of anchorPointsOf(target)) {
+      if (Math.hypot(p.x - x, p.y - y) <= snap) return ts
+    }
+    return null
+  }
+  const showCandidates = (target: SVGGElement | null, p: { x: number; y: number }): void => {
+    cand.textContent = ''
+    if (!target) return
+    const pinned = sinkSideAt(target, p)
+    for (const [ts, x, y] of anchorPointsOf(target)) {
+      const dot = document.createElementNS(NS, 'circle')
+      dot.setAttribute('class', `dia-st-anchor${ts === pinned ? '' : ' is-candidate'}`)
+      dot.setAttribute('cx', String(x))
+      dot.setAttribute('cy', String(y))
+      dot.setAttribute('r', String((ts === pinned ? 5.5 : 4) / k))
+      cand.appendChild(dot)
+    }
+  }
+
   drag((ev) => {
     const p = toArt(s.svg, ev.clientX, ev.clientY)
     temp.setAttribute('d', `M${r2(from.x)},${r2(from.y)} L${r2(p.x)},${r2(p.y)}`)
+    showCandidates(hitNodeAt(s, p, node, snap), p)
   }, (ev) => {
     temp.remove()
+    cand.remove()
     const p = toArt(s.svg, ev.clientX, ev.clientY)
-    const target = [...s.svg.querySelectorAll<SVGGElement>(':scope > [data-dia-node]')].find((n) => {
-      if (n === node) return false
-      const ng = getNodeGeom(n)
-      return p.x >= ng.x && p.x <= ng.x + ng.w && p.y >= ng.y && p.y <= ng.y + ng.h
-    })
+    const target = hitNodeAt(s, p, node, snap)
     if (target) {
+      const sink = sinkSideAt(target, p) ?? 'auto'
       insertEdgeFlow(s.svg, node.getAttribute('data-dia-node') ?? '',
-        target.getAttribute('data-dia-node') ?? '', `${side},auto`)
+        target.getAttribute('data-dia-node') ?? '', `${side},${sink}`)
     }
     refreshAll()
   })
