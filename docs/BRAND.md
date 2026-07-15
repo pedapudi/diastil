@@ -2,10 +2,20 @@
 
 ## The name
 
-**diastīl**, lowercase, from *dia* (through; also the file extension's
-first syllable) and *distill*. The macron on the ī marks the long vowel:
-*dee-ah-STEEL*. The name states the thesis — many messy sources pass
-through and come out as one distilled, verified document.
+**diastīl**, lowercase, from *dia* (through) + *style* — traced to its
+root, Latin **stīlus**, the pointed writing instrument. Classical Latin
+spells that word with a genuinely long ī, so the macron is philological,
+not decorative: it marks the Latin vowel quantity and gives the
+pronunciation *dee-ah-STEEL*. "Through the pen": documents written
+directly, in their own style.
+
+(The *y* in English "style"/"stylus" is a historical confusion with
+Greek στῦλος, "column" — the root of the architectural term *diastyle*.
+diastīl keeps the honest Latin *i*.)
+
+The condensation mark adds a second, deliberate reading — *distill* —
+many messy sources pass through and come out as one verified document.
+The pun is welcome; the etymology is stīlus.
 
 **Where the macron goes.** Display contexts only: the editor wordmark,
 deck footers and covers, headlines, marketing. Everything a machine
