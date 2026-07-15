@@ -6,21 +6,22 @@
 <title>what is diastil</title>
 <style id="dia-theme">
 :root {
-  --dia-paper: #faf7f0;
-  --dia-ink: #1d2733;
-  --dia-ink-soft: #4a5563;
-  --dia-accent: #b4552d;
-  --dia-rule: #ddd6c8;
-  --dia-face-display: Charter, Georgia, "Times New Roman", serif;
-  --dia-face-body: Georgia, "Times New Roman", serif;
-  --dia-face-label: ui-monospace, "SF Mono", Menlo, monospace;
-  --dia-scale-1: 12px;
-  --dia-scale-2: 15px;
-  --dia-scale-3: 18px;
-  --dia-scale-4: 22px;
-  --dia-scale-5: 30px;
-  --dia-scale-6: 40px;
-  --dia-scale-7: 54px;
+  --dia-paper: #101210;
+  --dia-ink: #f2f3ef;
+  --dia-ink-soft: #c2c5bb;
+  --dia-ink-faint: #8a8e83;
+  --dia-accent: #3FB87A;
+  --dia-rule: #2d302b;
+  --dia-face-display: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  --dia-face-body: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  --dia-face-label: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  --dia-scale-1: 11px;
+  --dia-scale-2: 13.5px;
+  --dia-scale-3: 16px;
+  --dia-scale-4: 19px;
+  --dia-scale-5: 26px;
+  --dia-scale-6: 34px;
+  --dia-scale-7: 42px;
   --dia-gap: 26px;
   --dia-pad: 56px;
 }
@@ -36,22 +37,23 @@ section.dia-slide {
   flex-direction: column;
 }
 .dia-kicker { font-family: var(--dia-face-label); font-size: var(--dia-scale-1);
-  letter-spacing: .16em; text-transform: uppercase; color: var(--dia-accent);
-  margin-bottom: 14px; }
+  letter-spacing: .14em; text-transform: uppercase; color: var(--dia-ink-faint);
+  margin-bottom: 16px; }
+.dia-kicker::before { content: '∿ '; color: var(--dia-accent); letter-spacing: 0; }
 .dia-title { font-family: var(--dia-face-display); font-size: var(--dia-scale-5);
-  line-height: 1.12; font-weight: 700; margin: 0 0 16px; letter-spacing: -0.01em; }
+  line-height: 1.25; font-weight: 700; margin: 0 0 14px; letter-spacing: -0.01em; }
 .dia-title em { color: var(--dia-accent); font-style: normal; }
-.dia-cover-title { font-size: var(--dia-scale-7); max-width: 18ch; }
-.dia-body { font-size: var(--dia-scale-2); line-height: 1.62; color: var(--dia-ink-soft); }
+.dia-cover-title { font-size: var(--dia-scale-7); max-width: 22ch; line-height: 1.2; }
+.dia-body { font-size: var(--dia-scale-2); line-height: 1.66; color: var(--dia-ink-soft); }
 .dia-body p { margin: 0 0 11px; }
 .dia-body strong { color: var(--dia-ink); font-weight: 700; }
 .dia-body code, .dia-caption code {
   font-family: var(--dia-face-label); font-size: 0.92em;
-  color: var(--dia-ink); background: rgba(180, 85, 45, 0.07);
+  color: var(--dia-ink); background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--dia-rule); border-radius: 4px; padding: 0 5px;
 }
 .dia-caption { font-family: var(--dia-face-label); font-size: var(--dia-scale-1);
-  color: var(--dia-ink-soft); }
+  color: var(--dia-ink-soft); font-variant-numeric: tabular-nums; }
 .dia-columns { display: grid; grid-template-columns: 1.05fr 1fr; gap: var(--dia-gap); }
 .dia-stack { display: flex; flex-direction: column; gap: calc(var(--dia-gap) / 2); }
 .dia-figure { align-self: center; }
@@ -60,22 +62,25 @@ li::before { content: var(--dia-marker, none); color: var(--dia-marker-ink, var(
 li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: auto 1fr; column-gap: 0.6em; align-items: start; }
 .dia-marker { color: var(--dia-marker-ink, var(--dia-accent)); }
 .dia-marker > svg, .dia-marker > img { width: 1.1em; height: 1.1em; display: block; margin-top: 0.2em; }
-.dia-marker.dia-marker-chip { display: inline-grid; place-items: center; width: 1.6em; height: 1.6em;
-  border-radius: 999px; background: var(--dia-accent); color: var(--dia-paper);
-  font-family: var(--dia-face-label); font-size: 0.7em; margin-top: 0.25em; }
+.dia-marker.dia-marker-chip { display: inline-grid; place-items: center; width: 1.7em; height: 1.7em;
+  border-radius: 4px; background: transparent; border: 1px solid var(--dia-rule);
+  color: var(--dia-accent); font-family: var(--dia-face-label); font-size: 0.72em;
+  font-weight: 700; margin-top: 0.2em; }
 .dia-body ul, .dia-body ol { margin: 0; padding-left: 1.1em; }
 .dia-body li { margin-bottom: 10px; line-height: 1.5; }
 .dia-scene { width: 100%; }
-.dia-scene .dia-node-shape { fill: var(--dia-node-fill, var(--dia-paper)); stroke: var(--dia-node-stroke, var(--dia-ink)); stroke-width: var(--dia-node-stroke-w, 1.3); }
-.dia-scene .dia-node-label { font: 13px var(--dia-face-label); fill: var(--dia-node-ink, var(--dia-ink)); }
-.dia-scene .dia-edge-path { stroke: var(--dia-edge-stroke, var(--dia-ink)); stroke-width: var(--dia-edge-w, 1.2); fill: none; color: var(--dia-edge-stroke, var(--dia-ink)); }
+.dia-scene .dia-node-shape { fill: var(--dia-node-fill, #191c19); stroke: var(--dia-node-stroke, var(--dia-ink-soft)); stroke-width: var(--dia-node-stroke-w, 1.1); }
+.dia-scene .dia-node-label { font: 12.5px var(--dia-face-label); fill: var(--dia-node-ink, var(--dia-ink)); }
+.dia-scene .dia-edge-path { stroke: var(--dia-edge-stroke, var(--dia-ink-soft)); stroke-width: var(--dia-edge-w, 1); fill: none; color: var(--dia-edge-stroke, var(--dia-ink-soft)); }
 .dia-scene .dia-edge-label { font: 11px var(--dia-face-label); fill: var(--dia-edge-ink, var(--dia-ink-soft)); }
 .dia-scene [data-dia-emphasis] .dia-node-shape { stroke: var(--dia-accent); stroke-width: 2.2; }
 .dia-draw { fill: none; stroke: var(--dia-ink); stroke-linecap: round; stroke-linejoin: round; }
 /* deck-owned styling hooks (extra classes are allowed by the profile) */
 .foot { display: flex; justify-content: space-between; align-items: baseline;
-  border-top: 1px solid var(--dia-rule); padding-top: 14px; margin-top: auto; }
-.lede { font-size: var(--dia-scale-3); line-height: 1.55; max-width: 46ch; }
+  border-top: 1px solid var(--dia-rule); padding-top: 12px; margin-top: auto;
+  color: var(--dia-ink-faint); }
+.u { border-bottom: 2px solid var(--dia-accent); padding-bottom: 1px; }
+.lede { font-size: var(--dia-scale-3); line-height: 1.6; max-width: 52ch; }
 .wordmark { font-family: var(--dia-face-label); font-weight: 700; letter-spacing: -0.02em; }
 .hairline { border: 0; border-top: 1px solid var(--dia-rule); margin: 18px 0; }
 .glyphs li { position: relative; padding-left: 1.35em; }
@@ -86,68 +91,68 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
   color: var(--dia-ink-soft); border-left: 1.5px solid var(--dia-rule);
   padding-left: 0.8em; margin-left: 0.7em; }
 .respreview span { display: block; white-space: nowrap; }
+.panel { border: 1px solid var(--dia-rule); border-radius: 5px; padding: 14px 16px; }
+.panel-k { font-family: var(--dia-face-label); font-size: var(--dia-scale-1);
+  letter-spacing: .14em; text-transform: uppercase; color: var(--dia-accent); margin-bottom: 7px; }
+.panel p { margin: 0; font-size: var(--dia-scale-2); line-height: 1.55; color: var(--dia-ink-soft); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.tight li { margin-bottom: 7px; }
+.sub { font-size: var(--dia-scale-2); color: var(--dia-ink-soft); margin: -6px 0 18px; }
 </style>
 </head>
 <body>
 <section class="dia-slide dia-cover">
   <div class="dia-kicker">a field guide · 01</div>
-  <h1 class="dia-title dia-cover-title"><span class="wordmark">diastil</span><span class="respreview"><span>research</span><span>preview</span></span><br>decks that edit like <em>documents</em> and draw like <em>canvases</em></h1>
-  <div class="dia-body lede">A presentation tool where the saved file <em>is</em> the format:
-  one self-contained HTML page that presents itself, restyles from a handful of
-  tokens, and stays editable by you, a text editor, or any coding agent.</div>
-  <div class="dia-caption foot">
-    <span>this deck is written in the dialect it describes</span>
-    <span>github.com/pedapudi/diastil</span>
-  </div>
+  <h1 class="dia-title dia-cover-title"><span class="wordmark">diastil</span><span class="respreview"><span>research</span><span>preview</span></span><br>decks that edit like <em>documents</em> and draw like <em>canvases</em>.</h1>
+  <div class="dia-body lede">The saved file is the format: one self-contained HTML page that
+  presents itself, restyles from tokens, and stays editable by you, a text editor,
+  or any coding agent. No build step. No private data model. No lock-in.</div>
+  <div class="dia-caption foot"><span>01 / 12</span><span class="wordmark">diastil</span></div>
 </section>
 
 <section class="dia-slide">
-  <div class="dia-kicker">what it is · 02</div>
-  <h2 class="dia-title">The saved file is <em>plain HTML</em></h2>
-  <div class="dia-columns">
-    <div class="dia-body">
-      <p>A deck is a <strong>closed profile of HTML</strong> — a small grammar of
-      roles, tokens, and attributes that a validator can hold forever.</p>
-      <ul class="glyphs" style="--dia-marker: '▸'; list-style: none; padding-left: 0;">
-        <li>Open it anywhere; it presents itself. No app required to read it.</li>
-        <li>Every style reads a token, so one edit restyles the whole deck.</li>
-        <li>Any agent or editor can keep working on it — there is no private format,
-            no build step, no lock-in.</li>
-      </ul>
-    </div>
-    <div class="dia-body">
-      <p><strong>The grammar in one breath:</strong></p>
-      <p><code>section.dia-slide</code> per slide · text roles
-      <code>dia-kicker</code> / <code>dia-title</code> / <code>dia-body</code> /
-      <code>dia-caption</code> · layout <code>dia-columns</code> /
-      <code>dia-stack</code> / <code>dia-figure</code> · diagrams as
-      <code>svg.dia-scene</code> · behavior as <code>data-dia-*</code> attributes ·
-      the unconvertible preserved verbatim in <strong>islands</strong>.</p>
-      <p class="dia-caption">the bullets on the left are one declaration:
-      <code>--dia-marker: '▸'</code> — they retint with the theme</p>
-    </div>
+  <div class="dia-kicker">the premise · 02</div>
+  <h2 class="dia-title">The file <em>is</em> the format.</h2>
+  <p class="sub dia-body">A deck is a closed profile of HTML — small enough for a validator to hold forever.</p>
+  <div class="grid2">
+    <div class="panel"><div class="panel-k">grammar</div>
+      <p><code>section.dia-slide</code> per slide · roles <code>dia-kicker / dia-title / dia-body / dia-caption</code> ·
+      layout <code>dia-columns / dia-stack / dia-figure</code> · every color, size, and face
+      reads a <code>--dia-*</code> token from one theme block.</p></div>
+    <div class="panel"><div class="panel-k">behavior is data</div>
+      <p><code>data-dia-step</code> orders reveals · scenes hold diagrams ·
+      no <code>&lt;script&gt;</code>, no <code>on*=</code> handlers in content.
+      The runtime is embedded on save; a never-saved deck is still valid.</p></div>
+    <div class="panel"><div class="panel-k">islands</div>
+      <p>What the dialect can't express is preserved <em>verbatim</em> —
+      <code>data-dia-island</code> regions keep their scripts and stay alive.
+      Verified conversion or verbatim preservation; never a silent maybe.</p></div>
+    <div class="panel"><div class="panel-k">two validators, lockstep</div>
+      <p><code>src/model/validate.ts</code> in the editor and a stdlib-only
+      <code>validate.py</code> behind <code>dia validate</code> — identical rule ids,
+      exit 1 on any error. The contract gate for humans and agents alike.</p></div>
   </div>
+  <div class="dia-caption foot"><span>02 / 12</span><span class="wordmark">diastil</span></div>
 </section>
 
 <section class="dia-slide">
-  <div class="dia-kicker">what it does · 03</div>
-  <h2 class="dia-title">One file, <em>four surfaces</em></h2>
+  <div class="dia-kicker">architecture · 03</div>
+  <h2 class="dia-title">One file, four surfaces.</h2>
   <div class="dia-columns">
     <div class="dia-body">
-      <ul>
-        <li><span class="dia-marker dia-marker-chip">1</span><span><strong>Edit</strong> —
-            a WYSIWYG editor: click text to type, drag elements and diagram nodes,
-            restyle by role and token, undo everything.</span></li>
-        <li><span class="dia-marker dia-marker-chip">2</span><span><strong>Present</strong> —
-            the deck runs itself in any browser: arrows navigate,
-            <code>data-dia-step</code> reveals in order.</span></li>
-        <li><span class="dia-marker dia-marker-chip">3</span><span><strong>Import</strong> —
-            foreign decks (reveal, Marp, bespoke JS) convert through a reviewed,
-            measured pipeline.</span></li>
-        <li><span class="dia-marker dia-marker-chip">4</span><span><strong>Agents</strong> —
-            a copilot that proposes changes you preview and accept; skills, an
-            AGENTS.md manual, and an MCP server for every coding tool.</span></li>
+      <ul class="tight">
+        <li><span class="dia-marker dia-marker-chip">01</span><span><strong>edit</strong> — WYSIWYG over the live DOM;
+            every gesture is one op in an append-only log.</span></li>
+        <li><span class="dia-marker dia-marker-chip">02</span><span><strong>present</strong> — the embedded runtime:
+            arrows navigate, steps reveal. Works off <code>file://</code>.</span></li>
+        <li><span class="dia-marker dia-marker-chip">03</span><span><strong>import</strong> — foreign decks convert
+            through a measured, human-reviewed pipeline.</span></li>
+        <li><span class="dia-marker dia-marker-chip">04</span><span><strong>agents</strong> — a copilot that proposes ops
+            you preview; skills, AGENTS.md, MCP for every tool.</span></li>
       </ul>
+      <p class="dia-caption">zero runtime dependencies in the document path —
+      the editor bundle and deck runtime import nothing.</p>
     </div>
     <figure class="dia-figure">
       <svg class="dia-scene" viewBox="0 0 360 260" role="img" aria-label="the deck file at the center of four surfaces"><defs><marker id="dia-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"></path></marker></defs>
@@ -171,15 +176,81 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
         <g data-dia-edge="import-&gt;deck" data-anchors="E,S" data-route="ortho"><path class="dia-edge-path" d="M130,224 H142 V166 H180 V154" fill="none" marker-end="url(#dia-arrow)"></path></g>
         <g data-dia-edge="agents-&gt;deck" data-anchors="W,S" data-route="ortho"><path class="dia-edge-path" d="M230,224 H218 V166 H180 V154" fill="none" marker-end="url(#dia-arrow)"></path></g>
       </svg>
-      <figcaption class="dia-caption">a scene: nodes and self-routing edges, drawn by the runtime</figcaption>
+      <figcaption class="dia-caption">this diagram is a scene — the edges routed themselves</figcaption>
     </figure>
   </div>
+  <div class="dia-caption foot"><span>03 / 12</span><span class="wordmark">diastil</span></div>
 </section>
 
 <section class="dia-slide">
-  <div class="dia-kicker">how it works · import · 04</div>
-  <h2 class="dia-title">Foreign decks convert through a <em>measured</em> pipeline</h2>
-  <figure class="dia-figure" style="margin: 0; width: 100%;">
+  <div class="dia-kicker">implementation · the op log · 04</div>
+  <h2 class="dia-title">Every edit is an <em>op</em>: apply, invert, replay.</h2>
+  <div class="grid2">
+    <div class="panel"><div class="panel-k">the shape</div>
+      <p>An op is <code>{ label, author, apply(), invert() }</code> — a closure over live
+      elements that captures its previous state at creation. Gestures batch:
+      a whole drag, a whole proposal, is ONE undo step.</p></div>
+    <div class="panel"><div class="panel-k">byte-stable round-trip</div>
+      <p>A deck saved by diastil re-parses and re-serializes to <em>identical bytes</em> —
+      held by tests as a hard guarantee. Text-editor diffs stay clean; the CLI's
+      disk-watch can prove "editor is clean" by equality.</p></div>
+    <div class="panel"><div class="panel-k">authorship</div>
+      <p>Ops carry <code>author: you | copilot</code>. Agent changes read honestly in the
+      log, and a rejected proposal never touches it — previews apply
+      <em>outside</em> the log and revert by running inverts in reverse.</p></div>
+    <div class="panel"><div class="panel-k">editor artifacts</div>
+      <p>Selection rings, highlight layers, preview badges are
+      <code>.dia-editor-artifact</code> nodes — serialization strips them, so chrome
+      can never leak into the saved file.</p></div>
+  </div>
+  <div class="dia-caption foot"><span>04 / 12</span><span class="wordmark">diastil</span></div>
+</section>
+
+<section class="dia-slide">
+  <div class="dia-kicker">implementation · scenes · 05</div>
+  <h2 class="dia-title">Scenes: author intent, <em>derive geometry</em>.</h2>
+  <div class="dia-columns">
+    <div class="dia-body">
+      <ul class="glyphs" style="--dia-marker: '∿'; list-style: none; padding-left: 0;">
+        <li>Nodes are <code>data-x/y/w/h</code> + a shape; labels center themselves;
+            edge paths are <em>derived artifacts</em> — never hand-written.</li>
+        <li>Orthogonal routing is A* over node rects inflated 12px, bend-penalized,
+            with a calm 1–2 bend fallback when boxed in.</li>
+        <li>Twelve shapes + freeform <code>data-path</code> (100×100-normalized) with
+            center rotation; a point editor drags anchors and control points —
+            one op per gesture.</li>
+        <li>Anything else — imported art, pen strokes — is a <em>free element</em>:
+            draggable, restylable, promotable to a node at its bbox.</li>
+      </ul>
+    </div>
+    <figure class="dia-figure">
+      <svg class="dia-scene" viewBox="0 0 360 240" role="img" aria-label="shape vocabulary"><defs><marker id="dia-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"></path></marker></defs>
+        <g data-dia-node="idea" data-shape="cloud" data-x="16" data-y="16" data-w="120" data-h="58" data-dia-step="1"><path class="dia-node-shape" d="M42.4,65.3 C22,65.3 16,51.96 25.6,45 C16,33.4 35.2,27.6 52,29.92 C59.2,20.64 90.4,20.64 100,28.76 C120.4,25.28 136,34.56 128.8,45 C136,53.7 127.6,65.3 109.6,65.3 Z"></path>
+          <text class="dia-node-label" x="76" y="45" text-anchor="middle" dominant-baseline="central">idea</text>
+        </g>
+        <g data-dia-node="decide" data-shape="diamond" data-x="210" data-y="14" data-w="110" data-h="64" data-dia-step="2"><path class="dia-node-shape" d="M265,14 L320,46 L265,78 L210,46 Z"></path>
+          <text class="dia-node-label" x="265" y="46" text-anchor="middle" dominant-baseline="central">decide</text>
+        </g>
+        <g data-dia-node="store" data-shape="cylinder" data-x="24" data-y="150" data-w="104" data-h="64" data-dia-step="3"><path class="dia-node-shape" d="M24,159.6 A52,9.6 0 0 1 128,159.6 V204.4 A52,9.6 0 0 1 24,204.4 Z M24,159.6 A52,9.6 0 0 0 128,159.6"></path>
+          <text class="dia-node-label" x="76" y="182" text-anchor="middle" dominant-baseline="central">store</text>
+        </g>
+        <g data-dia-node="ship" data-shape="path" data-x="222" data-y="158" data-w="112" data-h="52" data-dia-step="3" data-path="M0,32 L58,32 L58,8 L100,50 L58,92 L58,68 L0,68 Z"><path class="dia-node-shape" d="M0,32 L58,32 L58,8 L100,50 L58,92 L58,68 L0,68 Z" transform="translate(222,158) scale(1.12,0.52)" vector-effect="non-scaling-stroke"></path>
+          <text class="dia-node-label" x="278" y="184" text-anchor="middle" dominant-baseline="central">ship</text>
+        </g>
+        <g data-dia-edge="idea-&gt;decide" data-anchors="E,W" data-route="curve" data-dia-step="2"><path class="dia-edge-path" d="M136,45 C173,45 173,46 210,46" fill="none" marker-end="url(#dia-arrow)"></path></g>
+        <g data-dia-edge="decide-&gt;store" data-anchors="S,E" data-route="ortho" data-label="keep" data-dia-step="3"><path class="dia-edge-path" d="M265,78 V90 H140 V182 H128" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="156.5" y="84" text-anchor="middle">keep</text></g>
+        <g data-dia-edge="decide-&gt;ship" data-anchors="S,N" data-route="ortho" data-label="go" data-dia-step="3"><path class="dia-edge-path" d="M265,78 V146 H278 V158" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="265" y="118.5" text-anchor="middle">go</text></g>
+      </svg>
+      <figcaption class="dia-caption">cloud · diamond · cylinder · freeform path — revealed in steps</figcaption>
+    </figure>
+  </div>
+  <div class="dia-caption foot"><span>05 / 12</span><span class="wordmark">diastil</span></div>
+</section>
+
+<section class="dia-slide">
+  <div class="dia-kicker">implementation · import · 06</div>
+  <h2 class="dia-title">Import runs the original, then <em>measures everything</em>.</h2>
+  <figure class="dia-figure" style="margin: 0 0 10px; width: 100%;">
     <svg class="dia-scene" viewBox="0 0 900 150" role="img" aria-label="the import pipeline"><defs><marker id="dia-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"></path></marker></defs>
       <g data-dia-node="original" data-shape="note" data-x="10" data-y="50" data-w="130" data-h="48"><path class="dia-node-shape" d="M10,50 L126,50 L140,64 L140,98 L10,98 Z M126,50 L126,64 L140,64"></path>
         <text class="dia-node-label" x="75" y="74" text-anchor="middle" dominant-baseline="central">original.html</text>
@@ -206,128 +277,159 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
       <g data-dia-edge="review-&gt;deck" data-anchors="E,W" data-route="straight" data-label="verified"><path class="dia-edge-path" d="M788,74 L810,74" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="799" y="68" text-anchor="middle">verified</text></g>
     </svg>
   </figure>
-  <div class="dia-body" style="max-width: 62ch;">
-    <p data-dia-step="1">The original <strong>executes</strong> in a sandbox — its own scripts run,
-    fonts load, every slide is sampled in its <strong>activated</strong> state.</p>
-    <p data-dia-step="2">Conversion carries what was <strong>measured</strong>: positions become
-    spacing, colors and faces bind to tokens, animations become build steps,
-    custom bullets become marker tokens.</p>
-    <p data-dia-step="3">The review proves fidelity per slide with a visual-consistency score —
-    and anything the dialect can't express is preserved <strong>verbatim</strong>, never approximated.</p>
+  <div class="dia-body" style="max-width: 70ch;">
+    <p data-dia-step="1"><strong>execute</strong> — the source runs in a sandboxed iframe (history shimmed,
+    fonts settled). A <em>probe ladder</em> learns its navigation: framework APIs → arrow keys →
+    controls; every slide is sampled in its <strong>activated</strong> state.</p>
+    <p data-dia-step="2"><strong>extract</strong> — every element is stamped and sampled: geometry, computed
+    typography, colors, animation delays, <code>::before</code> markers materialized, shared
+    SVG defs inlined. Tokens are harvested from the majority ink and clustered type scale.</p>
+    <p data-dia-step="3"><strong>convert</strong> — measured facts carry: a gap-graph turns distances into
+    fixed-or-elastic spacing; faces, weights, colors bind to tokens; delays become steps;
+    exact shapes lift deterministically into scenes.</p>
   </div>
-  <div class="dia-caption">press → in present mode: these three points reveal as build steps</div>
+  <div class="dia-caption foot"><span>06 / 12</span><span class="wordmark">diastil</span></div>
 </section>
 
 <section class="dia-slide">
-  <div class="dia-kicker">how it works · verification · 05</div>
-  <h2 class="dia-title">Conversion is <em>verified</em>, not trusted</h2>
+  <div class="dia-kicker">implementation · fidelity · 07</div>
+  <h2 class="dia-title">Fidelity is a <em>measured composite</em>, not a vibe.</h2>
+  <p class="sub dia-body">Both renders rasterize through the same foreignObject pipeline at 384×216; ink masks binarize at a tight threshold. Four axes:</p>
+  <div class="grid4">
+    <div class="panel"><div class="panel-k">displacement</div>
+      <p>Symmetric truncated <strong>chamfer distance</strong> between ink masks (3-4 distance
+      transform) — drift costs in proportion, saturating at 4% of height.</p></div>
+    <div class="panel"><div class="panel-k">layout</div>
+      <p>Continuous <strong>Dice overlap</strong> of ink mass on a 16×9 grid — is the
+      composition the same, at the scale a human judges first.</p></div>
+    <div class="panel"><div class="panel-k">appearance</div>
+      <p>Mean color difference at blur radii 1/3/8px over the union mask — fine scale
+      keeps rewrites expensive, coarse scales tolerate displacement.</p></div>
+    <div class="panel"><div class="panel-k">completeness</div>
+      <p>Fraction of original ink <strong>cells</strong> still covered nearby, raised to the
+      1.5 power as a multiplier — dropping content can never win.</p></div>
+  </div>
+  <div class="dia-body" style="margin-top: 14px;">
+    <p class="dia-caption">the explanation layer stays pixel-level: diff heatmaps, clustered mismatch
+    regions hit-tested against the samples ("contains: the title"), and vertical-drift detection.</p>
+  </div>
+  <div class="dia-caption foot"><span>07 / 12</span><span class="wordmark">diastil</span></div>
+</section>
+
+<section class="dia-slide">
+  <div class="dia-kicker">implementation · the loop · 08</div>
+  <h2 class="dia-title">Repair is model-assisted, <em>measurement-governed</em>.</h2>
+  <div class="grid2">
+    <div class="panel"><div class="panel-k">keep-best, gated</div>
+      <p>Under-threshold slides get repair rounds (cap 3). A candidate that re-measures
+      lower — or that <em>deletes source text</em> — is rejected outright. Every candidate
+      stays selectable in a versions row; the human outranks the metric.</p></div>
+    <div class="panel"><div class="panel-k">the prompt is the evaluation</div>
+      <p>The model receives the axis scores ("this is an APPEARANCE problem"), named
+      regions, measured element deltas ("title: 64px vs 39px"), close-up crops of the
+      worst region, and what its last rejected attempt did wrong.</p></div>
+    <div class="panel"><div class="panel-k">the corpus ratchet</div>
+      <p>Golden decks are captured with per-slide fidelity pinned in fixtures;
+      <code>FIDELITY_FLOORS</code> fails the suite if a change re-captures lower.
+      Tuning happens against pinned numbers, never live hand-measurement.</p></div>
+    <div class="panel"><div class="panel-k">untrusted output, everywhere</div>
+      <p>Model replies are recovered (fence-stripping, root-element extraction, op
+      coercion), corrected (one round, shown its own bad reply), or refused with
+      a reason — malformed output can never take the editor down.</p></div>
+  </div>
+  <div class="dia-caption foot"><span>08 / 12</span><span class="wordmark">diastil</span></div>
+</section>
+
+<section class="dia-slide">
+  <div class="dia-kicker">implementation · agents · 09</div>
+  <h2 class="dia-title">The copilot <em>proposes</em>; you preview; the log records.</h2>
   <div class="dia-columns">
     <div class="dia-body">
-      <p>Every imported slide is rendered side by side with its original and
-      <strong>scored</strong> on four named axes:</p>
-      <ul>
-        <li><span class="dia-marker dia-marker-chip">D</span><span><strong>displacement</strong> —
-            how far content moved (graded, not a cliff)</span></li>
-        <li><span class="dia-marker dia-marker-chip">L</span><span><strong>layout</strong> —
-            does the composition hold</span></li>
-        <li><span class="dia-marker dia-marker-chip">A</span><span><strong>appearance</strong> —
-            colors, typography, surfaces</span></li>
-        <li><span class="dia-marker dia-marker-chip">C</span><span><strong>completeness</strong> —
-            dropping content can never win the score</span></li>
+      <ul class="glyphs" style="--dia-marker: '∿'; list-style: none; padding-left: 0;">
+        <li>One law: the model <strong>never edits directly</strong>. It emits typed ops through
+            a tool call; the editor compiles them against the live DOM.</li>
+        <li>Proposals <strong>preview on the slide</strong> the moment they arrive — dashed
+            frame, labeled — apply commits one batch; reject restores.</li>
+        <li>Targets resolve through a forgiving grammar: ids, "slide 3 title",
+            css selectors, exact text. Unresolvable ops are marked with reasons
+            and fed back for one automatic correction round.</li>
+        <li>Context is honest: the rail shows exactly what the model sees —
+            slides, tokens, the current render, the imported original, and any
+            regions you shade.</li>
       </ul>
     </div>
     <div class="dia-body">
-      <p>The score is a <strong>ratchet</strong>: golden decks live in a corpus with
-      pinned per-slide baselines, and any change that lowers one fails the
-      test suite until a human decides otherwise.</p>
-      <p>Repairs are model-assisted but <strong>measured</strong> — a repair that
-      scores lower, or deletes source text, is rejected automatically. Every
-      candidate stays selectable; the human outranks the metric.</p>
-      <p class="dia-caption">the original of every imported slide ships inside the
-      deck — comparison works forever, no source file required</p>
+      <div class="panel"><div class="panel-k">the service</div>
+        <p>A local FastAPI sidecar (<code>127.0.0.1:8317</code>) — skills are versioned
+        markdown prompts over any OpenAI-compatible endpoint. No telemetry;
+        the only outbound traffic is to the model you configured.
+        The editor is <em>complete without it</em>.</p></div>
+      <div class="panel" style="margin-top: 14px;"><div class="panel-k">every tool</div>
+        <p>Claude Code plugin · <code>dia agents-md</code> for AGENTS.md tools ·
+        <code>dia mcp</code> (stdlib stdio) for shell-less clients ·
+        <code>dia validate</code> as the acceptance test for all of them.</p></div>
     </div>
   </div>
+  <div class="dia-caption foot"><span>09 / 12</span><span class="wordmark">diastil</span></div>
 </section>
 
 <section class="dia-slide">
-  <div class="dia-kicker">how it works · diagrams · 06</div>
-  <h2 class="dia-title">Scenes: <em>semantics in, geometry out</em></h2>
+  <div class="dia-kicker">how to use it · 10</div>
+  <h2 class="dia-title">Five commands.</h2>
   <div class="dia-columns">
     <div class="dia-body">
-      <p>A diagram is an <code>svg.dia-scene</code>: nodes carry
-      <code>data-x/y/w/h</code> and a shape; edges name their endpoints.
-      <strong>You author intent; the runtime computes geometry</strong> — move a
-      node and its edges reroute around obstacles.</p>
-      <p>Twelve shapes plus freeform <code>path</code> outlines with rotation;
-      point-edit any path; draw freehand; promote imported art into nodes.
-      What the vocabulary can't hold stays verbatim and stays editable.</p>
-    </div>
-    <figure class="dia-figure">
-      <svg class="dia-scene" viewBox="0 0 360 240" role="img" aria-label="shape vocabulary"><defs><marker id="dia-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"></path></marker></defs>
-        <g data-dia-node="idea" data-shape="cloud" data-x="16" data-y="16" data-w="120" data-h="58" data-dia-step="1"><path class="dia-node-shape" d="M42.4,65.3 C22,65.3 16,51.96 25.6,45 C16,33.4 35.2,27.6 52,29.92 C59.2,20.64 90.4,20.64 100,28.76 C120.4,25.28 136,34.56 128.8,45 C136,53.7 127.6,65.3 109.6,65.3 Z"></path>
-          <text class="dia-node-label" x="76" y="45" text-anchor="middle" dominant-baseline="central">idea</text>
-        </g>
-        <g data-dia-node="decide" data-shape="diamond" data-x="210" data-y="14" data-w="110" data-h="64" data-dia-step="2"><path class="dia-node-shape" d="M265,14 L320,46 L265,78 L210,46 Z"></path>
-          <text class="dia-node-label" x="265" y="46" text-anchor="middle" dominant-baseline="central">decide</text>
-        </g>
-        <g data-dia-node="store" data-shape="cylinder" data-x="24" data-y="150" data-w="104" data-h="64" data-dia-step="3"><path class="dia-node-shape" d="M24,159.6 A52,9.6 0 0 1 128,159.6 V204.4 A52,9.6 0 0 1 24,204.4 Z M24,159.6 A52,9.6 0 0 0 128,159.6"></path>
-          <text class="dia-node-label" x="76" y="182" text-anchor="middle" dominant-baseline="central">store</text>
-        </g>
-        <g data-dia-node="ship" data-shape="path" data-x="222" data-y="158" data-w="112" data-h="52" data-dia-step="3" data-path="M0,32 L58,32 L58,8 L100,50 L58,92 L58,68 L0,68 Z"><path class="dia-node-shape" d="M0,32 L58,32 L58,8 L100,50 L58,92 L58,68 L0,68 Z" transform="translate(222,158) scale(1.12,0.52)" vector-effect="non-scaling-stroke"></path>
-          <text class="dia-node-label" x="278" y="184" text-anchor="middle" dominant-baseline="central">ship</text>
-        </g>
-        <g data-dia-edge="idea-&gt;decide" data-anchors="E,W" data-route="curve" data-dia-step="2"><path class="dia-edge-path" d="M136,45 C173,45 173,46 210,46" fill="none" marker-end="url(#dia-arrow)"></path></g>
-        <g data-dia-edge="decide-&gt;store" data-anchors="S,E" data-route="ortho" data-label="keep" data-dia-step="3"><path class="dia-edge-path" d="M265,78 V90 H140 V182 H128" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="156.5" y="84" text-anchor="middle">keep</text></g>
-        <g data-dia-edge="decide-&gt;ship" data-anchors="S,N" data-route="ortho" data-label="go" data-dia-step="3"><path class="dia-edge-path" d="M265,78 V146 H278 V158" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="265" y="118.5" text-anchor="middle">go</text></g>
-      </svg>
-      <figcaption class="dia-caption">cloud · diamond · cylinder · freeform path — revealed in steps</figcaption>
-    </figure>
-  </div>
-</section>
-
-<section class="dia-slide">
-  <div class="dia-kicker">how to use it · 07</div>
-  <h2 class="dia-title">For hands <em>and for agents</em></h2>
-  <div class="dia-columns">
-    <div class="dia-body">
-      <p><strong>From a terminal:</strong></p>
       <ol>
         <li><code>dia new talk.html</code> — a profile-valid starting deck</li>
-        <li><code>dia talk.html</code> — the editor, ⌘S writes back</li>
+        <li><code>dia talk.html</code> — the editor; ⌘S writes back, disk changes reload</li>
         <li><code>dia ingest foreign.html</code> — convert through review</li>
-        <li><code>dia validate talk.html</code> — the contract gate</li>
-        <li><code>dia present talk.html</code> — it runs itself</li>
+        <li><code>dia validate talk.html</code> — the contract gate, exit 1 on errors</li>
+        <li><code>dia present talk.html</code> — it runs itself, off file://</li>
       </ol>
     </div>
     <div class="dia-body">
-      <p><strong>From a coding agent:</strong></p>
-      <ul class="glyphs" style="--dia-marker: '→'; list-style: none; padding-left: 0;">
-        <li>Claude Code: <code>/plugin marketplace add pedapudi/diastil</code></li>
-        <li>Codex, opencode, Antigravity, Cursor:
-            <code>dia agents-md &gt;&gt; AGENTS.md</code></li>
-        <li>no shell? <code>dia mcp</code> — the same operations as MCP tools</li>
-        <li>the validator is the real interface: an agent that satisfies
-            <code>dia validate</code> has produced a working deck</li>
-      </ul>
+      <p><strong>the loop, for an agent:</strong></p>
+      <p>scaffold → edit the html → <code>dia validate</code> → repeat.
+      The validator is the real interface: an agent that satisfies it has
+      produced a working deck, whatever produced it.</p>
+      <p class="dia-caption">stdlib-only: validate and present need nothing installed
+      beyond Python. Headless? every command takes <code>--no-open</code>.</p>
     </div>
   </div>
-  <div class="dia-caption foot">
-    <span>skills/ ships the deep manuals: authoring · scenes · validate · import · cli</span>
-    <span class="wordmark">dia</span>
+  <div class="dia-caption foot"><span>10 / 12</span><span class="wordmark">diastil</span></div>
+</section>
+
+<section class="dia-slide">
+  <div class="dia-kicker">the numbers · 11</div>
+  <h2 class="dia-title">Held by tests, not intentions.</h2>
+  <div class="grid4">
+    <div class="panel"><div class="panel-k">suite</div>
+      <p><strong>200+</strong> tests: round-trip byte-stability, both validators, the
+      metric's ranking properties, the marker ladder, preview semantics.</p></div>
+    <div class="panel"><div class="panel-k">corpus</div>
+      <p>Golden decks with pinned per-slide fidelity + confidence floors —
+      re-captured deliberately, diffed in review, never drive-by.</p></div>
+    <div class="panel"><div class="panel-k">profile</div>
+      <p>One contract (<code>PROFILE.md</code>), two implementations in lockstep,
+      identical rule ids — the editor and the CLI can never disagree.</p></div>
+    <div class="panel"><div class="panel-k">evals</div>
+      <p><code>dia eval</code> scores the model skills against golden cases —
+      prompt and endpoint changes are measured, like everything else.</p></div>
   </div>
+  <div class="dia-caption foot"><span>11 / 12</span><span class="wordmark">diastil</span></div>
 </section>
 
 <section class="dia-slide dia-cover">
-  <div class="dia-kicker">the invariants · 08</div>
-  <h2 class="dia-title" style="max-width: 24ch;">Plain files. <em>Verified</em> conversion. No lock-in.</h2>
+  <div class="dia-kicker">the thesis · 12</div>
+  <h2 class="dia-title" style="max-width: 30ch;">Plain files. Measured conversion.<br>
+  <span class="u">Promote only what the pixels prove.</span></h2>
   <div class="dia-body lede">
     <p>The editor is complete without a model. The saved deck is plain HTML.
-    Conversion is proven with pixels, never assumed. And nothing in the
+    Fidelity is a number with named axes, pinned in a corpus. And nothing in the
     document path imports anything — a deck you make today opens in twenty years.</p>
   </div>
   <div class="dia-caption foot">
-    <span>written, validated, and screenshotted by an agent — using the skills it ships</span>
-    <span>diastil · v1</span>
+    <span>12 / 12 · written, validated, and screenshotted by an agent, using the skills dia ships</span>
+    <span class="wordmark">diastil</span>
   </div>
 </section>
 <script id="dia-runtime">
