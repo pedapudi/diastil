@@ -24,7 +24,8 @@ import { mountMinimap } from './minimap'
 import { installHistory } from './history'
 import { installElementDragging } from './elemdrag'
 import { legendOpen, toggleLegend, closeLegend } from './legend'
-import { installTextEditing } from './textedit'
+import { installTextEditing, insertTextOnSlide } from './textedit'
+import { installContextMenu } from './contextmenu'
 import { buildSlideTree } from './tree'
 import { openCompare } from './compare'
 import { bootFromCli, openDeck, saveDeck, presentDeck } from './slides'
@@ -313,6 +314,7 @@ export function mountEditor(host: HTMLElement): void {
   installTextEditing(canvasHost)
   installElementDragging()
   installHistory(canvasHost)
+  installContextMenu(canvasHost, { insertDiagram })
   mountThemePicker(pickerSlot)
   mountTypePicker(pickerSlot)
   mountCopilot(copilotPane)
@@ -500,6 +502,10 @@ export function mountEditor(host: HTMLElement): void {
         bd.type = 'button'
         bd.title = 'add freeform svg artwork and open it in the studio'
         bd.addEventListener('click', () => newDrawingOnSlide(slide))
+        const bt = h('button', '', '+ text')
+        bt.type = 'button'
+        bt.title = 'add a text block — starts editing right away (drag to place, inspector restyles)'
+        bt.addEventListener('click', () => insertTextOnSlide(slide))
         const bm = h('button', '', '+ math')
         bm.type = 'button'
         bm.title = 'add a LaTeX formula — rendered to native MathML, source kept on the element'
@@ -507,7 +513,7 @@ export function mountEditor(host: HTMLElement): void {
           const el = insertMathOnSlide(slide)
           if (el) state.selection = { kind: 'element', el, slide }
         })
-        segEl.append(b, bd, bm)
+        segEl.append(bt, b, bd, bm)
         rowEl.append(segEl)
         inspectBody.append(rowEl)
       }

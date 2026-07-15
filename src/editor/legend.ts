@@ -15,6 +15,7 @@ const SECTIONS: Array<[string, Array<[string, string]>]> = [
   ['anywhere', [
     [`${MOD}S`, 'save the deck'],
     [`${MOD}Z · ${MODSHIFT}Z`, 'undo · redo (history continues across sessions)'],
+    ['right-click', 'context menu — edit, insert, studio, duplicate, delete'],
     ['\\', 'show / hide the right rail'],
     ['/', 'this legend'],
   ]],

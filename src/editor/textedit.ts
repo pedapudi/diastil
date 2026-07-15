@@ -5,7 +5,7 @@
  * the scene module owns those. */
 
 import { state } from '../state'
-import { batch, setAttr, setInlineHtml } from '../model/ops'
+import { batch, insertEl, setAttr, setInlineHtml } from '../model/ops'
 import { renderTex } from './math'
 import { showToast as showEditToast } from '../scene/overlay'
 
@@ -122,6 +122,24 @@ function isTextLeaf(el: HTMLElement): boolean {
   if ((el.textContent ?? '').trim().length === 0) return false
   // a leaf may contain inline formatting, but no block structure
   return [...el.querySelectorAll('*')].every((c) => INLINE_TAGS.has(c.tagName))
+}
+
+/** begin an in-place edit programmatically (insert-then-type flows) */
+export function startEdit(el: HTMLElement): void {
+  if (!editing) beginEdit(el)
+}
+
+/** insert a body text block before the slide footer and start editing */
+export function insertTextOnSlide(slide: HTMLElement): HTMLElement {
+  const el = document.createElement('p')
+  el.className = 'dia-body'
+  el.textContent = 'new text'
+  const foot = slide.querySelector(':scope > .dia-caption.foot')
+  const index = foot ? [...slide.children].indexOf(foot) : slide.children.length
+  state.apply(insertEl(slide, index, el, 'Insert text'))
+  state.selection = { kind: 'element', el, slide }
+  startEdit(el)
+  return el
 }
 
 function beginEdit(el: HTMLElement): void {

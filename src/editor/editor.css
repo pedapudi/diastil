@@ -308,6 +308,22 @@
   color: var(--ink-soft);
 }
 .de-style-row .dn-seg { flex-wrap: wrap; }
+/* right-click context menu: chrome register, clamped fixed panel */
+.de-menu {
+  position: fixed; z-index: 520; min-width: 196px; padding: 5px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, .3);
+}
+.de-menu button {
+  display: block; width: 100%; text-align: left;
+  font-family: var(--sans); font-size: calc(12px * var(--dt-font-scale, 1));
+  color: var(--ink); background: transparent; border: 0; border-radius: 4px;
+  padding: 5px 11px; cursor: pointer; white-space: nowrap;
+}
+.de-menu button:hover { background: var(--rule-soft); }
+.de-menu button.is-danger { color: var(--bad, #c33); }
+.de-menu button.is-danger:hover { background: var(--bad-soft, rgba(200,50,50,.15)); }
+.de-menu hr { border: 0; border-top: 1px solid var(--rule-soft); margin: 5px 6px; }
+
 /* math editing: the TeX source is data, so it sets in mono */
 .de-math-edit { display: flex; flex-direction: column; gap: 6px; }
 .de-math-tex {
