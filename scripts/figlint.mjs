@@ -174,11 +174,21 @@ function onAnyPathPoint(svg, p, eps, skip) {
 let bad = 0
 for (const svg of svgs) {
   for (const ch of svg.chevrons) {
-    const anchored = svg.lines.some((pts) => near(ch.apex, pts[0], EPS) || near(ch.apex, pts[pts.length - 1], EPS)) ||
-      onBoxEdge(svg, ch.apex, EPS) ||
-      svg.chevrons.some((o) => o !== ch && near(ch.apex, o.apex, EPS))
-    if (!anchored) {
+    // a chevron and its shaft must not merely anchor EACH OTHER — the
+    // head of an arrow points AT something: a box edge or another path.
+    // (no nearText: a LEADER may end at a label, an ARROWHEAD may not)
+    const shaft = svg.lines.find((pts) =>
+      near(ch.apex, pts[0], 8) || near(ch.apex, pts[pts.length - 1], 8)) ?? null
+    // dead-on at a label: tight radius AND axis-aligned with the anchor
+    const atLabel = svg.texts.some((t) =>
+      near(ch.apex, t, 10) && (Math.abs(t.x - ch.apex.x) <= 4 || Math.abs(t.y - ch.apex.y) <= 4))
+    const lands = onBoxEdge(svg, ch.apex, EPS) || insideBox(svg, ch.apex) ||
+      onAnyPathPoint(svg, ch.apex, EPS, shaft) || atLabel
+    if (!shaft && !lands) {
       console.log(`slide ${svg.slide}: ORPHAN ARROWHEAD at (${ch.apex.x}, ${ch.apex.y}) — no line ends here`)
+      bad++
+    } else if (shaft && !lands) {
+      console.log(`slide ${svg.slide}: ARROW POINTS AT NOTHING — apex (${ch.apex.x}, ${ch.apex.y}) touches no box, path, or label`)
       bad++
     }
   }

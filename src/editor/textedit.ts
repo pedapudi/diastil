@@ -5,7 +5,9 @@
  * the scene module owns those. */
 
 import { state } from '../state'
-import { setInlineHtml } from '../model/ops'
+import { batch, setAttr, setInlineHtml } from '../model/ops'
+import { renderTex } from './math'
+import { showToast as showEditToast } from '../scene/overlay'
 
 const ROLE_SELECTOR = '.dia-title, .dia-kicker, .dia-body, .dia-caption'
 
@@ -155,12 +157,38 @@ function commitEdit(): void {
   if (!editing) return
   const { el, original } = editing
   const html = el.innerHTML
+  const text = (el.textContent ?? '').trim()
   cleanupEdit(el)
+  // typing $…$ (or $$…$$) as the WHOLE text turns the element into math:
+  // LaTeX renders to MathML and the source persists on the element
+  const tex = /^\$\$?([^$]+.*?)\$\$?$/s.exec(text)?.[1]?.trim()
+  if (tex) {
+    el.innerHTML = original
+    if (commitAsMath(el, tex)) return
+  }
   if (html !== original) {
     // restore the original first so the op captures it as prev (undo works)
     el.innerHTML = original
     state.apply(setInlineHtml(el, html))
   }
+}
+
+/** render + commit in one op: content, source attr, and the dia-math class */
+function commitAsMath(el: HTMLElement, tex: string): boolean {
+  const r = renderTex(tex)
+  if ('error' in r) {
+    showEditToast(`latex: ${r.error}`)
+    return false
+  }
+  const cls = el.classList.contains('dia-math') ? null
+    : `${el.getAttribute('class') ?? ''} dia-math`.trim()
+  const ops = [
+    setAttr(el, 'data-dia-tex', tex),
+    setInlineHtml(el, r.mathml),
+    ...(cls ? [setAttr(el, 'class', cls)] : []),
+  ]
+  state.apply(batch('Edit math', ops))
+  return true
 }
 
 function cancelEdit(): void {

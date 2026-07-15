@@ -16,6 +16,7 @@ import { state } from '../state'
 import { mountTools, disposeTools, currentTool, deletePicked, nudgePicked, setTool, TOOLS } from './tools'
 import { mountPanels, disposePanels, refreshPanels } from './panels'
 import { openImportDialog } from './svgimport'
+import { setToolbarSuppressed } from '../scene/toolbar'
 
 const ARTIFACT = 'dia-editor-artifact'
 
@@ -44,11 +45,16 @@ export function studioSession(): StudioSession | null {
   return session
 }
 
-/** true when the studio can take this svg (scenes have their own editor) */
+/** true when the studio can take this svg. Scenes are welcome — the studio
+ * is the WORKBENCH (big canvas, zoom, layers) while the scene machinery
+ * stays the MODEL: node picks map to geometry ops and edges stay derived.
+ * Full-slide layers are the slide itself and keep their in-place editing. */
 export function canStudio(el: Element): el is SVGSVGElement {
-  return el instanceof SVGSVGElement &&
-    !el.classList.contains('dia-scene') &&
-    !el.classList.contains('dia-scene-full')
+  return el instanceof SVGSVGElement && !el.classList.contains('dia-scene-full')
+}
+
+export function isSceneArt(svg: SVGSVGElement): boolean {
+  return svg.classList.contains('dia-scene')
 }
 
 export function closeStudio(): void {
@@ -63,6 +69,7 @@ export function closeStudio(): void {
   s.overlay.remove()
   s.offBus()
   s.offKey()
+  if (isSceneArt(s.svg)) setToolbarSuppressed(false)
   state.deck?.root.getElementById('dia-studio-style')?.remove()
 }
 
@@ -107,6 +114,11 @@ export function openStudio(svg: SVGSVGElement): void {
   deck.root.appendChild(overlay)
 
   const home = { parent: svg.parentNode, next: svg.nextSibling }
+  // a visiting scene leaves its floating bars behind
+  if (isSceneArt(svg)) {
+    state.selection = { kind: 'none' }
+    setToolbarSuppressed(true)
+  }
   svg.classList.add('dia-studio-art')
   stage.appendChild(svg)
 

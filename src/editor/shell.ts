@@ -93,7 +93,15 @@ export function mountEditor(host: HTMLElement): void {
   /* ---------- topbar ---------- */
 
   const topbar = h('header', 'de-topbar')
-  const brand = h('div', 'de-brand', 'diastil')
+  // the brand: condensation mark (slides distilled to one drop) + wordmark.
+  // diastīl takes its macron ONLY in display contexts — code, paths, and
+  // the CLI stay ascii (docs/BRAND.md)
+  const brand = h('div', 'de-brand')
+  brand.insertAdjacentHTML('afterbegin',
+    '<svg viewBox="0 0 60 26" aria-hidden="true" class="de-brand-mark">' +
+    '<path d="M3,6 L34,10.5 M3,13 L38,13 M3,20 L34,15.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity=".62"/>' +
+    '<circle cx="49" cy="13" r="5.5" fill="var(--accent)"/></svg>')
+  brand.append(h('span', '', 'diastīl'))
   // the zicato research-preview pill: a quiet two-line product-status tag
   // in the wordmark's register — informational, never interactive
   const respreview = h('span', 'de-respreview')

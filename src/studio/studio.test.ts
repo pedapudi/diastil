@@ -57,10 +57,10 @@ describe('canStudio', () => {
     expect(canStudio(svg)).toBe(true)
   })
 
-  it('refuses scenes — they keep their semantic editor', () => {
+  it('welcomes scenes (semantic dispatch) but not full-slide layers', () => {
     const scene = document.createElementNS(SVG, 'svg')
     scene.setAttribute('class', 'dia-scene')
-    expect(canStudio(scene)).toBe(false)
+    expect(canStudio(scene)).toBe(true)
     const full = document.createElementNS(SVG, 'svg')
     full.setAttribute('class', 'dia-scene dia-scene-full')
     expect(canStudio(full)).toBe(false)

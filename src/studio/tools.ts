@@ -7,10 +7,13 @@
  * (scene/points.ts) drills into path geometry when asked. */
 
 import { state } from '../state'
-import { batch, insertEl, removeEl, setAttr } from '../model/ops'
+import { batch, insertEl, moveSceneNode, removeEl, setAttr } from '../model/ops'
 import { pxScale } from '../scene/overlay'
 import { openPointEditor, closePointEditor, canPointEdit } from '../scene/points'
+import { getNodeGeom, routeEdgesOf, setNodeGeom } from '../scene/route'
+import { insertShapeNode } from '../scene/interact'
 import type { StudioSession } from './studio'
+import { isSceneArt } from './studio'
 import { refreshPanels } from './panels'
 import { button } from './studio'
 
@@ -59,6 +62,20 @@ export function mountTools(s: StudioSession, host: HTMLElement): void {
     buttons.set(t.name, b)
     host.append(b)
   }
+  // a scene brings its semantic vocabulary: nodes inserted here carry
+  // data-x/y/w/h and participate in routing like any canvas-born node
+  if (isSceneArt(s.svg)) {
+    host.append(hGap(), hSect('scene'))
+    for (const [labelText, kind] of [
+      ['+ node', 'node'], ['+ circle', 'circle'], ['+ square', 'square'],
+      ['+ star', 'star'], ['+ arrow', 'arrow'],
+    ] as const) {
+      const b = button(labelText, `insert a ${kind} node — drag between nodes on the canvas to connect`)
+      b.addEventListener('click', () => insertShapeNode(s.svg, kind))
+      host.append(b)
+    }
+  }
+
   host.append(hGap())
   const pts = button('edit points', 'drag the selected path’s anchors and control points (esc exits)')
   pts.addEventListener('click', () => {
@@ -98,16 +115,36 @@ export function setTool(name: ToolName): void {
 
 export function deletePicked(): void {
   if (!ctx || ctx.s.picked.size === 0) return
-  const ops = [...ctx.s.picked].map((el) => removeEl(el))
+  const s = ctx.s
+  const doomed = new Set<Element>(s.picked)
+  // a deleted node takes its touching edges along (the scene contract)
+  for (const el of s.picked) {
+    if (!isNodeEl(el)) continue
+    const id = el.getAttribute('data-dia-node') ?? ''
+    for (const edge of s.svg.querySelectorAll('[data-dia-edge]')) {
+      const [from, to] = (edge.getAttribute('data-dia-edge') ?? '').split('->')
+      if (from === id || to === id) doomed.add(edge)
+    }
+  }
+  // descending DOM order so the batch invert re-inserts exactly
+  const ordered = [...doomed].sort((a, b) =>
+    [...s.svg.children].indexOf(b) - [...s.svg.children].indexOf(a))
+  const ops = ordered.map((el) => removeEl(el))
   state.apply(ops.length === 1 ? ops[0] : batch(`Delete ${ops.length} drawing elements`, ops))
-  ctx.s.picked.clear()
+  s.picked.clear()
   refreshAll()
 }
 
 export function nudgePicked(dx: number, dy: number): void {
   if (!ctx || ctx.s.picked.size === 0) return
-  const ops = [...ctx.s.picked].map((el) =>
-    setAttr(el, 'transform', prefixTransform(el, `translate(${r2(dx)} ${r2(dy)})`)))
+  const s = ctx.s
+  const ops = [...s.picked].map((el) => {
+    if (isNodeEl(el)) {
+      const g = getNodeGeom(el)
+      return moveSceneNode(s.svg, el, { ...g, x: r2(g.x + dx), y: r2(g.y + dy) })
+    }
+    return setAttr(el, 'transform', prefixTransform(el, `translate(${r2(dx)} ${r2(dy)})`))
+  })
   state.apply(ops.length === 1 ? ops[0] : batch('Nudge drawing selection', ops))
   refreshAll()
 }
@@ -181,10 +218,21 @@ function prefixTransform(el: SVGGraphicsElement, step: string): string {
   return prev ? `${step} ${prev}` : step
 }
 
+/** a scene node group — picked as a UNIT and moved as GEOMETRY, never
+ * transforms: data-x/y/w/h stays the single source and edges reroute */
+export function isNodeEl(el: Element): el is SVGGElement {
+  return el instanceof SVGGElement && el.hasAttribute('data-dia-node')
+}
+
+export function isEdgeEl(el: Element): boolean {
+  return el instanceof SVGGElement && el.hasAttribute('data-dia-edge')
+}
+
 export function pickables(s: StudioSession): SVGGraphicsElement[] {
   return [...s.svg.children].filter((c): c is SVGGraphicsElement =>
     c instanceof SVGGraphicsElement && !c.classList.contains(ARTIFACT) &&
-    !(c instanceof SVGDefsElement) && c.tagName !== 'style')
+    !(c instanceof SVGDefsElement) && c.tagName !== 'style' &&
+    !isEdgeEl(c)) // edges are DERIVED — they follow their nodes
 }
 
 /* ---------- selection visuals ---------- */
@@ -221,14 +269,17 @@ function renderSelection(c: ToolCtx): void {
     c.ov.appendChild(hd)
   }
 
-  // rotate: a round handle floated above the top-center
-  const rot = document.createElementNS(NS, 'circle')
-  rot.setAttribute('class', 'dia-st-handle dia-st-rot')
-  rot.setAttribute('cx', String(box.x + box.w / 2))
-  rot.setAttribute('cy', String(box.y - 18 / k))
-  rot.setAttribute('r', String(4 / k))
-  rot.addEventListener('pointerdown', (e) => beginRotate(e, box))
-  c.ov.appendChild(rot)
+  // rotate: a round handle floated above the top-center. Scene nodes are
+  // axis-aligned geometry (data-x/y/w/h) — no rotation while one is picked
+  if (![...c.s.picked].some(isNodeEl)) {
+    const rot = document.createElementNS(NS, 'circle')
+    rot.setAttribute('class', 'dia-st-handle dia-st-rot')
+    rot.setAttribute('cx', String(box.x + box.w / 2))
+    rot.setAttribute('cy', String(box.y - 18 / k))
+    rot.setAttribute('r', String(4 / k))
+    rot.addEventListener('pointerdown', (e) => beginRotate(e, box))
+    c.ov.appendChild(rot)
+  }
 }
 
 /* ---------- pointer machine ---------- */
@@ -297,17 +348,28 @@ function beginMove(c: ToolCtx, e: PointerEvent): void {
   const from = toArt(s.svg, e.clientX, e.clientY)
   const els = [...s.picked]
   const originals = els.map((el) => el.getAttribute('transform'))
+  // scene nodes move as GEOMETRY — capture their boxes, reroute live
+  const geoms = els.map((el) => isNodeEl(el) ? getNodeGeom(el) : null)
   let moved = false
+  const applyLive = (dx: number, dy: number): void => {
+    els.forEach((el, i) => {
+      const g = geoms[i]
+      if (g && isNodeEl(el)) {
+        setNodeGeom(el, { ...g, x: g.x + dx, y: g.y + dy })
+        routeEdgesOf(s.svg, el.getAttribute('data-dia-node') ?? '')
+      } else {
+        const step = `translate(${r2(dx)} ${r2(dy)})`
+        el.setAttribute('transform', originals[i] ? `${step} ${originals[i]}` : step)
+      }
+    })
+  }
   drag((ev) => {
     const p = toArt(s.svg, ev.clientX, ev.clientY)
     const dx = p.x - from.x
     const dy = p.y - from.y
     if (!moved && Math.hypot(dx, dy) * pxScale(s.svg) < 2.5) return
     moved = true
-    els.forEach((el, i) => {
-      const step = `translate(${r2(dx)} ${r2(dy)})`
-      el.setAttribute('transform', originals[i] ? `${step} ${originals[i]}` : step)
-    })
+    applyLive(dx, dy)
     renderSelection(c)
   }, (ev) => {
     if (!moved) return
@@ -315,10 +377,17 @@ function beginMove(c: ToolCtx, e: PointerEvent): void {
     const dx = r2(p.x - from.x)
     const dy = r2(p.y - from.y)
     // restore, then commit the gesture as ONE op so undo captures the truth
-    els.forEach((el, i) => originals[i] === null
-      ? el.removeAttribute('transform')
-      : el.setAttribute('transform', originals[i] as string))
-    const ops = els.map((el) => setAttr(el, 'transform', prefixTransform(el, `translate(${dx} ${dy})`)))
+    els.forEach((el, i) => {
+      const g = geoms[i]
+      if (g && isNodeEl(el)) setNodeGeom(el, g)
+      else if (originals[i] === null) el.removeAttribute('transform')
+      else el.setAttribute('transform', originals[i] as string)
+    })
+    const ops = els.map((el, i) => {
+      const g = geoms[i]
+      if (g && isNodeEl(el)) return moveSceneNode(s.svg, el, { ...g, x: r2(g.x + dx), y: r2(g.y + dy) })
+      return setAttr(el, 'transform', prefixTransform(el, `translate(${dx} ${dy})`))
+    })
     state.apply(ops.length === 1 ? ops[0] : batch('Move drawing selection', ops))
     refreshAll()
   })
@@ -367,23 +436,50 @@ function beginScale(e: PointerEvent, handle: string, box: { x: number; y: number
   const from = toArt(s.svg, e.clientX, e.clientY)
   const els = [...s.picked]
   const originals = els.map((el) => el.getAttribute('transform'))
-  const stepOf = (ev: PointerEvent): string => {
+  const geoms = els.map((el) => isNodeEl(el) ? getNodeGeom(el) : null)
+  const factors = (ev: PointerEvent): { sx: number; sy: number } => {
     const p = toArt(s.svg, ev.clientX, ev.clientY)
     let sx = (handle.includes('e') || handle.includes('w')) && from.x !== ax ? (p.x - ax) / (from.x - ax) : 1
     let sy = (handle.includes('n') || handle.includes('s')) && from.y !== ay ? (p.y - ay) / (from.y - ay) : 1
     if (ev.shiftKey) { const u = Math.max(Math.abs(sx), Math.abs(sy)); sx = Math.sign(sx || 1) * u; sy = Math.sign(sy || 1) * u }
-    return `translate(${r2(ax)} ${r2(ay)}) scale(${r2(sx)} ${r2(sy)}) translate(${r2(-ax)} ${r2(-ay)})`
+    return { sx, sy }
+  }
+  const stepOf = (f: { sx: number; sy: number }): string =>
+    `translate(${r2(ax)} ${r2(ay)}) scale(${r2(f.sx)} ${r2(f.sy)}) translate(${r2(-ax)} ${r2(-ay)})`
+  /** a node scales as GEOMETRY around the anchor — strokes keep their weight */
+  const nodeGeomAt = (g: { x: number; y: number; w: number; h: number }, f: { sx: number; sy: number }) => ({
+    x: r2(ax + (g.x - ax) * f.sx), y: r2(ay + (g.y - ay) * f.sy),
+    w: r2(Math.max(8, g.w * Math.abs(f.sx))), h: r2(Math.max(8, g.h * Math.abs(f.sy))),
+  })
+  const applyLive = (f: { sx: number; sy: number }): void => {
+    const step = stepOf(f)
+    els.forEach((el, i) => {
+      const g = geoms[i]
+      if (g && isNodeEl(el)) {
+        setNodeGeom(el, nodeGeomAt(g, f))
+        routeEdgesOf(s.svg, el.getAttribute('data-dia-node') ?? '')
+      } else {
+        el.setAttribute('transform', originals[i] ? `${step} ${originals[i]}` : step)
+      }
+    })
   }
   drag((ev) => {
-    const step = stepOf(ev)
-    els.forEach((el, i) => el.setAttribute('transform', originals[i] ? `${step} ${originals[i]}` : step))
+    applyLive(factors(ev))
     renderSelection(c)
   }, (ev) => {
-    const step = stepOf(ev)
-    els.forEach((el, i) => originals[i] === null
-      ? el.removeAttribute('transform')
-      : el.setAttribute('transform', originals[i] as string))
-    const ops = els.map((el) => setAttr(el, 'transform', prefixTransform(el, step)))
+    const f = factors(ev)
+    const step = stepOf(f)
+    els.forEach((el, i) => {
+      const g = geoms[i]
+      if (g && isNodeEl(el)) setNodeGeom(el, g)
+      else if (originals[i] === null) el.removeAttribute('transform')
+      else el.setAttribute('transform', originals[i] as string)
+    })
+    const ops = els.map((el, i) => {
+      const g = geoms[i]
+      if (g && isNodeEl(el)) return moveSceneNode(s.svg, el, nodeGeomAt(g, f))
+      return setAttr(el, 'transform', prefixTransform(el, step))
+    })
     state.apply(ops.length === 1 ? ops[0] : batch('Scale drawing selection', ops))
     refreshAll()
   })

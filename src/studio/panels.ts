@@ -8,8 +8,18 @@ import { state } from '../state'
 import { batch, insertEl, moveEl, removeEl, setAttr, setStyleProp, setText } from '../model/ops'
 import type { StudioSession } from './studio'
 import { h } from './studio'
-import { pick, pickables, refreshAll } from './tools'
+import { isEdgeEl, isNodeEl, pick, pickables, refreshAll } from './tools'
 import { attachPickerProxy } from '../editor/colorwell'
+
+/** scene nodes style through their custom props (the scene rules read
+ * them); plain artwork styles through ordinary svg properties */
+function propFor(el: SVGGraphicsElement, prop: string): string {
+  if (!isNodeEl(el)) return prop
+  return prop === 'fill' ? '--dia-node-fill'
+    : prop === 'stroke' ? '--dia-node-stroke'
+    : prop === 'stroke-width' ? '--dia-node-stroke-w'
+    : prop
+}
 
 /** deck color roles offered as swatches, in signal order */
 const TOKEN_INKS: Array<[string, string]> = [
@@ -81,7 +91,7 @@ function propRows(s: StudioSession): HTMLElement[] {
 function colorRow(s: StudioSession, label: string, prop: 'fill' | 'stroke', els: SVGGraphicsElement[]): HTMLElement {
   const row = h('div', 'dia-st-row')
   row.append(h('span', 'dia-st-k', label))
-  const current = els[0].style.getPropertyValue(prop).trim() ||
+  const current = els[0].style.getPropertyValue(propFor(els[0], prop)).trim() ||
     els[0].getAttribute(prop) || ''
 
   const none = document.createElement('button')
@@ -175,10 +185,11 @@ function opacityRow(s: StudioSession, els: SVGGraphicsElement[]): HTMLElement {
 /** one styling gesture = one op; '' clears the property */
 function applyStyle(s: StudioSession, els: SVGGraphicsElement[], prop: string, value: string): void {
   const ops = els.map((el) => {
+    const target = propFor(el, prop)
     // presentation attributes lose to css — clear a same-named attribute
     // so the style property actually takes effect
-    const styleOp = setStyleProp(el, prop, value)
-    if (el.getAttribute(prop) === null) return styleOp
+    const styleOp = setStyleProp(el, target, value)
+    if (target !== prop || el.getAttribute(prop) === null) return styleOp
     return batch(`Set ${prop}`, [setAttr(el, prop, null), styleOp])
   })
   state.apply(ops.length === 1 ? ops[0] : batch(`Set ${prop} on ${ops.length} elements`, ops))
@@ -205,6 +216,32 @@ function layersPanel(s: StudioSession): HTMLElement {
   for (const el of [...els].reverse()) {
     wrap.append(layerRow(s, el, els))
   }
+  // scene edges are DERIVED — they follow their nodes, so they list
+  // separately: deletable and hideable, never reordered or duplicated
+  const edges = [...s.svg.children].filter(isEdgeEl) as SVGGElement[]
+  if (edges.length > 0) {
+    wrap.append(h('div', 'dia-st-sect', 'edges — derived'))
+    for (const edge of edges) {
+      const row = h('div', 'dia-st-layer')
+      const eye = lbtn(isHidden(edge as SVGGraphicsElement) ? '◌' : '●', isHidden(edge as SVGGraphicsElement) ? 'show' : 'hide')
+      eye.addEventListener('click', (e) => {
+        e.stopPropagation()
+        state.apply(setStyleProp(edge, 'display', isHidden(edge as SVGGraphicsElement) ? '' : 'none'))
+        refreshAll()
+      })
+      const ref = edge.getAttribute('data-dia-edge') ?? '?'
+      const route = edge.getAttribute('data-route') ?? 'ortho'
+      const name = h('span', 'dia-st-lname', `${ref.replace('->', ' → ')} · ${route}`)
+      const del = lbtn('×', 'delete edge')
+      del.addEventListener('click', (e) => {
+        e.stopPropagation()
+        state.apply(removeEl(edge, `DeleteEdge ${ref}`))
+        refreshAll()
+      })
+      row.append(eye, name, del)
+      wrap.append(row)
+    }
+  }
   return wrap
 }
 
@@ -225,6 +262,13 @@ function layerRow(s: StudioSession, el: SVGGraphicsElement, all: SVGGraphicsElem
   dup.addEventListener('click', (e) => {
     e.stopPropagation()
     const copy = el.cloneNode(true) as SVGGraphicsElement
+    if (isNodeEl(copy)) {
+      // node ids key the edge references — a copy needs its own
+      const base = copy.getAttribute('data-dia-node') ?? 'node'
+      let id = `${base}-copy`
+      for (let n = 2; s.svg.querySelector(`[data-dia-node="${id}"]`); n++) id = `${base}-copy${n}`
+      copy.setAttribute('data-dia-node', id)
+    }
     state.apply(insertEl(s.svg, [...s.svg.children].indexOf(el) + 1, copy, 'Duplicate drawing element'))
     s.picked.clear()
     s.picked.add(copy)
@@ -269,6 +313,10 @@ function isHidden(el: SVGGraphicsElement): boolean {
 
 function describeLayer(el: SVGGraphicsElement): string {
   const tag = el.tagName.toLowerCase()
+  if (el.hasAttribute('data-dia-node')) {
+    const shape = el.getAttribute('data-shape') ?? 'node'
+    return `node ${el.getAttribute('data-dia-node')} · ${shape}`
+  }
   if (el instanceof SVGTextElement) return `text “${(el.textContent ?? '').slice(0, 18)}”`
   if (tag === 'g') return `group (${el.children.length})`
   return tag

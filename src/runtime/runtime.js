@@ -25,6 +25,14 @@
      * entrance animation (opacity 0 start) and letterbox strip flashes
      * the browser's white */
     'html, body { margin: 0; background: var(--dia-paper, #111); }' +
+    /* the DESIGN BOX: slides are authored against a fixed-width canvas and
+     * fit() scales that box to the screen — without it, a widthless slide
+     * tracks the viewport and fixed-px type reads tiny on large displays.
+     * :where() keeps specificity at zero so a theme's own width wins. */
+    ':where(section.dia-slide) { width: var(--dia-page-w, 1280px); }' +
+    /* connectors NEVER fill — svg's default black fill turns a curved edge
+     * into a lens on decks whose theme predates the scene rules */
+    ':where(svg.dia-scene [data-dia-edge] path) { fill: none; }' +
     '@media (prefers-reduced-motion: no-preference) {' +
     'section.dia-slide[data-dia-anim="fade"] { animation: diaFade .3s ease both; }' +
     'section.dia-slide[data-dia-anim="slide"] { animation: diaSlide .36s cubic-bezier(.2,.7,.2,1) both; }' +

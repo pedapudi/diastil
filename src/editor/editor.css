@@ -21,7 +21,9 @@
   font-family: var(--brand-mono); font-weight: 700;
   font-size: calc(13px * var(--dt-font-scale, 1));
   color: var(--ink); letter-spacing: .01em; flex: none;
+  display: flex; align-items: center; gap: 7px;
 }
+.de-brand-mark { width: 26px; height: 13px; color: var(--ink-faint); flex: none; }
 /* the research-preview tag: stacked, mono, faint, hairline divider —
  * the zicato product-status register */
 .de-respreview {
