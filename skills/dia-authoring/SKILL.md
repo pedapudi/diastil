@@ -55,6 +55,10 @@ set (one edit restyles the whole deck):
 }
 ```
 
+House style (docs/HOUSE-STYLE.md): decks default LIGHT — paper ground,
+dark ink, one accent. Text and chrome never hard-code a hue; they read
+tokens. The one licensed exception is illustrative artwork, below.
+
 ## Text roles & layout containers
 
 Roles bind text to the scale — the inspector edits roles, never raw CSS:
@@ -117,6 +121,29 @@ editing and exports never re-encode pixels:
 
 Prefer data-URI or adjacent-file sources; the deck should stay
 self-contained.
+
+### Illustrative artwork
+
+Hand-authored svg illustrations live in a figure slot:
+
+```html
+<figure class="dia-figure" style="width: 58%; margin: 0;">
+  <svg viewBox="0 0 430 300" role="img" aria-label="…">…</svg>
+  <figcaption class="dia-caption">…</figcaption>
+</figure>
+```
+
+- Always set a `viewBox`; size through the figure, not pixel
+  width/height on the svg. Self-contained only: no external hrefs, no
+  scripts, no `<foreignObject>`.
+- BE COLORFUL — the house style biases illustrations toward rich,
+  saturated color, and artwork MAY use hues beyond the theme tokens
+  (real palettes, layered fills, local `<defs>` gradients) as long as
+  it sits well on `var(--dia-paper)`.
+- The boundary: words and labels INSIDE artwork still read tokens
+  (`var(--dia-ink)`, `var(--dia-face-label)`), so they retheme with the
+  deck; and diagram scenes (`svg.dia-scene`, see `dia-scenes`) stay
+  fully token-bound — they are structure, not pictures.
 
 ## Behavior is data
 
