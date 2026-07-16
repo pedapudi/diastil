@@ -244,10 +244,21 @@ drifting seeds carry the accent — the color IS the argument):
   subject wants it (real palettes, layered fills, local `<defs>`
   gradients, sitting well on `var(--dia-paper)`) — reach for it
   because the picture needs it, not because a figure exists.
+- Reserve the SVG for real visual art, not boxed-up text: repeating
+  paragraph copy inside small `<rect>` cards is textual crowding and
+  makes a slide feel over-stuffed. Keep prose in a `.panel` on one side
+  of a `dia-columns` layout and let the figure carry a metaphor drawn
+  from the subject (a contour map, converging orbs, a sonar sweep, a
+  constellation) rather than restating the words.
 - The boundary: words and labels INSIDE artwork still read tokens
   (`var(--dia-ink)`, `var(--dia-face-label)`), so they retheme with the
   deck; and diagram scenes (`svg.dia-scene`, see `dia-scenes`) stay
   fully token-bound — they are structure, not pictures.
+- A `svg.dia-scene` should render without JS: give it BOTH its
+  `data-dia-*` semantics (for the editor) AND explicit SVG geometry —
+  `transform="translate(x, y)"`, `<rect width height>`, `<text x y>`,
+  `<path d="…">` — so a plain HTML preview shows the same diagram the
+  editor does, not an empty frame.
 
 What makes a figure BEAUTIFUL is craft, not decoration (in this repo,
 `examples/what-is-dia.html` shows every rule below in use):
