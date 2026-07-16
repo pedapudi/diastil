@@ -80,10 +80,14 @@ for (const svg of svgs) {
   svg.lines = []      // open subpaths
   svg.chevrons = []   // {apex}
 
+  // dashed outlines are GUIDES (envelopes, zones, the dandelion's halo):
+  // still legitimate arrow TARGETS, but lines may cross them freely
+  svg.guides = []
+  const isGuide = (tag) => /stroke-dasharray/.test(tag)
   for (const m of svg.body.matchAll(/<rect\b[^>]*>/g)) {
     const a = (n) => { const r = new RegExp(`${n}="(-?[\\d.]+)"`).exec(m[0]); return r ? +r[1] : 0 }
     const off = parseTranslate(m[0])
-    svg.boxes.push({ x: a('x') + off.x, y: a('y') + off.y, w: a('width'), h: a('height') })
+    ;(isGuide(m[0]) ? svg.guides : svg.boxes).push({ x: a('x') + off.x, y: a('y') + off.y, w: a('width'), h: a('height') })
   }
   for (const m of svg.body.matchAll(/<(?:circle|ellipse)\b[^>]*>/g)) {
     const a = (n, d0) => { const r = new RegExp(`${n}="(-?[\\d.]+)"`).exec(m[0]); return r ? +r[1] : d0 }
@@ -91,7 +95,7 @@ for (const svg of svgs) {
     const cy = a('cy', 0)
     const rx = a('rx', a('r', 0))
     const ry = a('ry', a('r', 0))
-    svg.boxes.push({ x: cx - rx, y: cy - ry, w: 2 * rx, h: 2 * ry })
+    ;(isGuide(m[0]) ? svg.guides : svg.boxes).push({ x: cx - rx, y: cy - ry, w: 2 * rx, h: 2 * ry })
   }
   svg.texts = []
   for (const m of svg.body.matchAll(/<text\b[^>]*>/g)) {
@@ -129,7 +133,7 @@ function onSegment(p, a, b, eps) {
 }
 
 function onBoxEdge(svg, p, eps) {
-  for (const b of svg.boxes) {
+  for (const b of [...svg.boxes, ...(svg.guides ?? [])]) {
     const c = [{ x: b.x, y: b.y }, { x: b.x + b.w, y: b.y }, { x: b.x + b.w, y: b.y + b.h }, { x: b.x, y: b.y + b.h }]
     for (let i = 0; i < 4; i++) if (onSegment(p, c[i], c[(i + 1) % 4], eps)) return true
   }
@@ -140,7 +144,7 @@ function onBoxEdge(svg, p, eps) {
 }
 
 function insideBox(svg, p) {
-  if (svg.boxes.some((b) => p.x > b.x && p.x < b.x + b.w && p.y > b.y && p.y < b.y + b.h)) return true
+  if ([...svg.boxes, ...(svg.guides ?? [])].some((b) => p.x > b.x && p.x < b.x + b.w && p.y > b.y && p.y < b.y + b.h)) return true
   // closed glyphs (doc outlines, diamonds) shelter their decoration too
   return svg.polys.some((poly) => insidePoly(p, poly))
 }

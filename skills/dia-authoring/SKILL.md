@@ -10,6 +10,12 @@ contract; `examples/demo-deck.html` is a complete worked example). A deck
 is one self-contained file that presents itself when opened and stays
 fully editable by any agent or text editor.
 
+**Figures first.** Before writing any prose, plan one visualization per
+content slide — a deck of ten slides should carry roughly eight
+hand-drawn svg figures ("Visualize by default", below, includes a
+complete worked example to imitate). Decks that read as walls of text
+are out of house style even when they validate.
+
 ## Document frame
 
 ```html
@@ -180,13 +186,47 @@ a relationship, a flow, a comparison, a scale, a timeline, or an
 architecture, DRAW THE CLAIM — a quadrant chart, a to-scale bar, a
 pipeline, an annotated sketch — and let the text argue around it. A
 text-only slide is the exception that must earn its plainness; when in
-doubt, add the figure. Hand-authored svg lives in a figure slot:
+doubt, add the figure. The working quota: roughly one figure per
+content slide, planned before the prose.
+
+A complete figure in the house register — copy this shape, not just
+the idea (a seed head whose faint spokes are structure and whose
+drifting seeds carry the accent — the color IS the argument):
 
 ```html
-<figure class="dia-figure" style="width: 58%; margin: 0;">
-  <svg viewBox="0 0 430 300" role="img" aria-label="…"
-       style="width: 100%; font-family: var(--dia-face-label); font-size: 10px;">…</svg>
-  <figcaption class="dia-caption">…</figcaption>
+<figure class="dia-figure" style="width: 56%; margin: 0;">
+  <svg viewBox="0 0 430 300" role="img"
+       aria-label="a seed head of faint radiating spokes inside a dashed envelope; three seeds drift away in the accent color"
+       style="width: 100%; font-family: var(--dia-face-label); font-size: 10px;">
+    <circle cx="150" cy="152" r="104" style="fill: none; stroke: var(--dia-rule); stroke-width: 1; stroke-dasharray: 2 5;"></circle>
+    <path d="M150,152 C 146,212 158,250 152,296" style="fill: none; stroke: var(--dia-ink-faint); stroke-width: 1.6; stroke-linecap: round;"></path>
+    <g style="stroke: var(--dia-ink-faint); stroke-width: 0.9; fill: none;">
+      <line x1="150" y1="152" x2="244" y2="118" opacity=".85"></line>
+      <line x1="150" y1="152" x2="220" y2="72"  opacity=".5"></line>
+      <line x1="150" y1="152" x2="162" y2="52"  opacity=".85"></line>
+      <line x1="150" y1="152" x2="102" y2="62"  opacity=".5"></line>
+      <line x1="150" y1="152" x2="60"  y2="104" opacity=".85"></line>
+      <line x1="150" y1="152" x2="50"  y2="166" opacity=".5"></line>
+      <line x1="150" y1="152" x2="82"  y2="222" opacity=".85"></line>
+    </g>
+    <g style="fill: var(--dia-ink-faint);">
+      <circle cx="244" cy="118" r="2.4" opacity=".85"></circle><circle cx="220" cy="72" r="2.4" opacity=".5"></circle>
+      <circle cx="162" cy="52"  r="2.4" opacity=".85"></circle><circle cx="102" cy="62" r="2.4" opacity=".5"></circle>
+      <circle cx="60"  cy="104" r="2.4" opacity=".85"></circle><circle cx="50"  cy="166" r="2.4" opacity=".5"></circle>
+      <circle cx="82"  cy="222" r="2.4" opacity=".85"></circle>
+    </g>
+    <g style="stroke: var(--dia-accent); stroke-width: 0.85; fill: none;" opacity=".95">
+      <path d="M282,100 q16,-12 26,-30"></path>
+      <path d="M318,128 q18,-8 34,-22"></path>
+      <path d="M330,168 q20,-2 38,-12"></path>
+    </g>
+    <g style="fill: var(--dia-accent);">
+      <circle cx="308" cy="70" r="2.6"></circle><circle cx="352" cy="106" r="2.6"></circle><circle cx="368" cy="156" r="2.6"></circle>
+    </g>
+    <text x="24" y="282" style="fill: var(--dia-ink-faint);">the head — structure, kept faint</text>
+    <text x="296" y="52" style="fill: var(--dia-accent);">the escaping few — the point</text>
+  </svg>
+  <figcaption class="dia-caption">the accent is spent only on what the slide argues; everything else is hairline structure</figcaption>
 </figure>
 ```
 
@@ -194,8 +234,8 @@ doubt, add the figure. Hand-authored svg lives in a figure slot:
   width/height on the svg. Self-contained only: no external hrefs, no
   scripts, no `<foreignObject>`. Column figures ≈ 430×300; full-width
   ≈ 1180×470.
-- The default register is EVOCATIVE LINE ART in deck tokens (the
-  "dandelion register", docs/HOUSE-STYLE.md): hairline strokes
+- The default register is EVOCATIVE LINE ART in deck tokens, exactly
+  as in the example above: hairline strokes
   ≈0.9–1.6, `var(--dia-ink-faint)` structure, layered opacity for
   depth, dashed envelopes, organic curves — and the ACCENT spent on
   the one element that carries the meaning. Draw a metaphor from the
@@ -209,9 +249,8 @@ doubt, add the figure. Hand-authored svg lives in a figure slot:
   deck; and diagram scenes (`svg.dia-scene`, see `dia-scenes`) stay
   fully token-bound — they are structure, not pictures.
 
-What makes a figure BEAUTIFUL is craft, not decoration
-(`examples/what-is-dia.html` is the exemplar — every figure there is
-hand-drawn to these rules):
+What makes a figure BEAUTIFUL is craft, not decoration (in this repo,
+`examples/what-is-dia.html` shows every rule below in use):
 
 - **the figure carries the argument** — draw quantities to scale, put
   the punchline in the geometry, and say so ("drawn to scale");
@@ -225,8 +264,8 @@ hand-drawn to these rules):
 - **give containers content** — miniature glyphs (text lines, tiny
   pictures) inside boxes read better than empty rectangles;
 - **arrows land** — every arrowhead's apex touches the thing it points
-  at, connectors never cut through boxes (`scripts/figlint.mjs` checks
-  exactly this — run it);
+  at, connectors never cut through boxes (in this repo,
+  `scripts/figlint.mjs` checks exactly this — run it when available);
 - **caption the takeaway** — a `figcaption.dia-caption` stating what
   the reader should see, plus an `aria-label` naming the figure.
 
