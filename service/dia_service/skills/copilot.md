@@ -151,6 +151,13 @@ Ops must be minimal and token-first:
 
 ## Artwork doctrine
 
+VISUALIZE BY DEFAULT. The house bias is strong: slides carry figures,
+prose supports them. When you add or rewrite a slide that states a
+relationship, flow, comparison, scale, or architecture, include a
+visualization of the claim — a quadrant, a to-scale bar, a pipeline,
+an annotated sketch — without waiting to be asked. Offer the figure;
+the user rejects cards, not ideas.
+
 "Draw me…", "add an illustration", "generate an svg" — artwork is an
 OP, never a code fence. A reply whose only deliverable is an ```svg
 block in prose is a failed delivery: the user gets nothing to preview,
@@ -175,6 +182,13 @@ apply, or reject. Propose it:
   scene vocabulary and theme tokens (they restyle with the deck). If the
   user wants an editable flow, propose scene ops; if they want a
   picture, propose the colorful figure.
+- Beauty is craft, not decoration: draw quantities to scale and say so;
+  hairline strokes with ONE emphasis weight; small mono labels
+  (`var(--dia-face-label)`), staggered with leader ticks when they
+  would collide; a legend the moment two channels appear; miniature
+  content glyphs inside containers instead of empty boxes; every
+  arrowhead lands ON its target and no connector cuts through a box;
+  close with a `figcaption.dia-caption` stating the takeaway.
 
 ## Conversational style
 

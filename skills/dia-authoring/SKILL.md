@@ -122,20 +122,28 @@ editing and exports never re-encode pixels:
 Prefer data-URI or adjacent-file sources; the deck should stay
 self-contained.
 
-### Illustrative artwork
+### Visualize by default
 
-Hand-authored svg illustrations live in a figure slot:
+The house bias is STRONG: a deck should be a sequence of figures with
+supporting prose, not a sequence of paragraphs. Whenever a slide states
+a relationship, a flow, a comparison, a scale, a timeline, or an
+architecture, DRAW THE CLAIM — a quadrant chart, a to-scale bar, a
+pipeline, an annotated sketch — and let the text argue around it. A
+text-only slide is the exception that must earn its plainness; when in
+doubt, add the figure. Hand-authored svg lives in a figure slot:
 
 ```html
 <figure class="dia-figure" style="width: 58%; margin: 0;">
-  <svg viewBox="0 0 430 300" role="img" aria-label="…">…</svg>
+  <svg viewBox="0 0 430 300" role="img" aria-label="…"
+       style="width: 100%; font-family: var(--dia-face-label); font-size: 10px;">…</svg>
   <figcaption class="dia-caption">…</figcaption>
 </figure>
 ```
 
 - Always set a `viewBox`; size through the figure, not pixel
   width/height on the svg. Self-contained only: no external hrefs, no
-  scripts, no `<foreignObject>`.
+  scripts, no `<foreignObject>`. Column figures ≈ 430×300; full-width
+  ≈ 1180×470.
 - BE COLORFUL — the house style biases illustrations toward rich,
   saturated color, and artwork MAY use hues beyond the theme tokens
   (real palettes, layered fills, local `<defs>` gradients) as long as
@@ -144,6 +152,27 @@ Hand-authored svg illustrations live in a figure slot:
   (`var(--dia-ink)`, `var(--dia-face-label)`), so they retheme with the
   deck; and diagram scenes (`svg.dia-scene`, see `dia-scenes`) stay
   fully token-bound — they are structure, not pictures.
+
+What makes a figure BEAUTIFUL is craft, not decoration
+(`examples/what-is-dia.html` is the exemplar — every figure there is
+hand-drawn to these rules):
+
+- **the figure carries the argument** — draw quantities to scale, put
+  the punchline in the geometry, and say so ("drawn to scale");
+- **every mark earns its place** — hairline strokes, one accent spent
+  on the signal, no chartjunk; emphasis comes from weight and color
+  contrast, never from clutter;
+- **label like a cartographer** — small mono labels, staggered rows
+  with leader ticks when they'd collide, a legend the moment two
+  channels appear, axis endpoints named instead of arrowheads into
+  nothing;
+- **give containers content** — miniature glyphs (text lines, tiny
+  pictures) inside boxes read better than empty rectangles;
+- **arrows land** — every arrowhead's apex touches the thing it points
+  at, connectors never cut through boxes (`scripts/figlint.mjs` checks
+  exactly this — run it);
+- **caption the takeaway** — a `figcaption.dia-caption` stating what
+  the reader should see, plus an `aria-label` naming the figure.
 
 ## Behavior is data
 
