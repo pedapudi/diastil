@@ -145,8 +145,24 @@ step and no private data model.
      wrap in `<div data-dia-island>` — islands are preserved verbatim and
      exempt from validation
    - no `<script>` and no `on*=` handlers outside islands
-3. Validate after EVERY edit — this is the contract gate:
-   `dia validate deck.html`   (exit 1 on errors; fix and re-run)
+3. Follow the HOUSE STYLE (the scaffold already does):
+   - light zicato palettes — the scaffold's tokens ARE the default
+     (paper #F2EEDE · ink #1A1A1A · accent #1E6FCC); never invent warm
+     cream + terracotta + serif palettes (a known LLM tell)
+   - sans for prose (`--dia-face-display/body`), mono ONLY for labels
+     (`--dia-face-label`)
+   - VISUALIZE BY DEFAULT: nearly every content slide carries a
+     hand-drawn `<figure class="dia-figure">` with one inline
+     `<svg viewBox="…">` — evocative token-bound line art (hairline
+     strokes ≈0.9–1.6 in var(--dia-ink-faint), layered opacity, dashed
+     envelopes) with the ACCENT spent on the one element that carries
+     the meaning. A text-only slide must earn its plainness.
+   - never `border-left` accent stripes on panels/callouts — the
+     validator flags them (`style/left-rail`); panels are full hairline
+     borders with an accent label
+4. Validate after EVERY edit — this is the contract gate:
+   `dia validate deck.html`   (exit 1 on errors; advisories name style
+   drift — fix those too)
 
 ### Operate dia
 

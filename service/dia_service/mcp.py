@@ -28,7 +28,7 @@ PROTOCOL_VERSION = "2024-11-05"
 TOOLS: list[dict[str, Any]] = [
     {
         "name": "dia_new",
-        "description": "Scaffold a profile-valid diastil deck at the given path (refuses to overwrite). The generation loop: scaffold, edit the html, hold yourself to dia_validate.",
+        "description": "Scaffold a profile-valid diastil deck at the given path (refuses to overwrite). The scaffold IS the house style: zicato paper palette, sans/mono role faces. The generation loop: scaffold, edit the html (visualize by default — see dia_manual), hold yourself to dia_validate.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -40,7 +40,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "dia_validate",
-        "description": "Profile-validate a diastil deck — the contract gate. Pass a file path OR raw html. Returns rule-id findings; error-level findings mean the dialect contract is broken.",
+        "description": "Profile-validate a diastil deck — the contract gate. Pass a file path OR raw html. Returns rule-id findings; error-level findings break the dialect contract, advisory findings include house-style drift (e.g. style/left-rail) — fix both.",
         "inputSchema": {
             "type": "object",
             "properties": {

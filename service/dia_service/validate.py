@@ -37,6 +37,17 @@ VOID_TAGS = {
 
 COLOR_LITERAL = re.compile(r"(#[0-9a-f]{3,8}\b|\brgba?\(|\bhsla?\()", re.IGNORECASE)
 TOKEN_DECL = re.compile(r"--dia-[a-z-]+\s*:")
+BORDER_LEFT = re.compile(r"border-left\s*:\s*([^;}}]+)", re.I)
+
+
+def _is_left_rail(value: str) -> bool:
+    """A border-left that reads as a rail HIGHLIGHT: accent-colored at any
+    width, or >=2px in any color. A thin var(--dia-rule) divider passes."""
+    v = value.lower()
+    if "var(--dia-accent" in v:
+        return True
+    m = re.search(r"(\d+(?:\.\d+)?)px", v)
+    return m is not None and float(m.group(1)) >= 2
 
 
 @dataclass
@@ -148,6 +159,13 @@ def validate_html(html: str) -> dict:
     elif not TOKEN_DECL.search(themes[0].text):
         add("advisory", "frame/theme-tokens", "style#dia-theme",
             "theme defines no --dia-* tokens; token-level editing is unavailable")
+    if len(themes) == 1:
+        for m in BORDER_LEFT.finditer(themes[0].text):
+            if _is_left_rail(m.group(1)):
+                add("advisory", "style/left-rail", "style#dia-theme",
+                    f"theme rule draws a left-rail highlight (border-left: {m.group(1).strip()}) — "
+                    "the house language has no accent stripes; use a full hairline "
+                    "panel with an accent label (docs/HOUSE-STYLE.md)")
 
     if _first(root, "script", id="dia-runtime") is None:
         add("advisory", "frame/runtime", "", "no embedded runtime — the deck will not present standalone")
@@ -195,6 +213,13 @@ def validate_html(html: str) -> dict:
             if style and COLOR_LITERAL.search(style):
                 add("advisory", "content/inline-color", el.path(),
                     "inline literal color — prefer var(--dia-…) tokens")
+
+            bl = BORDER_LEFT.search(style) if style else None
+            if bl and _is_left_rail(bl.group(1)):
+                add("advisory", "style/left-rail", el.path(),
+                    "left-rail highlight — the house language has no border-left "
+                    "stripes; use a full hairline panel with an accent label "
+                    "(docs/HOUSE-STYLE.md)")
 
         for scene in slide.find_all("svg", cls="dia-scene"):
             if scene.in_island(slide):

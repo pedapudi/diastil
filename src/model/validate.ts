@@ -66,6 +66,13 @@ export function validateDocument(doc: Document): ProfileReport {
   else if (!/--dia-[a-z-]+\s*:/.test(themes[0].textContent ?? ''))
     add('advisory', 'frame/theme-tokens', 'style#dia-theme',
       'theme defines no --dia-* tokens; token-level editing is unavailable')
+  if (themes.length === 1) {
+    for (const m of (themes[0].textContent ?? '').matchAll(/border-left\s*:\s*([^;}]+)/gi)) {
+      if (isLeftRail(m[1]))
+        add('advisory', 'style/left-rail', 'style#dia-theme',
+          `theme rule draws a left-rail highlight (border-left: ${m[1].trim()}) — the house language has no accent stripes; use a full hairline panel with an accent label (docs/HOUSE-STYLE.md)`)
+    }
+  }
 
   if (!doc.querySelector('script#dia-runtime'))
     add('advisory', 'frame/runtime', '', 'no embedded runtime — the deck will not present standalone')
@@ -113,6 +120,11 @@ export function validateDocument(doc: Document): ProfileReport {
       const style = el.getAttribute('style')
       if (style && /(#[0-9a-f]{3,8}\b|\brgba?\(|\bhsla?\()/i.test(style))
         add('advisory', 'content/inline-color', pathOf(el), 'inline literal color — prefer var(--dia-…) tokens')
+
+      const bl = style ? /border-left\s*:\s*([^;]+)/i.exec(style) : null
+      if (bl && isLeftRail(bl[1]))
+        add('advisory', 'style/left-rail', pathOf(el),
+          'left-rail highlight — the house language has no border-left stripes; use a full hairline panel with an accent label (docs/HOUSE-STYLE.md)')
     }
 
     /* ---- scenes ---- */
@@ -167,6 +179,16 @@ export function validateDocument(doc: Document): ProfileReport {
   }
 
   return { ok: !findings.some((f) => f.level === 'error'), findings, slideCount: slides.length, version }
+}
+
+/** a border-left value that reads as a rail HIGHLIGHT: accent-colored at
+ * any width, or ≥2px in any color. A thin var(--dia-rule) divider (the
+ * research-preview pill idiom) passes. */
+function isLeftRail(value: string): boolean {
+  const v = value.toLowerCase()
+  if (v.includes('var(--dia-accent')) return true
+  const m = /(\d+(?:\.\d+)?)px/.exec(v)
+  return m !== null && parseFloat(m[1]) >= 2
 }
 
 /** islands are exempt from content rules; the island element itself is dialect */

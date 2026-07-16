@@ -34,6 +34,7 @@ Inside a slide, everything is dialect unless it sits under a
 | `content/unknown-dia-attr` | error | every `data-dia-*` attribute is in the vocabulary (§7) |
 | `content/editor-artifact` | error | no editor session attrs (`data-dia-id`, `contenteditable`, `data-dia-selected`, …) in a saved document |
 | `content/inline-color` | advisory | inline `style` colors should read tokens (`var(--dia-…)`), not literals |
+| `style/left-rail` | advisory | no left-rail highlights — `border-left` accent stripes (any width) or ≥2px rails, inline or in the theme; panels are full hairline borders with accent labels (docs/HOUSE-STYLE.md) |
 
 Text roles (`dia-title`, `dia-kicker`, `dia-body`, `dia-caption`,
 `dia-footnote`) and layout containers (`dia-stack`, `dia-columns`,

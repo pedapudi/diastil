@@ -88,6 +88,24 @@ describe('content rules', () => {
     expect(r.ok).toBe(true)
   })
 
+  it('style/left-rail — accent border-left stripe is advisory, inline and in the theme', () => {
+    const r = check((d) => slide(d).querySelector('.dia-title')!.setAttribute(
+      'style', 'border-left: 4px solid var(--dia-accent); padding-left: 12px'))
+    expect(r.findings).toContainEqual(expect.objectContaining({ rule: 'style/left-rail', level: 'advisory' }))
+    expect(r.ok).toBe(true)
+    const t = check((d) => {
+      const theme = d.querySelector('style#dia-theme')!
+      theme.textContent += '\n.callout { border-left: 3px solid var(--dia-ink); }'
+    })
+    expect(rules(t)).toContain('style/left-rail')
+  })
+
+  it('style/left-rail — a thin rule-colored divider passes', () => {
+    const r = check((d) => slide(d).querySelector('.dia-title')!.setAttribute(
+      'style', 'border-left: 1.5px solid var(--dia-rule); padding-left: 8px'))
+    expect(rules(r)).not.toContain('style/left-rail')
+  })
+
   it('inline token references are fully in-grammar — no findings', () => {
     // what the inspector's per-element controls write
     const r = check((d) => slide(d).querySelector('.dia-title')!.setAttribute(
