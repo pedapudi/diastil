@@ -192,13 +192,19 @@ def cmd_validate(paths: list[str]) -> int:
     return 1 if any_errors else 0
 
 
-def cmd_serve(open_editor: bool = False, no_open: bool = False) -> int:
+def cmd_serve(
+    open_editor: bool = False, no_open: bool = False, port: int | None = None
+) -> int:
     try:
         from . import main as service_main
     except ModuleNotFoundError as exc:
         print(f"dia: service dependencies missing ({exc.name}) — install with "
               "`pip install -e service/` (see service/README.md)", file=sys.stderr)
         return 2
+    # Override the bind port before printing the URL / starting the server, so the
+    # printed URL, the served origin, and the editor's service calls all agree.
+    if port is not None:
+        service_main.PORT = port
     if open_editor:
         dist = _find_editor_dist()
         if dist is None:
@@ -249,6 +255,8 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("mcp", help="run the Model Context Protocol server over stdio")
     sub.add_parser("validate", help="profile-validate saved decks").add_argument("paths", nargs="+")
     sv = sub.add_parser("serve", help="run the inference service (add --editor to also host the editor)")
+    sv.add_argument("--port", type=int, default=None,
+                    help="port to bind (default 8317)")
     sv.add_argument("--editor", action="store_true",
                     help="also host the editor at /editor (opens on the built-in demo deck)")
     sv.add_argument("--no-open", action="store_true", help=no_open_help)
@@ -279,4 +287,4 @@ def main(argv: list[str] | None = None) -> None:
         eval_argv = (["--skill", args.skill] if args.skill else []) + (["--strict"] if args.strict else [])
         sys.exit(eval_main(eval_argv))
     else:
-        sys.exit(cmd_serve(open_editor=args.editor, no_open=args.no_open))
+        sys.exit(cmd_serve(open_editor=args.editor, no_open=args.no_open, port=args.port))

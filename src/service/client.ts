@@ -13,18 +13,26 @@ export interface SkillResult {
 export const SERVICE_PORT = 8317
 
 /* When the page is served by the dia service itself (dia edit / dia ingest /
- * dia serve --editor mount the built editor at /editor on port 8317), service
- * calls are SAME-ORIGIN and the base must be relative: an absolute
- * http://127.0.0.1:8317 base turns them cross-origin the moment the user
- * opens the page as localhost:8317 (localhost ≠ 127.0.0.1 to the browser),
- * and CORS then blocks /health, /file, and /skills/*. Relative URLs sidestep
- * origins entirely there — no allowlist widening needed. The absolute
+ * dia serve --editor mount the built editor at /editor), service calls are
+ * SAME-ORIGIN and the base must be relative. Keying that off a specific port
+ * (== 8317) breaks as soon as the service is served on any other port — e.g.
+ * `dia serve --port 9000`: the check fails, the base falls back to the absolute
+ * http://127.0.0.1:8317, and /chat, /health, /skills/* hit the wrong port (or a
+ * cross-origin one), so the copilot goes dead. Detect same-origin structurally
+ * instead: if the page was served over http(s) by anything other than the Vite
+ * dev server, use a relative base. An absolute http://127.0.0.1:8317 base also
+ * turns cross-origin the moment the page is opened as localhost:8317 (localhost
+ * ≠ 127.0.0.1 to the browser), which relative URLs sidestep. The absolute
  * default remains for the Vite dev server (5199) and the file:// standalone,
  * which genuinely are cross-origin and are on the service's allowlist. */
-export const SERVICE_BASE =
-  typeof window !== 'undefined' && window.location.port === String(SERVICE_PORT)
-    ? ''
-    : `http://127.0.0.1:${SERVICE_PORT}`
+export const SERVICE_BASE = ((): string => {
+  if (typeof window === 'undefined') return `http://127.0.0.1:${SERVICE_PORT}`
+  const {protocol, port} = window.location
+  const isViteDev = port === '5199'
+  const servedByService =
+    (protocol === 'http:' || protocol === 'https:') && !isViteDev
+  return servedByService ? '' : `http://127.0.0.1:${SERVICE_PORT}`
+})()
 
 export class ServiceClient {
   base: string
