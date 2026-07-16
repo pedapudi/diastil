@@ -5,15 +5,27 @@ scaffold produces, and the aesthetic the copilot is instructed toward.
 Everything here is a *default*, never a lock: every value is a theme
 token or a preference the user can change in one gesture.
 
-## light first
+## light first — palettes come from zicato, never ad hoc
 
 - The editor chrome defaults to the **paper** theme: warm paper
   (`#F2EEDE`), near-black ink, restrained functional accents. Dark
   themes stay one click away in the topbar picker and are remembered
   per machine.
-- Scaffolded and demo decks are paper-and-ink: light `--dia-paper`
-  (`#fbfaf6`), dark `--dia-ink`, one accent. A deck should read like a
-  well-set document before it reads like a screen.
+- Scaffolded and demo decks use the **same zicato paper palette**:
+  `--dia-paper #F2EEDE · --dia-ink #1A1A1A · --dia-ink-soft #33312B ·
+  --dia-ink-faint #85837A · --dia-rule #C6C3B6 · --dia-accent #1E6FCC`.
+  A deck should read like a well-set document before it reads like a
+  screen.
+- When a deck wants a different light look, draw from the other zicato
+  light themes — *solarized-light*, *google-light*, *lunaria-light*,
+  *belafonte-day* — and from the full set (`src/chrome/tokens.css`)
+  for dark decks. **Never invent an ad-hoc palette**: warm cream
+  grounds with terracotta accents and serif body faces are an LLM
+  design tell, not the house.
+- Faces follow the zicato role split, T9 by default: display/body =
+  `"Source Sans 3", system-ui, sans-serif`; labels/data =
+  `"Source Code Pro", ui-monospace, monospace`. Sans for prose, mono
+  reserved for data — never an all-serif or all-mono deck by default.
 
 ## the zicato role split
 

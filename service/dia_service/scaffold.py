@@ -19,14 +19,15 @@ DECK_TEMPLATE = """<!doctype html>
 <title>{title}</title>
 <style id="dia-theme">
 :root {{
-  --dia-paper: #fbfaf6;
-  --dia-ink: #17242b;
-  --dia-ink-soft: #3d4a52;
-  --dia-accent: #b4552d;
-  --dia-rule: #d9d4c8;
-  --dia-face-display: Georgia, "Times New Roman", serif;
-  --dia-face-body: Georgia, "Times New Roman", serif;
-  --dia-face-label: ui-monospace, "SF Mono", Menlo, monospace;
+  --dia-paper: #F2EEDE;
+  --dia-ink: #1A1A1A;
+  --dia-ink-soft: #33312B;
+  --dia-ink-faint: #85837A;
+  --dia-accent: #1E6FCC;
+  --dia-rule: #C6C3B6;
+  --dia-face-display: "Source Sans 3", system-ui, sans-serif;
+  --dia-face-body: "Source Sans 3", system-ui, sans-serif;
+  --dia-face-label: "Source Code Pro", ui-monospace, monospace;
   --dia-scale-1: 12px;
   --dia-scale-2: 15px;
   --dia-scale-3: 18px;

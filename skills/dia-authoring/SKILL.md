@@ -41,23 +41,30 @@ set (one edit restyles the whole deck):
 
 ```css
 :root {
-  --dia-paper: #fbfaf6;      /* slide background */
-  --dia-ink: #17242b;        /* primary text */
-  --dia-ink-soft: #3d4a52;   /* secondary text */
-  --dia-accent: #b4552d;     /* ONE accent, spent on signal */
-  --dia-rule: #d9d4c8;       /* hairlines */
-  --dia-face-display: Georgia, serif;
-  --dia-face-body: Georgia, serif;
-  --dia-face-label: ui-monospace, monospace;
+  --dia-paper: #F2EEDE;      /* slide background */
+  --dia-ink: #1A1A1A;        /* primary text */
+  --dia-ink-soft: #33312B;   /* secondary text */
+  --dia-ink-faint: #85837A;  /* tertiary / figure structure */
+  --dia-accent: #1E6FCC;     /* ONE accent, spent on signal */
+  --dia-rule: #C6C3B6;       /* hairlines */
+  --dia-face-display: "Source Sans 3", system-ui, sans-serif;
+  --dia-face-body: "Source Sans 3", system-ui, sans-serif;
+  --dia-face-label: "Source Code Pro", ui-monospace, monospace;
   --dia-scale-1: 12px;  /* … --dia-scale-7: 48px — the type scale */
   --dia-gap: 24px;
   --dia-pad: 52px;
 }
 ```
 
-House style (docs/HOUSE-STYLE.md): decks default LIGHT — paper ground,
-dark ink, one accent. Text and chrome never hard-code a hue; they read
-tokens. The one licensed exception is illustrative artwork, below.
+House style (docs/HOUSE-STYLE.md): decks default LIGHT, and palettes
+come from the zicato theme set — the values above are zicato's *paper*
+theme; *solarized-light*, *google-light*, *lunaria-light*, and
+*belafonte-day* are the other light palettes to draw from. Never invent
+an ad-hoc palette (warm creams with terracotta accents and serif body
+faces are a known LLM tell, not the house). Faces follow the zicato
+role split: sans for prose (display/body), mono ONLY for labels/data.
+Text and chrome never hard-code a hue; they read tokens. The one
+licensed exception is illustrative artwork, below.
 
 ## Text roles & layout containers
 
