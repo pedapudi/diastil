@@ -57,14 +57,57 @@ set (one edit restyles the whole deck):
 ```
 
 House style (docs/HOUSE-STYLE.md): decks default LIGHT, and palettes
-come from the zicato theme set — the values above are zicato's *paper*
-theme; *solarized-light*, *google-light*, *lunaria-light*, and
-*belafonte-day* are the other light palettes to draw from. Never invent
-an ad-hoc palette (warm creams with terracotta accents and serif body
-faces are a known LLM tell, not the house). Faces follow the zicato
-role split: sans for prose (display/body), mono ONLY for labels/data.
-Text and chrome never hard-code a hue; they read tokens. The one
-licensed exception is illustrative artwork, below.
+come from the zicato theme set below — NEVER invented ad hoc (warm
+creams with terracotta accents and serif body faces are a known LLM
+tell, not the house). Faces follow the zicato role split: sans for
+prose (display/body), mono ONLY for labels/data. Text and chrome never
+hard-code a hue; they read tokens. The one licensed exception is
+illustrative artwork, below.
+
+### The palettes
+
+Map a zicato theme onto the deck tokens 1:1 (`paper → --dia-paper`,
+`ink → --dia-ink`, …). The house default is **paper**; the other four
+light themes are the first alternates.
+
+| theme | paper | ink | ink-soft | ink-faint | rule | accent |
+| --- | --- | --- | --- | --- | --- | --- |
+| **paper** (default) | `#F2EEDE` | `#1A1A1A` | `#33312B` | `#85837A` | `#C6C3B6` | `#1E6FCC` |
+| solarized-light | `#FDF6E3` | `#586E75` | `#657B83` | `#93A1A1` | `#E7DCBE` | `#268BD2` |
+| google-light | `#FFFFFF` | `#474A4E` | `#5F6368` | `#9FA1A4` | `#E2E3E4` | `#1B9CB8` |
+| lunaria-light | `#EBE4E1` | `#363434` | `#484646` | `#898584` | `#CEC8C5` | `#3778A9` |
+| belafonte-day | `#D5CCBA` | `#34292D` | `#45373C` | `#7F736E` | `#BBB1A3` | `#426A79` |
+| monokai | `#1e1f1c` | `#f8f8f2` | `#c9cabf` | `#8f908a` | `#3a3b34` | `#66d9ef` |
+| solarized-dark | `#04222B` | `#93A1A1` | `#839496` | `#5E7079` | `#0E3540` | `#2AA198` |
+| google-dark | `#202124` | `#FFFFFF` | `#E8EAED` | `#989A9D` | `#444548` | `#24C1E0` |
+| lunaria-eclipse | `#323F46` | `#DFE2ED` | `#C9CDD7` | `#8D949D` | `#4D5960` | `#C8429F` |
+| belafonte-night | `#20111B` | `#D5CCBA` | `#968C83` | `#675B59` | `#35272E` | `#6F8E97` |
+| zenburn | `#3A3A3A` | `#DCDCCC` | `#C5C5B8` | `#83837C` | `#575754` | `#8CD0D3` |
+| selenized-black | `#181818` | `#DEDEDE` | `#B9B9B9` | `#606060` | `#353535` | `#56D8C9` |
+| relaxed | `#353A44` | `#F7F7F7` | `#D9D9D9` | `#7F8287` | `#53575F` | `#7EAAC7` |
+| espresso | `#323232` | `#FFFFFF` | `#D9D9D9` | `#8A8A8A` | `#4C4C4C` | `#6C99BB` |
+| dracula | `#282A36` | `#F8F8F2` | `#D4D4CF` | `#6272A4` | `#44475A` | `#BD93F9` |
+| ubuntu | `#300A24` | `#EEEEEC` | `#CBC3C9` | `#8A7383` | `#4B2640` | `#34E2E2` |
+
+When a deck needs `good`/`bad` semantics (checkmarks, deltas, pass/fail
+figures), take them from the same theme — e.g. paper: good `#216609`,
+bad `#CC3E28`; solarized-light: good `#6B9B0B`, bad `#DC322F`;
+google-light: good `#34A853`, bad `#EA4335`; lunaria-light: good
+`#497D46`, bad `#783C1F`; belafonte-day: good `#6E6A4E`, bad `#BE100E`.
+
+Faces, T9 by default (the role split):
+
+```css
+--dia-face-display: "Source Sans 3", system-ui, sans-serif;
+--dia-face-body: "Source Sans 3", system-ui, sans-serif;
+--dia-face-label: "Source Code Pro", ui-monospace, monospace;
+```
+
+For an all-mono technical register (zicato's own presentation style),
+set all three faces to a mono stack (`"Google Sans Mono", "Noto Sans
+Mono", ui-monospace, monospace`); for an editorial register, display
+and body may be a serif (`"Fraunces"`, `"Bitter"`, `"Literata"`,
+Georgia fallback) while labels STAY mono.
 
 ## Text roles & layout containers
 
