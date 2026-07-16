@@ -95,22 +95,22 @@ section.dia-slide { position: relative; }
     </div>
   </div>
   <div class="dia-figure">
-    <svg class="dia-scene" viewBox="0 0 340 250" role="img" aria-label="ingest pipeline diagram">
-      <g data-dia-node="original" data-shape="rounded" data-x="20" data-y="18" data-w="120" data-h="40">
-        <text class="dia-node-label">original.html</text>
+    <svg class="dia-scene" viewBox="0 0 340 250" role="img" aria-label="ingest pipeline diagram"><defs><marker id="dia-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"></path></marker></defs>
+      <g data-dia-node="original" data-shape="rounded" data-x="20" data-y="18" data-w="120" data-h="40"><rect class="dia-node-shape" x="20" y="18" width="120" height="40" rx="6"></rect>
+        <text class="dia-node-label" x="80" y="38" text-anchor="middle" dominant-baseline="central">original.html</text>
       </g>
-      <g data-dia-node="execute" data-shape="rounded" data-x="200" data-y="18" data-w="120" data-h="40">
-        <text class="dia-node-label">execute</text>
+      <g data-dia-node="execute" data-shape="rounded" data-x="200" data-y="18" data-w="120" data-h="40"><rect class="dia-node-shape" x="200" y="18" width="120" height="40" rx="6"></rect>
+        <text class="dia-node-label" x="260" y="38" text-anchor="middle" dominant-baseline="central">execute</text>
       </g>
-      <g data-dia-node="translate" data-shape="rounded" data-x="200" data-y="108" data-w="120" data-h="40">
-        <text class="dia-node-label">translate</text>
+      <g data-dia-node="translate" data-shape="rounded" data-x="200" data-y="108" data-w="120" data-h="40"><rect class="dia-node-shape" x="200" y="108" width="120" height="40" rx="6"></rect>
+        <text class="dia-node-label" x="260" y="128" text-anchor="middle" dominant-baseline="central">translate</text>
       </g>
-      <g data-dia-node="verified" data-shape="rounded" data-x="20" data-y="190" data-w="120" data-h="40" data-dia-emphasis>
-        <text class="dia-node-label">verified deck</text>
+      <g data-dia-node="verified" data-shape="rounded" data-x="20" data-y="190" data-w="120" data-h="40" data-dia-emphasis=""><rect class="dia-node-shape" x="20" y="190" width="120" height="40" rx="6"></rect>
+        <text class="dia-node-label" x="80" y="210" text-anchor="middle" dominant-baseline="central">verified deck</text>
       </g>
-      <g data-dia-edge="original->execute" data-anchors="E,W" data-route="straight"></g>
-      <g data-dia-edge="execute->translate" data-anchors="S,N" data-route="straight"></g>
-      <g data-dia-edge="translate->verified" data-anchors="W,N" data-route="ortho" data-label="compare"></g>
+      <g data-dia-edge="original->execute" data-anchors="E,W" data-route="straight"><path class="dia-edge-path" d="M140,38 L200,38" fill="none" marker-end="url(#dia-arrow)"></path></g>
+      <g data-dia-edge="execute->translate" data-anchors="S,N" data-route="straight"><path class="dia-edge-path" d="M260,58 L260,108" fill="none" marker-end="url(#dia-arrow)"></path></g>
+      <g data-dia-edge="translate->verified" data-anchors="W,N" data-route="ortho" data-label="compare"><path class="dia-edge-path" d="M200,128 H80 V190" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="109" y="122" text-anchor="middle">compare</text></g>
     </svg>
   </div>
 </section>
@@ -136,23 +136,20 @@ section.dia-slide { position: relative; }
     </div>
   </div>
   <div class="dia-figure">
-    <svg class="dia-scene" viewBox="0 0 420 300" role="img" aria-label="drawing showcase">
-      <g data-dia-node="sketch" data-shape="cloud" data-x="18" data-y="26" data-w="128" data-h="60">
-        <text class="dia-node-label">sketch</text>
+    <svg class="dia-scene" viewBox="0 0 420 300" role="img" aria-label="drawing showcase"><defs><marker id="dia-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"></path></marker></defs>
+      <g data-dia-node="sketch" data-shape="cloud" data-x="18" data-y="26" data-w="128" data-h="60"><path class="dia-node-shape" d="M46.16,77 C24.4,77 18,63.2 28.24,56 C18,44 38.48,38 56.4,40.4 C64.08,30.8 97.36,30.8 107.6,39.2 C129.36,35.6 146,45.2 138.32,56 C146,65 137.04,77 117.84,77 Z"></path>
+        <text class="dia-node-label" x="82" y="56" text-anchor="middle" dominant-baseline="central">sketch</text>
       </g>
-      <g data-dia-node="ship" data-shape="rounded" data-x="262" data-y="30" data-w="120" data-h="52" data-dia-emphasis="">
-        <text class="dia-node-label">ship</text>
+      <g data-dia-node="ship" data-shape="rounded" data-x="262" data-y="30" data-w="120" data-h="52" data-dia-emphasis=""><rect class="dia-node-shape" x="262" y="30" width="120" height="52" rx="6"></rect>
+        <text class="dia-node-label" x="322" y="56" text-anchor="middle" dominant-baseline="central">ship</text>
       </g>
-      <g data-dia-node="spark" data-shape="path" data-x="36" data-y="176" data-w="86" data-h="84"
-         data-path="M50,0 L61.8,31.9 L95.6,34.55 L69.1,55.9 L79.4,88.15 L50,70 L20.6,88.15 L30.9,55.9 L4.4,34.55 L38.2,31.9 Z">
-        <text class="dia-node-label">idea</text>
+      <g data-dia-node="spark" data-shape="path" data-x="36" data-y="176" data-w="86" data-h="84" data-path="M50,0 L61.8,31.9 L95.6,34.55 L69.1,55.9 L79.4,88.15 L50,70 L20.6,88.15 L30.9,55.9 L4.4,34.55 L38.2,31.9 Z"><path class="dia-node-shape" d="M50,0 L61.8,31.9 L95.6,34.55 L69.1,55.9 L79.4,88.15 L50,70 L20.6,88.15 L30.9,55.9 L4.4,34.55 L38.2,31.9 Z" transform="translate(36,176) scale(0.86,0.84)" vector-effect="non-scaling-stroke"></path>
+        <text class="dia-node-label" x="79" y="218" text-anchor="middle" dominant-baseline="central">idea</text>
       </g>
-      <g data-dia-edge="sketch->ship" data-anchors="E,W" data-route="ortho" data-label="related"></g>
-      <g data-dia-edge="spark->sketch" data-anchors="N,S" data-route="curve" data-via="36,120" data-label="steered"></g>
-      <path d="M170,180 C196,164 210,196 238,178 C258,166 270,188 292,176"
-            style="fill: none; stroke: var(--dia-accent); stroke-width: 2.2; stroke-linecap: round;"/>
-      <path d="M306,172 L342,148 M342,148 L330,150 M342,148 L340,160"
-            style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.8; stroke-linecap: round;"/>
+      <g data-dia-edge="sketch->ship" data-anchors="E,W" data-route="ortho" data-label="related"><path class="dia-edge-path" d="M146,56 H262" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="204" y="50" text-anchor="middle">related</text></g>
+      <g data-dia-edge="spark->sketch" data-anchors="N,S" data-route="curve" data-via="36,120" data-label="steered"><path class="dia-edge-path" d="M79,176 Q36,120 82,86" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="36" y="114" text-anchor="middle">steered</text></g>
+      <path d="M170,180 C196,164 210,196 238,178 C258,166 270,188 292,176" style="fill: none; stroke: var(--dia-accent); stroke-width: 2.2; stroke-linecap: round;"></path>
+      <path d="M306,172 L342,148 M342,148 L330,150 M342,148 L340,160" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.8; stroke-linecap: round;"></path>
       <text x="188" y="216" style="font: 12px Georgia, serif; font-style: italic; fill: var(--dia-ink-soft);">drawn by hand, still data</text>
     </svg>
     <div class="dia-caption">fig 2 · double-click a connector to label it; drag its middle dot to bend it</div>
@@ -182,14 +179,14 @@ section.dia-slide { position: relative; }
     </div>
   </div>
   <div class="dia-figure">
-    <svg class="dia-scene" viewBox="0 0 340 240" role="img" aria-label="shape examples">
-      <g data-dia-node="disc" data-shape="ellipse" data-x="34" data-y="36" data-w="88" data-h="88" style="--dia-node-fill: var(--dia-rule)">
-        <text class="dia-node-label"></text>
+    <svg class="dia-scene" viewBox="0 0 340 240" role="img" aria-label="shape examples"><defs><marker id="dia-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"></path></marker></defs>
+      <g data-dia-node="disc" data-shape="ellipse" data-x="34" data-y="36" data-w="88" data-h="88" style="--dia-node-fill: var(--dia-rule)"><ellipse class="dia-node-shape" cx="78" cy="80" rx="44" ry="44"></ellipse>
+        <text class="dia-node-label" x="78" y="80" text-anchor="middle" dominant-baseline="central"></text>
       </g>
-      <g data-dia-node="block" data-shape="rect" data-x="216" data-y="120" data-w="76" data-h="76" style="--dia-node-stroke: var(--dia-accent); --dia-node-stroke-w: 2.5">
-        <text class="dia-node-label"></text>
+      <g data-dia-node="block" data-shape="rect" data-x="216" data-y="120" data-w="76" data-h="76" style="--dia-node-stroke: var(--dia-accent); --dia-node-stroke-w: 2.5"><rect class="dia-node-shape" x="216" y="120" width="76" height="76" rx="0"></rect>
+        <text class="dia-node-label" x="254" y="158" text-anchor="middle" dominant-baseline="central"></text>
       </g>
-      <g data-dia-edge="disc->block" data-anchors="auto,auto" data-route="curve" data-label="related" style="--dia-edge-stroke: var(--dia-ink-soft)"></g>
+      <g data-dia-edge="disc->block" data-anchors="auto,auto" data-route="curve" data-label="related" style="--dia-edge-stroke: var(--dia-ink-soft)"><path class="dia-edge-path" d="M122,80 C169,80 169,158 216,158" fill="none" marker-end="url(#dia-arrow)"></path><text class="dia-edge-label" x="169" y="113" text-anchor="middle">related</text></g>
     </svg>
   </div>
 </section>
