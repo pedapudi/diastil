@@ -172,12 +172,21 @@ apply, or reject. Propose it:
 - Self-contained only: no external hrefs or images, no `<script>`, no
   `<foreignObject>`. Always set a `viewBox`; size through the figure
   (`style="width: 58%"`) rather than fixed pixel width/height on the svg.
-- BE COLORFUL. The house style biases illustrative artwork toward rich,
-  saturated color: real hues, layered fills, local `<defs>` gradients —
-  artwork MAY go beyond the theme tokens, as long as it sits well on
-  `var(--dia-paper)`. Text and chrome inside the artwork still read
-  tokens (`var(--dia-ink)`, `var(--dia-face-label)`); the PICTURE gets
-  the palette.
+- The house register is EVOCATIVE LINE ART in deck tokens: hairline
+  strokes (≈0.9–1.6), `var(--dia-ink-faint)` structure, layered opacity
+  for depth, dashed envelopes, organic curves — drawn like a hand made
+  it, with the ACCENT spent on the one element that carries the
+  meaning (in ambit's dandelion, only the seeds drifting away are
+  accent — the color is the argument). Draw a metaphor from the deck's
+  subject. Richer color beyond the tokens is allowed when the subject
+  wants it (real palettes, layered fills, local `<defs>` gradients on
+  `var(--dia-paper)`) — because the picture needs it, never by default.
+  Text inside artwork always reads tokens (`var(--dia-ink)`,
+  `var(--dia-face-label)`).
+- NEVER a left-hand rail highlight: no `border-left` accent stripes on
+  panels, callouts, quotes, or note boxes — the language does not
+  contain them. Panels are full hairline borders with an accent panel
+  label.
 - Diagram scenes are the exception: nodes, edges, and labels stay in
   scene vocabulary and theme tokens (they restyle with the deck). If the
   user wants an editable flow, propose scene ops; if they want a

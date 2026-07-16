@@ -144,10 +144,16 @@ doubt, add the figure. Hand-authored svg lives in a figure slot:
   width/height on the svg. Self-contained only: no external hrefs, no
   scripts, no `<foreignObject>`. Column figures ≈ 430×300; full-width
   ≈ 1180×470.
-- BE COLORFUL — the house style biases illustrations toward rich,
-  saturated color, and artwork MAY use hues beyond the theme tokens
-  (real palettes, layered fills, local `<defs>` gradients) as long as
-  it sits well on `var(--dia-paper)`.
+- The default register is EVOCATIVE LINE ART in deck tokens (the
+  "dandelion register", docs/HOUSE-STYLE.md): hairline strokes
+  ≈0.9–1.6, `var(--dia-ink-faint)` structure, layered opacity for
+  depth, dashed envelopes, organic curves — and the ACCENT spent on
+  the one element that carries the meaning. Draw a metaphor from the
+  subject, not a generic decoration.
+- Richer color beyond the theme tokens stays licensed when the
+  subject wants it (real palettes, layered fills, local `<defs>`
+  gradients, sitting well on `var(--dia-paper)`) — reach for it
+  because the picture needs it, not because a figure exists.
 - The boundary: words and labels INSIDE artwork still read tokens
   (`var(--dia-ink)`, `var(--dia-face-label)`), so they retheme with the
   deck; and diagram scenes (`svg.dia-scene`, see `dia-scenes`) stay
@@ -173,6 +179,12 @@ hand-drawn to these rules):
   exactly this — run it);
 - **caption the takeaway** — a `figcaption.dia-caption` stating what
   the reader should see, plus an `aria-label` naming the figure.
+
+One pattern the language does NOT contain: **left-hand rail
+highlights**. Never put an accent stripe on a panel's left edge — no
+`border-left` callouts, quote bars, or note boxes. Panels are full
+hairline borders with an accent panel label; emphasis comes from the
+label and the content.
 
 ## Behavior is data
 
