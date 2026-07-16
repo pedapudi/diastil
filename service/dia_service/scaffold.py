@@ -139,7 +139,9 @@ step and no private data model.
      `<g data-dia-node="id" data-shape="rounded" data-x data-y data-w data-h>`
      nodes (label = child `<text class="dia-node-label">`) and
      `<g data-dia-edge="a->b" data-anchors="E,W" data-route="ortho">` edges.
-     NEVER hand-write edge path `d` — the runtime routes edges
+     edge `d` is DERIVED from the data-* attrs (the editor re-routes on
+     any edit) — but include a plain anchor-to-anchor path.dia-edge-path
+     rendering so the scene shows without JS
    - staged reveals: `data-dia-step="1"` (positive int) on any element
    - content the dialect can't express (scripts, iframes, live widgets):
      wrap in `<div data-dia-island>` — islands are preserved verbatim and

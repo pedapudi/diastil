@@ -8,8 +8,13 @@ description: Create and edit diastil scene diagrams — nodes, edges, anchors, r
 A scene is SVG plus semantics in attributes. **Author the attributes;
 the runtime computes the geometry**: shapes are (re)built from
 `data-x/y/w/h`, labels are centered in their shapes, and edge paths are
-routed — move a node and its edges reroute. Never hand-write `d`
-attributes on edge paths; they're derived artifacts.
+routed — move a node and its edges reroute. Edge `d` attributes are
+DERIVED: never treat them as truth or fight the router with clever
+hand routing. But a saved scene must render without JS, so the file
+carries the derived rendering too — when authoring by hand, include
+node shapes, positioned labels, and a plain anchor-to-anchor
+`path.dia-edge-path` per edge; the editor re-derives all of it from
+the `data-*` attributes on any edit.
 
 ## Vocabulary
 

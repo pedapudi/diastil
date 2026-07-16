@@ -12,9 +12,8 @@ fully editable by any agent or text editor.
 
 **Figures first.** Before writing any prose, plan one visualization per
 content slide — a deck of ten slides should carry roughly eight
-hand-drawn svg figures ("Visualize by default", below, includes a
-complete worked example to imitate). Decks that read as walls of text
-are out of house style even when they validate.
+hand-drawn svg figures ("Visualize by default", below). Decks that read
+as walls of text are out of house style even when they validate.
 
 ## Document frame
 
@@ -189,46 +188,15 @@ text-only slide is the exception that must earn its plainness; when in
 doubt, add the figure. The working quota: roughly one figure per
 content slide, planned before the prose.
 
-A complete figure in the house register — copy this shape, not just
-the idea (a seed head whose faint spokes are structure and whose
-drifting seeds carry the accent — the color IS the argument):
-
-```html
-<figure class="dia-figure" style="width: 56%; margin: 0;">
-  <svg viewBox="0 0 430 300" role="img"
-       aria-label="a seed head of faint radiating spokes inside a dashed envelope; three seeds drift away in the accent color"
-       style="width: 100%; font-family: var(--dia-face-label); font-size: 10px;">
-    <circle cx="150" cy="152" r="104" style="fill: none; stroke: var(--dia-rule); stroke-width: 1; stroke-dasharray: 2 5;"></circle>
-    <path d="M150,152 C 146,212 158,250 152,296" style="fill: none; stroke: var(--dia-ink-faint); stroke-width: 1.6; stroke-linecap: round;"></path>
-    <g style="stroke: var(--dia-ink-faint); stroke-width: 0.9; fill: none;">
-      <line x1="150" y1="152" x2="244" y2="118" opacity=".85"></line>
-      <line x1="150" y1="152" x2="220" y2="72"  opacity=".5"></line>
-      <line x1="150" y1="152" x2="162" y2="52"  opacity=".85"></line>
-      <line x1="150" y1="152" x2="102" y2="62"  opacity=".5"></line>
-      <line x1="150" y1="152" x2="60"  y2="104" opacity=".85"></line>
-      <line x1="150" y1="152" x2="50"  y2="166" opacity=".5"></line>
-      <line x1="150" y1="152" x2="82"  y2="222" opacity=".85"></line>
-    </g>
-    <g style="fill: var(--dia-ink-faint);">
-      <circle cx="244" cy="118" r="2.4" opacity=".85"></circle><circle cx="220" cy="72" r="2.4" opacity=".5"></circle>
-      <circle cx="162" cy="52"  r="2.4" opacity=".85"></circle><circle cx="102" cy="62" r="2.4" opacity=".5"></circle>
-      <circle cx="60"  cy="104" r="2.4" opacity=".85"></circle><circle cx="50"  cy="166" r="2.4" opacity=".5"></circle>
-      <circle cx="82"  cy="222" r="2.4" opacity=".85"></circle>
-    </g>
-    <g style="stroke: var(--dia-accent); stroke-width: 0.85; fill: none;" opacity=".95">
-      <path d="M282,100 q16,-12 26,-30"></path>
-      <path d="M318,128 q18,-8 34,-22"></path>
-      <path d="M330,168 q20,-2 38,-12"></path>
-    </g>
-    <g style="fill: var(--dia-accent);">
-      <circle cx="308" cy="70" r="2.6"></circle><circle cx="352" cy="106" r="2.6"></circle><circle cx="368" cy="156" r="2.6"></circle>
-    </g>
-    <text x="24" y="282" style="fill: var(--dia-ink-faint);">the head — structure, kept faint</text>
-    <text x="296" y="52" style="fill: var(--dia-accent);">the escaping few — the point</text>
-  </svg>
-  <figcaption class="dia-caption">the accent is spent only on what the slide argues; everything else is hairline structure</figcaption>
-</figure>
-```
+The register's canonical shape (ambit's dandelion): a dashed
+`var(--dia-rule)` envelope circle; a seed head of fine radiating
+`var(--dia-ink-faint)` lines (stroke-width 0.9, opacity alternating
+.5/.85) tipped with small dots; one organic stem (a gentle cubic curve,
+stroke-width 1.6); and the ONLY `var(--dia-accent)` marks are the three
+seeds drifting away — the escaping few are what the slide argues. Two
+small mono labels name the faint structure and the accented payload.
+Build every figure with that economy: faint structure, one accented
+meaning, labels, caption.
 
 - Always set a `viewBox`; size through the figure, not pixel
   width/height on the svg. Self-contained only: no external hrefs, no
@@ -254,11 +222,14 @@ drifting seeds carry the accent — the color IS the argument):
   (`var(--dia-ink)`, `var(--dia-face-label)`), so they retheme with the
   deck; and diagram scenes (`svg.dia-scene`, see `dia-scenes`) stay
   fully token-bound — they are structure, not pictures.
-- A `svg.dia-scene` should render without JS: give it BOTH its
-  `data-dia-*` semantics (for the editor) AND explicit SVG geometry —
-  `transform="translate(x, y)"`, `<rect width height>`, `<text x y>`,
-  `<path d="…">` — so a plain HTML preview shows the same diagram the
-  editor does, not an empty frame.
+- A `svg.dia-scene` must render without JS: the `data-dia-*` attributes
+  are the TRUTH the editor edits and re-derives from, but the file also
+  carries the derived rendering — node shapes (`path.dia-node-shape` or
+  equivalent geometry), positioned `<text>` labels, and edge
+  `path.dia-edge-path` with a plain anchor-to-anchor `d` — so any HTML
+  preview shows the same diagram the editor does, not an empty frame.
+  Write the simple rendering and trust the editor to re-route on edit;
+  never treat a hand-written `d` as the source of truth.
 
 What makes a figure BEAUTIFUL is craft, not decoration (in this repo,
 `examples/what-is-dia.html` shows every rule below in use):
