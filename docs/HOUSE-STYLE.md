@@ -67,7 +67,7 @@ are ambit's title-slide dandelion and every figure in
 Beyond the dandelion, the register has named reference pieces — the
 contour map, the constellation, the sonar sweep, the braided river,
 the orbit-and-comet — construction recipes live in
-`skills/dia-authoring/SKILL.md`; all share the same economy: faint
+`skills/dia-artwork/SKILL.md`; all share the same economy: faint
 structure, dashed guides, one accented element that is the argument.
 **Every piece is drawn in `docs/register-reference.html`** — open it to
 see the register, line-art and full-color both.
