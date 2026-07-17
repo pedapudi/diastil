@@ -152,7 +152,14 @@ step and no private data model.
      edge `d` is DERIVED from the data-* attrs (the editor re-routes on
      any edit) — but include a plain anchor-to-anchor path.dia-edge-path
      rendering so the scene shows without JS
-   - staged reveals: `data-dia-step="1"` (positive int) on any element
+   - staged reveals: `data-dia-step="1"` (positive int) on any element;
+     `data-dia-step-until="N"` exits an element at step N;
+     `data-dia-spotlight` on a container recedes already-shown steps;
+     speaker notes live in `<aside class="dia-notes">` (hidden when
+     presenting); `data-dia-auto="page"` fills "N / N" page furniture
+   - charts are data: `<svg class="dia-chart" data-chart="bar|line|scatter"
+     data-values="Q1:12, Q2:19" data-max data-unit>` — the editor bakes a
+     token-bound rendering; edit the attributes, never the derived group
    - content the dialect can't express (scripts, iframes, live widgets):
      wrap in `<div data-dia-island>` — islands are preserved verbatim and
      exempt from validation

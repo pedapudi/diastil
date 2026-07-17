@@ -118,6 +118,23 @@ Figures carry crop and focal point as style (`object-fit`,
 `object-position`, or `--dia-focal-*`) so photosetting is attribute
 editing. No rule enforces this shape; a plain `<img>` is in-dialect.
 
+### Charts (quantities as data)
+
+`svg.dia-chart` is the scene contract applied to quantities: the
+attributes are the truth, the file carries a derived, token-bound
+rendering (one `g.dia-chart-derived`, rebuilt by the editor at load
+and after edits) so charts present without JS and re-theme with the
+deck.
+
+| rule | level | contract |
+| --- | --- | --- |
+| `chart/type` | error | `data-chart` is `bar` · `line` · `scatter` |
+| `chart/values` | error | `data-values` is `label:number` entries split on `,`/`;` (line/scatter treat numeric labels as x) |
+| `chart/max` | error | `data-max`, when present, is a positive number (the y ceiling; else a nice ceiling of the data) |
+
+`data-unit` (a y suffix like `%`) is free-form. Never hand-edit the
+derived group — edit the data.
+
 ## 5. Behavior is data
 
 | rule | level | contract |

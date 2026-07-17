@@ -141,3 +141,25 @@ the op log, no inference:
   every static SVG on the slide; each lift is profile-validated and
   fidelity-verified or discarded. A diagram that won't lift faithfully
   stays a plain figure (or island) you can lift manually later.
+
+
+## Charts — quantities as data
+
+The same contract, for numbers. `svg.dia-chart` derives its rendering
+from attributes; edit the DATA, never the derived group:
+
+```html
+<svg class="dia-chart" viewBox="0 0 430 300" role="img" aria-label="quarterly share"
+     data-chart="bar" data-values="Q1:12, Q2:19, Q3:7" data-max="20" data-unit="%">
+  <g class="dia-chart-derived"><!-- baked by the editor; rebuilt on edit --></g>
+</svg>
+```
+
+- `data-chart`: `bar` · `line` · `scatter`
+- `data-values`: `label:number` entries split on `,` or `;` — line and
+  scatter treat numeric labels as x coordinates
+- `data-max` (optional y ceiling) · `data-unit` (y suffix)
+- The rendering is fully token-bound (axis `--dia-rule`, marks
+  `--dia-accent`, labels `--dia-ink-faint`), so charts re-theme with
+  the deck. Open the deck in the editor once (or keep the baked group
+  current) so the chart shows without JS, exactly like scenes.

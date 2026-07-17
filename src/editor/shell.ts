@@ -11,6 +11,7 @@ import { state } from '../state'
 import { loadDeck } from '../model/parse'
 import { batch as batchOps, insertEl, removeEl, setAttr, setStyleProp, setToken } from '../model/ops'
 import { routeAll } from '../scene/route'
+import { renderAllCharts } from '../scene/chart'
 import {
   ensureSceneStyleRules, expandSceneCanvas, fitSceneCanvas, getDrawTool,
   insertShapeNode, setDrawTool,
@@ -289,6 +290,7 @@ export function mountEditor(host: HTMLElement): void {
           // heal the theme BEFORE any module (minimap!) snapshots deck styles
           if (deck.root.querySelector('svg.dia-scene')) ensureSceneStyleRules()
           routeAllScenes(deck)
+          renderAllCharts(deck.root)
           fillAutoPages()
         }
         state.resetLog() // old ops reference the previous document's elements
@@ -305,6 +307,7 @@ export function mountEditor(host: HTMLElement): void {
       case 'undo':
       case 'redo': {
         if (state.deck) routeAllScenes(state.deck)
+        if (state.deck) renderAllCharts(state.deck.root)
         tick++
         updateCrumbs()
         renderInspect()
@@ -313,6 +316,7 @@ export function mountEditor(host: HTMLElement): void {
       }
       case 'op': {
         tick++
+        if (state.deck) renderAllCharts(state.deck.root)
         fillAutoPages()
         updateCrumbs()
         renderInspect()

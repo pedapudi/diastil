@@ -284,3 +284,21 @@ describe('behavior grammar: steps, furniture, parts, notes', () => {
     expect(r.findings).toEqual([])
   })
 })
+
+describe('chart rules', () => {
+  const addChart = (d: Document, attrs: Record<string, string>): void => {
+    const svg = d.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    svg.setAttribute('class', 'dia-chart')
+    svg.setAttribute('viewBox', '0 0 430 300')
+    for (const [k, v] of Object.entries(attrs)) svg.setAttribute(k, v)
+    slide(d).appendChild(svg)
+  }
+  it('chart/type · chart/values · chart/max all fire', () => {
+    const r = check((d) => addChart(d, { 'data-chart': 'pie', 'data-values': 'a=1', 'data-max': '-2' }))
+    expect(rules(r)).toEqual(expect.arrayContaining(['chart/type', 'chart/values', 'chart/max']))
+  })
+  it('a well-formed chart is silent', () => {
+    const r = check((d) => addChart(d, { 'data-chart': 'bar', 'data-values': 'Q1:12, Q2:19.5', 'data-max': '20', 'data-unit': '%' }))
+    expect(rules(r).filter((x) => x.startsWith('chart/'))).toEqual([])
+  })
+})

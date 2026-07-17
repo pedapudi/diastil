@@ -19,6 +19,10 @@ NODE_SHAPES = {
 # loose SVG path-data check for data-path (shape "path")
 PATH_DATA = re.compile(r"[Mm][0-9MmLlHhVvCcSsQqTtAaZz\s,.+eE-]+\Z")
 EDGE_ROUTES = {"straight", "ortho", "curve"}
+CHART_KINDS = {"bar", "line", "scatter"}
+CHART_VALUES = re.compile(
+    r"^\s*[^:;,]+:\s*-?\d+(?:\.\d+)?\s*([,;]\s*[^:;,]+:\s*-?\d+(?:\.\d+)?\s*)*$"
+)
 ANCHOR_SIDES = {"N", "S", "E", "W", "auto"}
 
 DIA_ATTRS = {
@@ -237,6 +241,28 @@ def validate_html(html: str) -> dict:
                     "left-rail highlight — the house language has no border-left "
                     "stripes; use a full hairline panel with an accent label "
                     "(docs/HOUSE-STYLE.md)")
+
+        for chart in slide.find_all("svg", cls="dia-chart"):
+            if chart.in_island(slide):
+                continue
+            kind = chart.attrs.get("data-chart")
+            if kind is None or kind not in CHART_KINDS:
+                add("error", "chart/type", chart.path(),
+                    "svg.dia-chart is missing data-chart" if kind is None
+                    else f'data-chart="{kind}" is not bar - line - scatter')
+            vals = chart.attrs.get("data-values")
+            if vals is None or not CHART_VALUES.match(vals):
+                add("error", "chart/values", chart.path(),
+                    "svg.dia-chart is missing data-values" if vals is None
+                    else f'data-values="{vals}" is not "label:number, ..."')
+            maxv = chart.attrs.get("data-max")
+            if maxv is not None:
+                try:
+                    okmax = float(maxv) > 0
+                except ValueError:
+                    okmax = False
+                if not okmax:
+                    add("error", "chart/max", chart.path(), f'data-max="{maxv}" is not a positive number')
 
         for scene in slide.find_all("svg", cls="dia-scene"):
             if scene.in_island(slide):

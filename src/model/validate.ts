@@ -29,6 +29,9 @@ const NODE_SHAPES = new Set([
  * moveto and contain only path commands/numbers */
 const PATH_DATA = /^[Mm][0-9MmLlHhVvCcSsQqTtAaZz\s,.+eE-]+$/
 const EDGE_ROUTES = new Set(['straight', 'ortho', 'curve'])
+const CHART_KINDS = new Set(['bar', 'line', 'scatter'])
+/** data-values grammar: label:number entries split on , or ; */
+const CHART_VALUES = /^\s*[^:;,]+:\s*-?\d+(?:\.\d+)?\s*([,;]\s*[^:;,]+:\s*-?\d+(?:\.\d+)?\s*)*$/
 const ANCHOR_SIDES = new Set(['N', 'S', 'E', 'W', 'auto'])
 
 /** persisted dialect data-dia-* vocabulary (profile §7) */
@@ -140,6 +143,22 @@ export function validateDocument(doc: Document): ProfileReport {
       if (bl && isLeftRail(bl[1]))
         add('advisory', 'style/left-rail', pathOf(el),
           'left-rail highlight — the house language has no border-left stripes; use a full hairline panel with an accent label (docs/HOUSE-STYLE.md)')
+    }
+
+    /* ---- charts ---- */
+    for (const chart of slide.querySelectorAll<SVGSVGElement>('svg.dia-chart')) {
+      if (inIsland(chart, slide)) continue
+      const kind = chart.getAttribute('data-chart')
+      if (kind === null || !CHART_KINDS.has(kind))
+        add('error', 'chart/type', pathOf(chart),
+          kind === null ? 'svg.dia-chart is missing data-chart' : `data-chart="${kind}" is not bar · line · scatter`)
+      const vals = chart.getAttribute('data-values')
+      if (vals === null || !CHART_VALUES.test(vals))
+        add('error', 'chart/values', pathOf(chart),
+          vals === null ? 'svg.dia-chart is missing data-values' : `data-values="${vals}" is not "label:number, …"`)
+      const max = chart.getAttribute('data-max')
+      if (max !== null && !(Number.isFinite(Number(max)) && Number(max) > 0))
+        add('error', 'chart/max', pathOf(chart), `data-max="${max}" is not a positive number`)
     }
 
     /* ---- scenes ---- */
