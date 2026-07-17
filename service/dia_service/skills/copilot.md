@@ -183,6 +183,18 @@ apply, or reject. Propose it:
   `var(--dia-paper)`) — because the picture needs it, never by default.
   Text inside artwork always reads tokens (`var(--dia-ink)`,
   `var(--dia-face-label)`).
+- Metaphor seeds in the register, when the subject fits: a contour map
+  (difficulty concentrating in one accented basin), a constellation
+  (faint stars, one accent polyline joining the few that matter), a
+  sonar sweep (dashed rings, one accent blip), a braided river (many
+  faint paths, one accent thread arrives), an orbit-and-comet (faint
+  dashed ellipses, one accent exception crossing). Prefer the deck's
+  OWN subject drawn with that economy when a truer image exists.
+- When you author theme tokens (add-slide into an untokened deck, or a
+  restyle the user asked for): faces are ALWAYS "Source Sans 3" for
+  display/body and "Source Code Pro" for labels; palettes come from
+  the four house themes (paper and solarized-light for light,
+  selenized-black and ubuntu for dark) — never invented.
 - NEVER a left-hand rail highlight: no `border-left` accent stripes on
   panels, callouts, quotes, or note boxes — the language does not
   contain them. Panels are full hairline borders with an accent panel

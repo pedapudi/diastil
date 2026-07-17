@@ -16,16 +16,22 @@ token or a preference the user can change in one gesture.
   --dia-ink-faint #85837A · --dia-rule #C6C3B6 · --dia-accent #1E6FCC`.
   A deck should read like a well-set document before it reads like a
   screen.
-- When a deck wants a different light look, draw from the other zicato
-  light themes — *solarized-light*, *google-light*, *lunaria-light*,
-  *belafonte-day* — and from the full set (`src/chrome/tokens.css`)
-  for dark decks. **Never invent an ad-hoc palette**: warm cream
-  grounds with terracotta accents and serif body faces are an LLM
-  design tell, not the house.
-- Faces follow the zicato role split, T9 by default: display/body =
+- **The four house themes** — complete paste-ready `:root` blocks live
+  in `skills/dia-authoring/SKILL.md` (self-contained on purpose: pick a
+  block, paste it whole, never derive tokens by hand):
+  light — **paper** (default) and **solarized-light**;
+  dark — **selenized-black** and **ubuntu**.
+  The remaining twelve zicato palettes (`src/chrome/tokens.css`) are
+  available when a deck needs a different mood. **Never invent an
+  ad-hoc palette**: warm cream grounds with terracotta accents and
+  serif body faces are an LLM design tell, not the house.
+- **Faces are prescriptive**: display/body =
   `"Source Sans 3", system-ui, sans-serif`; labels/data =
-  `"Source Code Pro", ui-monospace, monospace`. Sans for prose, mono
-  reserved for data — never an all-serif or all-mono deck by default.
+  `"Source Code Pro", ui-monospace, monospace` — in every deck, no
+  substitutions. The only sanctioned departures, and only when asked
+  for by name: the all-mono technical register (zicato's own
+  presentation style) and the serif editorial register
+  (Fraunces/Bitter/Literata). Labels stay mono in every register.
 
 ## the zicato role split
 
@@ -57,6 +63,12 @@ are ambit's title-slide dandelion and every figure in
   decoration;
 - **cartographer labeling** — small mono labels, leader ticks, legends
   when two channels appear, a `figcaption` stating the takeaway.
+
+Beyond the dandelion, the register has named reference pieces — the
+contour map, the constellation, the sonar sweep, the braided river,
+the orbit-and-comet — construction recipes live in
+`skills/dia-authoring/SKILL.md`; all share the same economy: faint
+structure, dashed guides, one accented element that is the argument.
 
 Richer color beyond the theme tokens stays **licensed** for
 illustrations whose subject wants it (real palettes, layered fills,

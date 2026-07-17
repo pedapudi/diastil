@@ -69,16 +69,81 @@ prose (display/body), mono ONLY for labels/data. Text and chrome never
 hard-code a hue; they read tokens. The one licensed exception is
 illustrative artwork, below.
 
-### The palettes
+### Four ready themes — paste one, whole
 
-Map a zicato theme onto the deck tokens 1:1 (`paper → --dia-paper`,
-`ink → --dia-ink`, …). The house default is **paper**; the other four
-light themes are the first alternates.
+Do not derive tokens from the table below or from any css file: pick
+one of these four blocks and paste it into `style#dia-theme` verbatim
+(then adjust scales/gap/pad if the content needs it). **paper** is the
+default; use a dark theme only when the deck's subject or venue calls
+for it.
+
+```css
+/* paper — the house default (light) */
+:root {
+  --dia-paper: #F2EEDE; --dia-ink: #1A1A1A; --dia-ink-soft: #33312B;
+  --dia-ink-faint: #85837A; --dia-accent: #1E6FCC; --dia-rule: #C6C3B6;
+  --dia-good: #216609; --dia-bad: #CC3E28;
+  --dia-face-display: "Source Sans 3", system-ui, sans-serif;
+  --dia-face-body: "Source Sans 3", system-ui, sans-serif;
+  --dia-face-label: "Source Code Pro", ui-monospace, monospace;
+  --dia-scale-1: 12px; --dia-scale-2: 15px; --dia-scale-3: 18px;
+  --dia-scale-4: 22px; --dia-scale-5: 30px; --dia-scale-6: 38px;
+  --dia-scale-7: 48px; --dia-gap: 24px; --dia-pad: 52px;
+}
+```
+
+```css
+/* solarized-light — the warm light alternate */
+:root {
+  --dia-paper: #FDF6E3; --dia-ink: #586E75; --dia-ink-soft: #657B83;
+  --dia-ink-faint: #93A1A1; --dia-accent: #268BD2; --dia-rule: #E7DCBE;
+  --dia-good: #6B9B0B; --dia-bad: #DC322F;
+  --dia-face-display: "Source Sans 3", system-ui, sans-serif;
+  --dia-face-body: "Source Sans 3", system-ui, sans-serif;
+  --dia-face-label: "Source Code Pro", ui-monospace, monospace;
+  --dia-scale-1: 12px; --dia-scale-2: 15px; --dia-scale-3: 18px;
+  --dia-scale-4: 22px; --dia-scale-5: 30px; --dia-scale-6: 38px;
+  --dia-scale-7: 48px; --dia-gap: 24px; --dia-pad: 52px;
+}
+```
+
+```css
+/* selenized-black — the neutral near-black (dark) */
+:root {
+  --dia-paper: #181818; --dia-ink: #DEDEDE; --dia-ink-soft: #B9B9B9;
+  --dia-ink-faint: #606060; --dia-accent: #56D8C9; --dia-rule: #353535;
+  --dia-good: #83C746; --dia-bad: #FF5E56;
+  --dia-face-display: "Source Sans 3", system-ui, sans-serif;
+  --dia-face-body: "Source Sans 3", system-ui, sans-serif;
+  --dia-face-label: "Source Code Pro", ui-monospace, monospace;
+  --dia-scale-1: 12px; --dia-scale-2: 15px; --dia-scale-3: 18px;
+  --dia-scale-4: 22px; --dia-scale-5: 30px; --dia-scale-6: 38px;
+  --dia-scale-7: 48px; --dia-gap: 24px; --dia-pad: 52px;
+}
+```
+
+```css
+/* ubuntu — the aubergine dark (what-is-dia wears it) */
+:root {
+  --dia-paper: #300A24; --dia-ink: #EEEEEC; --dia-ink-soft: #CBC3C9;
+  --dia-ink-faint: #8A7383; --dia-accent: #34E2E2; --dia-rule: #4B2640;
+  --dia-good: #8AE234; --dia-bad: #CC0000;
+  --dia-face-display: "Source Sans 3", system-ui, sans-serif;
+  --dia-face-body: "Source Sans 3", system-ui, sans-serif;
+  --dia-face-label: "Source Code Pro", ui-monospace, monospace;
+  --dia-scale-1: 12px; --dia-scale-2: 15px; --dia-scale-3: 18px;
+  --dia-scale-4: 22px; --dia-scale-5: 30px; --dia-scale-6: 38px;
+  --dia-scale-7: 48px; --dia-gap: 24px; --dia-pad: 52px;
+}
+```
+
+### The full palette set (reference)
+
+Twelve more zicato themes when a deck needs a different mood — map
+1:1 onto the deck tokens (`paper → --dia-paper`, `ink → --dia-ink`, …).
 
 | theme | paper | ink | ink-soft | ink-faint | rule | accent |
 | --- | --- | --- | --- | --- | --- | --- |
-| **paper** (default) | `#F2EEDE` | `#1A1A1A` | `#33312B` | `#85837A` | `#C6C3B6` | `#1E6FCC` |
-| solarized-light | `#FDF6E3` | `#586E75` | `#657B83` | `#93A1A1` | `#E7DCBE` | `#268BD2` |
 | google-light | `#FFFFFF` | `#474A4E` | `#5F6368` | `#9FA1A4` | `#E2E3E4` | `#1B9CB8` |
 | lunaria-light | `#EBE4E1` | `#363434` | `#484646` | `#898584` | `#CEC8C5` | `#3778A9` |
 | belafonte-day | `#D5CCBA` | `#34292D` | `#45373C` | `#7F736E` | `#BBB1A3` | `#426A79` |
@@ -88,31 +153,27 @@ light themes are the first alternates.
 | lunaria-eclipse | `#323F46` | `#DFE2ED` | `#C9CDD7` | `#8D949D` | `#4D5960` | `#C8429F` |
 | belafonte-night | `#20111B` | `#D5CCBA` | `#968C83` | `#675B59` | `#35272E` | `#6F8E97` |
 | zenburn | `#3A3A3A` | `#DCDCCC` | `#C5C5B8` | `#83837C` | `#575754` | `#8CD0D3` |
-| selenized-black | `#181818` | `#DEDEDE` | `#B9B9B9` | `#606060` | `#353535` | `#56D8C9` |
 | relaxed | `#353A44` | `#F7F7F7` | `#D9D9D9` | `#7F8287` | `#53575F` | `#7EAAC7` |
 | espresso | `#323232` | `#FFFFFF` | `#D9D9D9` | `#8A8A8A` | `#4C4C4C` | `#6C99BB` |
 | dracula | `#282A36` | `#F8F8F2` | `#D4D4CF` | `#6272A4` | `#44475A` | `#BD93F9` |
-| ubuntu | `#300A24` | `#EEEEEC` | `#CBC3C9` | `#8A7383` | `#4B2640` | `#34E2E2` |
 
 When a deck needs `good`/`bad` semantics (checkmarks, deltas, pass/fail
-figures), take them from the same theme — e.g. paper: good `#216609`,
-bad `#CC3E28`; solarized-light: good `#6B9B0B`, bad `#DC322F`;
-google-light: good `#34A853`, bad `#EA4335`; lunaria-light: good
-`#497D46`, bad `#783C1F`; belafonte-day: good `#6E6A4E`, bad `#BE100E`.
+figures), take them from the same theme (`good`/`bad` in the four
+blocks above; for table themes, look up the zicato palette or reuse
+the nearest block's pair).
 
-Faces, T9 by default (the role split):
+### Faces — prescriptive
 
-```css
---dia-face-display: "Source Sans 3", system-ui, sans-serif;
---dia-face-body: "Source Sans 3", system-ui, sans-serif;
---dia-face-label: "Source Code Pro", ui-monospace, monospace;
-```
-
-For an all-mono technical register (zicato's own presentation style),
-set all three faces to a mono stack (`"Google Sans Mono", "Noto Sans
-Mono", ui-monospace, monospace`); for an editorial register, display
-and body may be a serif (`"Fraunces"`, `"Bitter"`, `"Literata"`,
-Georgia fallback) while labels STAY mono.
+The house faces are **Source Sans 3** (display and body) and **Source
+Code Pro** (labels, data, code) — exactly the stacks shown in the four
+theme blocks. Use them verbatim in every deck you author; do not
+substitute another sans, and never set body text in a serif or a mono.
+The ONLY sanctioned departures, and only when the user explicitly asks
+for that register by name: all-mono technical (all three faces
+`"Google Sans Mono", "Noto Sans Mono", ui-monospace, monospace` —
+zicato's own presentation style) or serif editorial (display/body
+`"Fraunces"`, `"Bitter"`, or `"Literata"` with a Georgia fallback).
+Labels stay mono in every register, no exceptions.
 
 ## Text roles & layout containers
 
@@ -197,6 +258,33 @@ seeds drifting away — the escaping few are what the slide argues. Two
 small mono labels name the faint structure and the accented payload.
 Build every figure with that economy: faint structure, one accented
 meaning, labels, caption.
+
+Reference pieces in the same register — pick the metaphor that matches
+the slide's claim and build it the same way (all strokes
+`var(--dia-ink-faint)` ≈0.9–1.2 with opacity layered .4–.85, guides
+dashed `var(--dia-rule)`, ONE accented element):
+
+- **contour map** (where the difficulty concentrates): nested wobbly
+  closed curves like elevation lines, spacing tightening toward one
+  basin; only the innermost ring is accent; a leader tick names the
+  basin.
+- **constellation** (a few points matter among many): 20–30 faint dots
+  of varied radius/opacity scattered with intent; the accent is one
+  thin polyline joining the 4–5 that form the shape, each joined dot
+  slightly larger; the rest stay noise.
+- **sonar sweep** (search and the one hit): concentric dashed rings; a
+  faint wedge of past sweep (low-opacity fill); blips as faint dots
+  aging with opacity; ONE accent blip where the claim lands.
+- **braided river** (many paths, one arrives): several faint curves
+  branching and rejoining left to right; one continuous accent thread
+  runs the whole way; distributaries thin and fade before the edge.
+- **orbit and comet** (routine vs the exception): two or three faint
+  dashed ellipses sharing a focus; small faint bodies on them; one
+  accent comet on a hyperbolic path crossing the system, tail dotted
+  with fading opacity.
+
+These are metaphor seeds, not a fixed menu — draw the deck's OWN
+subject with the same economy whenever a truer image exists.
 
 - Always set a `viewBox`; size through the figure, not pixel
   width/height on the svg. Self-contained only: no external hrefs, no
