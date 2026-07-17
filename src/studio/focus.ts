@@ -192,7 +192,7 @@ export function openSlideFocus(slide: HTMLElement): void {
   const foot = h('footer', 'dia-st-foot')
   const zoomLabel = h('span', 'dia-st-zoom', '100%')
   foot.append(
-    h('span', 'dia-st-keys', 'wheel zoom · middle-drag pan · esc backs out'),
+    h('span', 'dia-st-keys', 'scroll pans · pinch or ctrl+scroll zooms · space-drag pans · esc backs out'),
     h('span', 'dia-st-spacer'), zoomLabel,
   )
   overlay.append(head, body, foot)
@@ -370,22 +370,44 @@ export function openSlideFocus(slide: HTMLElement): void {
   }
   applyView()
 
+  // trackpad-native: two-finger scroll PANS, pinch (ctrl+wheel) or
+  // ctrl/⌘+scroll ZOOMS — chords and middle buttons are unreliable
+  // across platforms, so neither is required for anything
   stageWrap.addEventListener('wheel', (e) => {
     e.preventDefault()
-    const next = Math.min(6, Math.max(0.15, view.zoom * Math.exp(-e.deltaY * 0.0015)))
-    const r = stageWrap.getBoundingClientRect()
-    const cx = e.clientX - r.left
-    const cy = e.clientY - r.top
-    view.x = cx - (cx - view.x) * (next / view.zoom)
-    view.y = cy - (cy - view.y) * (next / view.zoom)
-    view.zoom = next
+    if (e.ctrlKey || e.metaKey) {
+      const next = Math.min(6, Math.max(0.15, view.zoom * Math.exp(-e.deltaY * 0.0015)))
+      const r = stageWrap.getBoundingClientRect()
+      const cx = e.clientX - r.left
+      const cy = e.clientY - r.top
+      view.x = cx - (cx - view.x) * (next / view.zoom)
+      view.y = cy - (cy - view.y) * (next / view.zoom)
+      view.zoom = next
+    } else {
+      view.x -= e.deltaX
+      view.y -= e.deltaY
+    }
     applyView()
   }, { passive: false })
 
-  // middle-drag pans; plain drags stay with the slide's own editing
+  // space-drag pans (the design-tool standard); middle-drag still works
+  let spaceHeld = false
+  const onSpace = (e: KeyboardEvent): void => {
+    if (isTyping(e)) return
+    if (e.code !== 'Space') return
+    const t = e.composedPath()[0]
+    if (t instanceof HTMLButtonElement || t instanceof HTMLAnchorElement) return
+    spaceHeld = e.type === 'keydown'
+    stageWrap.classList.toggle('is-panning', spaceHeld)
+    if (e.type === 'keydown') e.preventDefault()
+  }
+  document.addEventListener('keydown', onSpace, true)
+  document.addEventListener('keyup', onSpace, true)
+
   stageWrap.addEventListener('pointerdown', (e) => {
-    if (e.button !== 1) return
+    if (e.button !== 1 && !(e.button === 0 && spaceHeld)) return
     e.preventDefault()
+    e.stopPropagation()
     const from = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y }
     const move = (ev: PointerEvent): void => {
       view.x = from.vx + (ev.clientX - from.x)
@@ -470,7 +492,11 @@ export function openSlideFocus(slide: HTMLElement): void {
   })
 
   f.offBus = offBus
-  f.offKey = () => document.removeEventListener('keydown', onKey, true)
+  f.offKey = () => {
+    document.removeEventListener('keydown', onKey, true)
+    document.removeEventListener('keydown', onSpace, true)
+    document.removeEventListener('keyup', onSpace, true)
+  }
   f.offPlace = () => {
     ro?.disconnect()
     window.removeEventListener('resize', place)

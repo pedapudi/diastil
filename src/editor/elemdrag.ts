@@ -125,12 +125,14 @@ function positionGrip(): void {
   if (sel.kind !== 'element' || !sel.el.isConnected) {
     g.style.display = 'none'
     if (sizeGrip) sizeGrip.style.display = 'none'
+    if (cropGrip) cropGrip.style.display = 'none'
     return
   }
   const r = sel.el.getBoundingClientRect()
   if (r.width === 0 && r.height === 0) {
     g.style.display = 'none'
     if (sizeGrip) sizeGrip.style.display = 'none'
+    if (cropGrip) cropGrip.style.display = 'none'
     return
   }
   g.style.display = 'flex'
@@ -144,6 +146,14 @@ function positionGrip(): void {
   } else {
     sg.style.display = 'none'
   }
+  const cg = ensureCropGrip(root)
+  if (resizable(sel.el) && croppable(sel.el)) {
+    cg.style.display = 'flex'
+    cg.style.left = `${Math.round(r.right - 9 - 27)}px`
+    cg.style.top = `${Math.round(r.bottom - 9)}px`
+  } else {
+    cg.style.display = 'none'
+  }
 }
 
 /* ---------- the resize grip + the mode chip ----------
@@ -154,7 +164,45 @@ function positionGrip(): void {
  *   drawings (svg)  — contents scale; ⌥ crops/extends the CANVAS instead */
 
 let sizeGrip: HTMLButtonElement | null = null
+let cropGrip: HTMLButtonElement | null = null
 let modeChip: HTMLDivElement | null = null
+
+/* Alt+drag belongs to the window manager on Linux and middle buttons to
+ * mice — chords are unreliable, so CROP gets its own grip. Modifiers
+ * remain as accelerators only: Ctrl OR Alt (or ⌘) during a ⤡ drag. */
+function gripStyle(cursor: string): string {
+  return 'position: fixed; z-index: 60; width: 22px; height: 22px; display: none;' +
+    'align-items: center; justify-content: center; padding: 0;' +
+    `font: 13px/1 ui-monospace, monospace; cursor: ${cursor};` +
+    'color: #fff; background: #ff9500; border: 1.5px solid rgba(0,0,0,.45);' +
+    'border-radius: 50%; box-shadow: 0 0 0 2px rgba(255,255,255,.85), 0 3px 10px rgba(0,0,0,.3);'
+}
+
+function ensureCropGrip(root: ShadowRoot): HTMLButtonElement {
+  if (cropGrip?.isConnected) return cropGrip
+  cropGrip = document.createElement('button')
+  cropGrip.type = 'button'
+  cropGrip.className = 'dia-editor-artifact dia-grab'
+  cropGrip.textContent = '⛶'
+  cropGrip.title = 'drag to CROP or extend — images crop their frame, drawings crop/extend their canvas (contents keep their size)'
+  cropGrip.style.cssText = gripStyle('nwse-resize')
+  cropGrip.style.background = '#1f7a4d'
+  cropGrip.addEventListener('pointerdown', (e) => {
+    const sel = state.selection
+    if (sel.kind !== 'element') return
+    e.preventDefault()
+    e.stopPropagation()
+    beginBoxResize(sel.el, e, true)
+  })
+  root.appendChild(cropGrip)
+  return cropGrip
+}
+
+/** crop mode applies to framed media: images, and drawings with a viewBox */
+function croppable(el: HTMLElement): boolean {
+  if (el instanceof HTMLImageElement) return true
+  return el instanceof SVGSVGElement && el.hasAttribute('viewBox')
+}
 
 function ensureSizeGrip(root: ShadowRoot): HTMLButtonElement {
   if (sizeGrip?.isConnected) return sizeGrip
@@ -162,13 +210,8 @@ function ensureSizeGrip(root: ShadowRoot): HTMLButtonElement {
   sizeGrip.type = 'button'
   sizeGrip.className = 'dia-editor-artifact dia-grab'
   sizeGrip.textContent = '⤡'
-  sizeGrip.title = 'drag to resize — text reflows, images and drawings scale; hold Alt to crop/extend the frame or canvas instead'
-  sizeGrip.style.cssText =
-    'position: fixed; z-index: 60; width: 22px; height: 22px; display: none;' +
-    'align-items: center; justify-content: center; padding: 0;' +
-    'font: 13px/1 ui-monospace, monospace; cursor: nwse-resize;' +
-    'color: #fff; background: #ff9500; border: 1.5px solid rgba(0,0,0,.45);' +
-    'border-radius: 50%; box-shadow: 0 0 0 2px rgba(255,255,255,.85), 0 3px 10px rgba(0,0,0,.3);'
+  sizeGrip.title = 'drag to resize — text reflows, images and drawings scale (Ctrl or Alt while dragging: crop instead)'
+  sizeGrip.style.cssText = gripStyle('nwse-resize')
   sizeGrip.addEventListener('pointerdown', (e) => {
     const sel = state.selection
     if (sel.kind !== 'element') return
@@ -209,7 +252,7 @@ function resizable(el: HTMLElement): boolean {
   return !el.classList.contains('dia-scene-full') && !el.matches('section.dia-slide')
 }
 
-function beginBoxResize(el: HTMLElement, e: PointerEvent): void {
+function beginBoxResize(el: HTMLElement, e: PointerEvent, forceCrop = false): void {
   const svg = el instanceof SVGSVGElement ? el as SVGSVGElement : null
   const isImg = el instanceof HTMLImageElement
   const r0 = el.getBoundingClientRect()
@@ -234,8 +277,9 @@ function beginBoxResize(el: HTMLElement, e: PointerEvent): void {
     const dy = ev.clientY - c0.y
     const w = Math.max(40, r0.width + dx)
     const h = Math.max(24, r0.height + dy)
+    const crop = forceCrop || ev.altKey || ev.ctrlKey || ev.metaKey
     if (svg) {
-      if (ev.altKey && vb) {
+      if (crop && vb) {
         el.style.width = `${Math.round(w)}px`
         el.style.height = `${Math.round(h)}px`
         svg.setAttribute('viewBox',
@@ -245,10 +289,10 @@ function beginBoxResize(el: HTMLElement, e: PointerEvent): void {
         if (prev.viewBox) svg.setAttribute('viewBox', prev.viewBox)
         el.style.width = `${Math.round(w)}px`
         el.style.height = prev.height || ''
-        showChip('resize drawing — contents scale (Alt: crop/extend the canvas)', ev)
+        showChip('resize drawing — contents scale (⛶ grip or Ctrl/Alt: canvas crop)', ev)
       }
     } else if (isImg) {
-      if (ev.altKey) {
+      if (crop) {
         el.style.objectFit = 'cover'
         el.style.width = `${Math.round(w)}px`
         el.style.height = `${Math.round(h)}px`
@@ -262,7 +306,7 @@ function beginBoxResize(el: HTMLElement, e: PointerEvent): void {
         el.style.objectFit = prev.objectFit
         el.style.width = `${Math.round(w)}px`
         el.style.height = 'auto'
-        showChip('resize image — scales, aspect held (Alt: crop the frame)', ev)
+        showChip('resize image — scales, aspect held (⛶ grip or Ctrl/Alt: crop)', ev)
       }
     } else {
       el.style.width = `${Math.round(w)}px`

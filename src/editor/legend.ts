@@ -33,7 +33,7 @@ const SECTIONS: Array<[string, Array<[string, string]>]> = [
     ['drag', 'move a text block, figure, image, or island'],
     ['⇧-drag on a drawing', 'move the FIGURE the svg lives in (a plain drag edits inside it)'],
     ['drag the ⤡ grip', 'resize the selection — text reflows, images/drawings scale'],
-    [`${IS_MAC ? '⌥' : 'Alt'} + ⤡ drag`, 'crop instead: images crop their frame, drawings crop/extend the canvas'],
+    ['drag the ⛶ grip', 'crop instead: images crop their frame, drawings crop/extend the canvas (Ctrl/Alt + ⤡ does the same)'],
     ['⇧ + ⤡ drag', 'also set the height (text boxes) · stretch (images)'],
     ['Delete / Backspace', 'delete the selected element'],
   ]],
