@@ -7,8 +7,9 @@
  * free elements drag there), so svgs are left alone here. Every gesture
  * commits as ONE op via restore-then-apply, so undo returns exactly. */
 
+import type { Op } from '../types'
 import { state } from '../state'
-import { setStyleProp, batch } from '../model/ops'
+import { setAttr, setStyleProp, batch } from '../model/ops'
 import { isEditingText } from './textedit'
 
 const DRAG_MIN = 3
@@ -123,16 +124,192 @@ function positionGrip(): void {
   const sel = state.selection
   if (sel.kind !== 'element' || !sel.el.isConnected) {
     g.style.display = 'none'
+    if (sizeGrip) sizeGrip.style.display = 'none'
     return
   }
   const r = sel.el.getBoundingClientRect()
   if (r.width === 0 && r.height === 0) {
     g.style.display = 'none'
+    if (sizeGrip) sizeGrip.style.display = 'none'
     return
   }
   g.style.display = 'flex'
   g.style.left = `${Math.round(r.left + r.width / 2 - 11)}px`
   g.style.top = `${Math.round(Math.max(2, r.top - 26))}px`
+  const sg = ensureSizeGrip(root)
+  if (resizable(sel.el)) {
+    sg.style.display = 'flex'
+    sg.style.left = `${Math.round(r.right - 9)}px`
+    sg.style.top = `${Math.round(r.bottom - 9)}px`
+  } else {
+    sg.style.display = 'none'
+  }
+}
+
+/* ---------- the resize grip + the mode chip ----------
+ * One ⤡ grip at the selection's bottom-right resizes ANY element, with
+ * the semantics said OUT LOUD in a chip while dragging:
+ *   text/containers — the box resizes, text reflows (⇧ also sets height)
+ *   images          — scales aspect-held; ⇧ stretches; ⌥ CROPS the frame
+ *   drawings (svg)  — contents scale; ⌥ crops/extends the CANVAS instead */
+
+let sizeGrip: HTMLButtonElement | null = null
+let modeChip: HTMLDivElement | null = null
+
+function ensureSizeGrip(root: ShadowRoot): HTMLButtonElement {
+  if (sizeGrip?.isConnected) return sizeGrip
+  sizeGrip = document.createElement('button')
+  sizeGrip.type = 'button'
+  sizeGrip.className = 'dia-editor-artifact dia-grab'
+  sizeGrip.textContent = '⤡'
+  sizeGrip.title = 'drag to resize — text reflows, images and drawings scale; hold Alt to crop/extend the frame or canvas instead'
+  sizeGrip.style.cssText =
+    'position: fixed; z-index: 60; width: 22px; height: 22px; display: none;' +
+    'align-items: center; justify-content: center; padding: 0;' +
+    'font: 13px/1 ui-monospace, monospace; cursor: nwse-resize;' +
+    'color: #fff; background: #ff9500; border: 1.5px solid rgba(0,0,0,.45);' +
+    'border-radius: 50%; box-shadow: 0 0 0 2px rgba(255,255,255,.85), 0 3px 10px rgba(0,0,0,.3);'
+  sizeGrip.addEventListener('pointerdown', (e) => {
+    const sel = state.selection
+    if (sel.kind !== 'element') return
+    e.preventDefault()
+    e.stopPropagation()
+    beginBoxResize(sel.el, e)
+  })
+  root.appendChild(sizeGrip)
+  return sizeGrip
+}
+
+function showChip(text: string, ev: PointerEvent): void {
+  const root = state.deck?.root
+  if (!root) return
+  if (!modeChip?.isConnected) {
+    modeChip = document.createElement('div')
+    modeChip.className = 'dia-editor-artifact dia-mode-chip'
+    modeChip.style.cssText =
+      'position: fixed; z-index: 62; pointer-events: none;' +
+      'font: 10.5px/1.7 ui-monospace, monospace; letter-spacing: .02em;' +
+      'padding: 1px 9px; border-radius: 999px; white-space: nowrap;' +
+      'color: #fff; background: #1f2937; border: 1px solid rgba(255,255,255,.5);' +
+      'box-shadow: 0 0 0 1.5px rgba(0,0,0,.35), 0 3px 10px rgba(0,0,0,.3);'
+    root.appendChild(modeChip)
+  }
+  modeChip.textContent = text
+  modeChip.style.left = `${ev.clientX + 16}px`
+  modeChip.style.top = `${ev.clientY + 18}px`
+  modeChip.style.display = 'block'
+}
+
+function hideChip(): void {
+  if (modeChip) modeChip.style.display = 'none'
+}
+
+/** the slide itself and the full-slide drawing layer never box-resize */
+function resizable(el: HTMLElement): boolean {
+  return !el.classList.contains('dia-scene-full') && !el.matches('section.dia-slide')
+}
+
+function beginBoxResize(el: HTMLElement, e: PointerEvent): void {
+  const svg = el instanceof SVGSVGElement ? el as SVGSVGElement : null
+  const isImg = el instanceof HTMLImageElement
+  const r0 = el.getBoundingClientRect()
+  const c0 = { x: e.clientX, y: e.clientY }
+  const prev = {
+    width: el.style.width, height: el.style.height,
+    objectFit: el.style.objectFit ?? '',
+    viewBox: svg?.getAttribute('viewBox') ?? null,
+  }
+  // canvas mode needs the px→unit factor from the START of the gesture
+  let vb: { x: number; y: number; w: number; h: number } | null = null
+  if (prev.viewBox) {
+    const n = prev.viewBox.trim().split(/[\s,]+/).map(Number)
+    if (n.length === 4 && n.every(Number.isFinite) && n[2] > 0 && n[3] > 0)
+      vb = { x: n[0], y: n[1], w: n[2], h: n[3] }
+  }
+  const unit = vb ? r0.width / vb.w : 1
+  let moved = false
+
+  const apply = (ev: PointerEvent): void => {
+    const dx = ev.clientX - c0.x
+    const dy = ev.clientY - c0.y
+    const w = Math.max(40, r0.width + dx)
+    const h = Math.max(24, r0.height + dy)
+    if (svg) {
+      if (ev.altKey && vb) {
+        el.style.width = `${Math.round(w)}px`
+        el.style.height = `${Math.round(h)}px`
+        svg.setAttribute('viewBox',
+          `${vb.x} ${vb.y} ${Math.max(20, Math.round(vb.w + dx / unit))} ${Math.max(20, Math.round(vb.h + dy / unit))}`)
+        showChip(dx < 0 || dy < 0 ? 'canvas — cropping · contents keep their size' : 'canvas — extending · contents keep their size', ev)
+      } else {
+        if (prev.viewBox) svg.setAttribute('viewBox', prev.viewBox)
+        el.style.width = `${Math.round(w)}px`
+        el.style.height = prev.height || ''
+        showChip('resize drawing — contents scale (Alt: crop/extend the canvas)', ev)
+      }
+    } else if (isImg) {
+      if (ev.altKey) {
+        el.style.objectFit = 'cover'
+        el.style.width = `${Math.round(w)}px`
+        el.style.height = `${Math.round(h)}px`
+        showChip('crop frame — the image crops, never squashes', ev)
+      } else if (ev.shiftKey) {
+        el.style.objectFit = prev.objectFit
+        el.style.width = `${Math.round(w)}px`
+        el.style.height = `${Math.round(h)}px`
+        showChip('stretch — aspect unlocked', ev)
+      } else {
+        el.style.objectFit = prev.objectFit
+        el.style.width = `${Math.round(w)}px`
+        el.style.height = 'auto'
+        showChip('resize image — scales, aspect held (Alt: crop the frame)', ev)
+      }
+    } else {
+      el.style.width = `${Math.round(w)}px`
+      if (ev.shiftKey) el.style.height = `${Math.round(h)}px`
+      else el.style.height = prev.height || ''
+      showChip(ev.shiftKey ? 'resize box — text reflows · height set too' : 'resize box — text reflows (⇧ sets height)', ev)
+    }
+    positionGrip()
+  }
+
+  const restore = (): void => {
+    el.style.width = prev.width
+    el.style.height = prev.height
+    el.style.objectFit = prev.objectFit
+    if (svg && prev.viewBox !== null) svg.setAttribute('viewBox', prev.viewBox)
+  }
+
+  session(
+    (ev) => {
+      if (!moved && Math.hypot(ev.clientX - c0.x, ev.clientY - c0.y) < DRAG_MIN) return
+      moved = true
+      document.body.style.cursor = 'nwse-resize'
+      apply(ev)
+      ev.preventDefault()
+    },
+    () => {
+      document.body.style.cursor = ''
+      hideChip()
+      if (!moved) return
+      const final = {
+        width: el.style.width, height: el.style.height,
+        objectFit: el.style.objectFit ?? '',
+        viewBox: svg?.getAttribute('viewBox') ?? null,
+      }
+      restore()
+      const ops: Op[] = []
+      if (final.width !== prev.width) ops.push(setStyleProp(el, 'width', final.width))
+      if (final.height !== prev.height) ops.push(setStyleProp(el, 'height', final.height))
+      if (final.objectFit !== prev.objectFit) ops.push(setStyleProp(el, 'object-fit', final.objectFit))
+      if (svg && final.viewBox !== null && final.viewBox !== prev.viewBox) ops.push(setAttr(svg, 'viewBox', final.viewBox))
+      if (ops.length === 0) return
+      const label = svg ? 'Resize drawing' : isImg ? 'Resize image' : 'Resize box'
+      state.apply(ops.length === 1 ? ops[0] : batch(label, ops))
+      positionGrip()
+    },
+    () => { restore(); document.body.style.cursor = ''; hideChip() },
+  )
 }
 
 function onPointerDown(e: PointerEvent): void {
@@ -152,7 +329,7 @@ function onPointerDown(e: PointerEvent): void {
     const corner = r.right - e.clientX < CORNER_PX && r.bottom - e.clientY < CORNER_PX
     e.preventDefault()
     state.selection = { kind: 'element', el: target, slide }
-    if (corner) beginResize(target, e, r)
+    if (corner) beginBoxResize(target, e)
     else beginMove(target, e, { immediate: true })
     return
   }
@@ -214,37 +391,6 @@ function beginMove(el: HTMLElement, e: PointerEvent, opts: { immediate: boolean 
   )
 }
 
-function beginResize(img: HTMLImageElement, e: PointerEvent, r0: DOMRect): void {
-  const prevW = img.style.width
-  const prevH = img.style.height
-  const c0 = { x: e.clientX, y: e.clientY }
-  let moved = false
-
-  session(
-    (ev) => {
-      if (!moved && Math.hypot(ev.clientX - c0.x, ev.clientY - c0.y) < DRAG_MIN) return
-      moved = true
-      document.body.style.cursor = 'nwse-resize'
-      const w = Math.max(40, r0.width + (ev.clientX - c0.x))
-      img.style.width = `${Math.round(w)}px`
-      if (ev.shiftKey) img.style.height = `${Math.round(r0.height + (ev.clientY - c0.y))}px`
-      else img.style.height = 'auto' // keep the aspect
-    },
-    () => {
-      document.body.style.cursor = ''
-      if (!moved) return
-      const w = img.style.width
-      const h = img.style.height
-      img.style.width = prevW
-      img.style.height = prevH
-      state.apply(batch('Resize image', [
-        setStyleProp(img, 'width', w),
-        setStyleProp(img, 'height', h),
-      ]))
-    },
-    () => { img.style.width = prevW; img.style.height = prevH; document.body.style.cursor = '' },
-  )
-}
 
 function session(
   move: (e: PointerEvent) => void,
