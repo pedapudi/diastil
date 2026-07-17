@@ -444,8 +444,31 @@ async def write_file(req: FileWrite) -> dict[str, Any]:
 
 
 def mount_editor(dist: Path) -> None:
-    """Serve the built editor bundle at /editor (same origin as the API)."""
+    """Serve the built editor bundle at /editor (same origin as the API).
+
+    The index is served with a one-line marker injected so the client KNOWS
+    it is same-origin with the service. Topology is DECLARED by the server,
+    never guessed from port numbers — the client's old `port == 8317` check
+    (and a `port != 5199` denylist just as easily) is the bug class this
+    replaces: any non-default port, moved dev server, or third-party static
+    host breaks a port-based guess. See src/service/client.ts SERVICE_BASE.
+    """
+    from fastapi.responses import HTMLResponse
     from fastapi.staticfiles import StaticFiles
+
+    marker = "<script>window.__diaServiceSameOrigin = true</script>"
+    try:
+        index = (dist / "index.html").read_text(encoding="utf-8")
+        marked = index.replace("<head>", "<head>" + marker, 1) \
+            if "<head>" in index else marker + index
+    except OSError:
+        marked = None
+
+    if marked is not None:
+        @app.get("/editor/", include_in_schema=False)
+        @app.get("/editor/index.html", include_in_schema=False)
+        def _editor_index() -> HTMLResponse:
+            return HTMLResponse(marked)
 
     app.mount("/editor", StaticFiles(directory=dist, html=True), name="editor")
 

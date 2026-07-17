@@ -256,7 +256,10 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("validate", help="profile-validate saved decks").add_argument("paths", nargs="+")
     sv = sub.add_parser("serve", help="run the inference service (add --editor to also host the editor)")
     sv.add_argument("--port", type=int, default=None,
-                    help="port to bind (default 8317)")
+                    help="port to bind (default 8317). Non-default ports pair with "
+                         "--editor: the service-hosted editor uses same-origin calls, "
+                         "while the Vite dev editor and file:// standalone always "
+                         "target 127.0.0.1:8317")
     sv.add_argument("--editor", action="store_true",
                     help="also host the editor at /editor (opens on the built-in demo deck)")
     sv.add_argument("--no-open", action="store_true", help=no_open_help)
