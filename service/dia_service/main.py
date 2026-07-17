@@ -204,6 +204,19 @@ def _compose_message(req: ChatRequest) -> str:
                 lines.append(
                     f"- x={r.get('x')} y={r.get('y')} w={r.get('w')} h={r.get('h')}"
                 )
+    auto = ctx.get("autoHighlights") or []
+    if auto:
+        lines.append(
+            f"the tool MEASURED {len(auto)} region(s) where this slide's render still "
+            "mismatches its imported original (also drawn as orange boxes on the attached "
+            "render; fractions of the slide, origin top-left) — the highest-value repair "
+            "targets, exactly as if the user had shaded them:"
+        )
+        for r in auto:
+            if isinstance(r, dict):
+                lines.append(
+                    f"- x={r.get('x')} y={r.get('y')} w={r.get('w')} h={r.get('h')}"
+                )
     has_render = bool(ctx.get("slideImage"))
     has_original_render = bool(ctx.get("originalImage"))
     if has_render and has_original_render:

@@ -8,7 +8,7 @@ import type { ChatContext, Deck, ProposedOp, Selection } from '../types'
 import { state } from '../state'
 import { service } from '../service/client'
 import { batch } from '../model/ops'
-import { rasterizeToDataUrl } from '../ingest/fidelity'
+import { diffRegions, rasterizeToDataUrl } from '../ingest/fidelity'
 import { embeddedOriginals } from '../editor/compare'
 import { scrollToSlide } from '../editor/table'
 import {
@@ -29,6 +29,38 @@ const HEALTH_MIN_INTERVAL = 30_000
  * ELEMENT, so reordering slides keeps highlights with their slide. */
 
 const slideHighlights = new WeakMap<HTMLElement, HighlightRegion[]>()
+
+/** where the current slide still disagrees with its imported original —
+ * the regions a careful human would shade, measured instead. Both sides
+ * decode from the dataURLs already in hand; coordinates are fractions,
+ * the same convention as manual highlights. */
+async function autoMismatchRegions(renderUrl: string, originalUrl: string): Promise<HighlightRegion[]> {
+  const load = (src: string): Promise<HTMLImageElement | null> => new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => resolve(null)
+    img.src = src
+  })
+  const [cur, orig] = await Promise.all([load(renderUrl), load(originalUrl)])
+  if (!cur || !orig) return []
+  const w = Math.min(1280, cur.naturalWidth)
+  const h = Math.round(w * cur.naturalHeight / Math.max(1, cur.naturalWidth))
+  const pix = (img: HTMLImageElement): ImageData | null => {
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+    ctx.drawImage(img, 0, 0, w, h)
+    try { return ctx.getImageData(0, 0, w, h) } catch { return null }
+  }
+  const a = pix(orig)
+  const b = pix(cur)
+  if (!a || !b) return []
+  return diffRegions(a, b, 3)
+    .filter((r) => r.frac > 0.12) // only regions that genuinely disagree
+    .map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h }))
+}
 
 function currentSlideEl(): HTMLElement | null {
   return focusedSlide() ?? state.slides()[state.currentSlide] ?? null
@@ -462,8 +494,6 @@ export function mountCopilot(host: HTMLElement): void {
     if (current) {
       try {
         slideImage = await rasterizeToDataUrl(current)
-        // the model sees the user's shaded regions ON the render
-        if (slideImage && hl.length > 0) slideImage = await stampHighlights(slideImage, hl)
       } catch { /* text-only */ }
     }
     // the imported original of this slide, when the deck carries one —
@@ -471,6 +501,16 @@ export function mountCopilot(host: HTMLElement): void {
     let original: OriginalContext | null = null
     if (deck) {
       try { original = await originalFor(deck, state.currentSlide) } catch { /* without */ }
+    }
+    // auto-highlights: measured original↔render mismatch regions — what a
+    // careful human would shade by hand, computed by the tool
+    let autoHl: HighlightRegion[] = []
+    if (slideImage && original?.image) {
+      try { autoHl = await autoMismatchRegions(slideImage, original.image) } catch { /* without */ }
+    }
+    // the model sees BOTH kinds of shaded regions ON the render
+    if (slideImage && (hl.length > 0 || autoHl.length > 0)) {
+      try { slideImage = await stampHighlights(slideImage, [...hl, ...autoHl]) } catch { /* unstamped */ }
     }
     return {
       altitude: state.altitude,
@@ -484,6 +524,7 @@ export function mountCopilot(host: HTMLElement): void {
       originalHtml: original?.html ?? null,
       originalImage: original?.image ?? null,
       highlights: hl.length > 0 ? hl : undefined,
+      autoHighlights: autoHl.length > 0 ? autoHl : undefined,
     }
   }
 

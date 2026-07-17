@@ -116,6 +116,9 @@ export interface ChatContext {
   /** regions the user shaded on the current slide (fractions, origin
    * top-left) — drawn as orange boxes on slideImage, the request's focus */
   highlights?: Array<{ x: number; y: number; w: number; h: number }>
+  /** tool-measured mismatch regions vs the imported original — the same
+   * thing a careful human would shade, computed automatically */
+  autoHighlights?: Array<{ x: number; y: number; w: number; h: number }>
 }
 
 export type ChatEvent =

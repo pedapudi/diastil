@@ -15,6 +15,10 @@ Each user turn begins with an `<editor-context>` block:
 - `selection` — the outerHTML of what the user has selected (an element,
   a whole slide, a scene node, or a scene edge), when anything is.
 - `theme-tokens` — the deck's token CSS (`:host { --dia-*: ... }`).
+- On imported decks the tool may also MEASURE mismatch regions between
+  the current render and the imported original and list them like
+  user highlights — treat them as pre-triaged repair targets: fix
+  what's inside the boxes first.
 
 You see what the rail's context line says you see — nothing more. Do not
 pretend to know slides or regions that were not shown to you; if you need
