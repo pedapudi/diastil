@@ -1439,10 +1439,16 @@ class ReviewController {
     // fix to make — style changes for appearance, movement for displacement
     const comp = this.slideDiffs[i]?.score.components
     if (comp) {
+      const ic = comp.inkColor ?? 1
+      const st = comp.structure ?? 1
       lines.push(
-        `axis scores — displacement ${comp.displacement.toFixed(2)}, layout ${comp.layout.toFixed(2)}, appearance ${comp.appearance.toFixed(2)}.`)
-      const worst = Math.min(comp.displacement, comp.layout, comp.appearance)
-      if (worst === comp.appearance && comp.displacement >= worst + 0.15 && comp.layout >= worst + 0.15) {
+        `axis scores — displacement ${comp.displacement.toFixed(2)}, layout ${comp.layout.toFixed(2)}, appearance ${comp.appearance.toFixed(2)}, ink-color ${ic.toFixed(2)}, structure ${st.toFixed(2)}.`)
+      const worst = Math.min(comp.displacement, comp.layout, comp.appearance, ic, st)
+      if (worst === ic && comp.displacement >= worst + 0.15 && comp.layout >= worst + 0.15) {
+        lines.push('this is primarily an INK-COLOR problem: the text/stroke colors or the typeface weight differ from the source — recolor and re-face, do NOT move or rewrite content.')
+      } else if (worst === st && comp.displacement >= worst + 0.15) {
+        lines.push('this is primarily a STRUCTURE problem: the source frames content with borders, cards, rules, or table lines that the conversion dropped — restore the framing, keep the wording.')
+      } else if (worst === comp.appearance && comp.displacement >= worst + 0.15 && comp.layout >= worst + 0.15) {
         lines.push('this is primarily an APPEARANCE problem: fix colors, typography, and surfaces — do NOT move or rewrite content.')
       } else if (worst === comp.displacement && comp.appearance >= worst + 0.15) {
         lines.push('this is primarily a PLACEMENT problem: move content to the source positions (margins, anchoring, columns) — keep its styling and wording.')

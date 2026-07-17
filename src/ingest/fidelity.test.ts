@@ -286,3 +286,75 @@ describe('negative space cannot be gamed by dropping content', () => {
     expect(diffBitmaps(orig, same).score).toBeGreaterThanOrEqual(0.98)
   })
 })
+
+describe('ink-color axis: recolored text is priced even at sliver mass', () => {
+  function textRows(img: ImageData, rgb: [number, number, number]): void {
+    // thin 2px "text lines" — a sliver of total area, like real glyphs
+    for (const y0 of [20, 40, 60, 80]) {
+      for (let y = y0; y < y0 + 2; y++) {
+        for (let x = 10; x < 150; x += 3) { // broken runs — not a frame
+          const i = (y * img.width + x) * 4
+          img.data[i] = rgb[0]; img.data[i + 1] = rgb[1]; img.data[i + 2] = rgb[2]; img.data[i + 3] = 255
+        }
+      }
+    }
+  }
+  it('same-position black vs red text: inkColor falls, displacement stays high', () => {
+    const a = bitmap(160, 100, [255, 255, 255, 255])
+    const b = bitmap(160, 100, [255, 255, 255, 255])
+    const c = bitmap(160, 100, [255, 255, 255, 255])
+    textRows(a, [0, 0, 0])
+    textRows(b, [0, 0, 0])
+    textRows(c, [200, 30, 30])
+    const same = diffBitmaps(a, b)
+    const recolored = diffBitmaps(a, c)
+    expect(recolored.components!.displacement).toBeGreaterThan(0.95) // geometry identical
+    expect(recolored.components!.inkColor).toBeLessThanOrEqual(0.5)
+    expect(recolored.score).toBeLessThan(same.score - 0.05)
+  })
+})
+
+describe('structure axis: dropped card frames are priced', () => {
+  function frame(img: ImageData, x0: number, y0: number, w: number, h: number): void {
+    for (let x = x0; x < x0 + w; x++) {
+      for (const y of [y0, y0 + h - 1]) {
+        const i = (y * img.width + x) * 4
+        img.data[i] = 60; img.data[i + 1] = 60; img.data[i + 2] = 60; img.data[i + 3] = 255
+      }
+    }
+    for (let y = y0; y < y0 + h; y++) {
+      for (const x of [x0, x0 + w - 1]) {
+        const i = (y * img.width + x) * 4
+        img.data[i] = 60; img.data[i + 1] = 60; img.data[i + 2] = 60; img.data[i + 3] = 255
+      }
+    }
+  }
+  function fill(img: ImageData, x0: number, y0: number, w: number, h: number): void {
+    for (let y = y0; y < y0 + h; y++) {
+      for (let x = x0; x < x0 + w; x++) {
+        const i = (y * img.width + x) * 4
+        img.data[i] = 30; img.data[i + 1] = 30; img.data[i + 2] = 30; img.data[i + 3] = 255
+      }
+    }
+  }
+  it('missing border around identical content drops the structure axis', () => {
+    const a = bitmap(200, 120, [255, 255, 255, 255])
+    const b = bitmap(200, 120, [255, 255, 255, 255])
+    fill(a, 60, 40, 80, 40) // the "content" both sides share
+    fill(b, 60, 40, 80, 40)
+    frame(a, 40, 20, 120, 80) // the card outline only the source has
+    const r = diffBitmaps(a, b)
+    expect(r.components!.structure).toBeLessThan(0.3)
+    const both = bitmap(200, 120, [255, 255, 255, 255])
+    fill(both, 60, 40, 80, 40)
+    frame(both, 40, 20, 120, 80)
+    expect(diffBitmaps(a, both).components!.structure).toBeGreaterThan(0.9)
+  })
+  it('frameless pairs owe nothing to the axis', () => {
+    const a = bitmap(200, 120, [255, 255, 255, 255])
+    const b = bitmap(200, 120, [255, 255, 255, 255])
+    fill(a, 60, 40, 80, 40)
+    fill(b, 60, 40, 80, 40)
+    expect(diffBitmaps(a, b).components!.structure).toBe(1)
+  })
+})

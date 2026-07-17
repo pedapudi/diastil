@@ -247,6 +247,16 @@ export interface ScoreComponents {
   displacement: number
   layout: number
   appearance: number
+  /** color of the INK itself, unblurred and stroke-aware: thin ink (text,
+   * hairlines) gets its own histogram so recoloring a paragraph or swapping
+   * a face's weight is priced even though glyphs are a sliver of ink mass —
+   * the blur-based appearance term washes thin strokes into the ground */
+  inkColor: number
+  /** thin linework that FRAMES content — card borders, rules, underlines,
+   * table lines: long straight runs of thin ink, chamfer-compared. A
+   * dropped card outline is a few hundred pixels and nearly free to every
+   * mass-weighted term; this axis prices the missing FRAME itself */
+  structure: number
   /** fraction of the original's ink CELLS that the candidate still covers —
    * the anti-gaming axis: every term above is ink-mass-weighted, which
    * makes SMALL elements (a footer, a caption) nearly free to drop; cell
@@ -268,15 +278,20 @@ function visualScore(a: ImageData, b: ImageData): { score: number; components: S
   if (nA === 0 && nB === 0) return { score: 1, components: null } // two blank slides agree
   if (nA === 0 || nB === 0) return { score: 0, components: null } // content invented or destroyed
   const r3 = (n: number): number => Math.round(Math.max(0, Math.min(1, n)) * 1000) / 1000
+  const thinA = thinInkMask(maskA, w, h)
+  const thinB = thinInkMask(maskB, w, h)
   const components: ScoreComponents = {
     displacement: r3(chamferSim(maskA, maskB, w, h)),
     layout: r3(layoutSim(maskA, maskB, w, h)),
     appearance: r3(appearanceSim(a, b, maskA, maskB, w, h)),
+    inkColor: r3(inkColorSim(a, b, maskA, maskB, thinA, thinB, w, h)),
+    structure: r3(structureSim(maskA, thinA, maskB, thinB, w, h)),
     completeness: r3(cellCompleteness(maskA, maskB, w, h)),
   }
   // completeness MULTIPLIES (exponent > 1 for teeth): dropping content can
   // never be traded against improving what remains
-  const base = 0.35 * components.displacement + 0.3 * components.layout + 0.35 * components.appearance
+  const base = 0.28 * components.displacement + 0.24 * components.layout +
+    0.24 * components.appearance + 0.14 * components.inkColor + 0.10 * components.structure
   const score = base * Math.pow(components.completeness, 1.5)
   return { score: r3(score), components }
 }
@@ -294,6 +309,153 @@ function inkMask(img: ImageData, w: number, h: number, bg: [number, number, numb
     }
   }
   return mask
+}
+
+/* ---------- ink color & thin structure (the axes mass-weighting hides) --
+
+   Thin ink = strokes whose half-width is ≤ ~2.5px: text glyphs, hairline
+   borders, rules. Splitting it out matters twice — recolored TEXT is a
+   sliver of total ink mass (the appearance blur washes it into the
+   ground), and a dropped CARD BORDER is a few hundred pixels that every
+   mass-weighted axis rounds away. */
+
+const THIN_HALF_WIDTH = 2.5
+const RUN_MIN_FRAC = 0.03 // a "frame" run is ≥3% of the raster's width/height
+
+/** ink pixels whose distance to the nearest background pixel is small —
+ * i.e. thin strokes (the DT of the INVERTED mask is stroke half-width) */
+function thinInkMask(mask: Uint8Array, w: number, h: number): Uint8Array {
+  const inv = new Uint8Array(w * h)
+  for (let i = 0; i < w * h; i++) inv[i] = mask[i] ? 0 : 1
+  const depth = distanceTransform(inv, w, h)
+  const thin = new Uint8Array(w * h)
+  for (let i = 0; i < w * h; i++) if (mask[i] && depth[i] <= THIN_HALF_WIDTH) thin[i] = 1
+  return thin
+}
+
+/** 64-bin RGB histogram (4 levels per channel) over a mask, normalized */
+function colorHist(img: ImageData, mask: Uint8Array, w: number, h: number): Float32Array | null {
+  const hist = new Float32Array(64)
+  let n = 0
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x
+      if (!mask[i]) continue
+      const j = (y * img.width + x) * 4
+      hist[(img.data[j] >> 6) * 16 + (img.data[j + 1] >> 6) * 4 + (img.data[j + 2] >> 6)]++
+      n++
+    }
+  }
+  if (n === 0) return null
+  for (let k = 0; k < 64; k++) hist[k] /= n
+  return hist
+}
+
+function histIntersection(p: Float32Array | null, q: Float32Array | null): number {
+  if (!p && !q) return 1 // neither side has this kind of ink — agreement
+  if (!p || !q) return 0
+  let sum = 0
+  for (let k = 0; k < 64; k++) sum += Math.min(p[k], q[k])
+  return sum
+}
+
+/** are the INKS the same colors, in the same proportions? Histograms are
+ * displacement-invariant (chamfer owns position); thin ink is compared
+ * separately so text color counts at full weight. A stroke-width term
+ * proxies typeface weight (a bold or serif swap shifts the median). */
+function inkColorSim(
+  a: ImageData, b: ImageData, maskA: Uint8Array, maskB: Uint8Array,
+  thinA: Uint8Array, thinB: Uint8Array, w: number, h: number,
+): number {
+  const thickA = new Uint8Array(w * h)
+  const thickB = new Uint8Array(w * h)
+  for (let i = 0; i < w * h; i++) {
+    thickA[i] = maskA[i] && !thinA[i] ? 1 : 0
+    thickB[i] = maskB[i] && !thinB[i] ? 1 : 0
+  }
+  const thin = histIntersection(colorHist(a, thinA, w, h), colorHist(b, thinB, w, h))
+  const thick = histIntersection(colorHist(a, thickA, w, h), colorHist(b, thickB, w, h))
+  return 0.5 * thin + 0.3 * thick + 0.2 * strokeWidthSim(maskA, maskB, thinA, thinB, w, h)
+}
+
+/** typeface-weight proxy: ratio of the two sides' mean thin-stroke
+ * half-widths (bold↔regular or serif↔sans moves it; identical faces ≈ 1) */
+function strokeWidthSim(
+  maskA: Uint8Array, maskB: Uint8Array, thinA: Uint8Array, thinB: Uint8Array, w: number, h: number,
+): number {
+  const mean = (mask: Uint8Array, thin: Uint8Array): number => {
+    const inv = new Uint8Array(w * h)
+    for (let i = 0; i < w * h; i++) inv[i] = mask[i] ? 0 : 1
+    const depth = distanceTransform(inv, w, h)
+    let sum = 0
+    let n = 0
+    for (let i = 0; i < w * h; i++) if (thin[i]) { sum += depth[i]; n++ }
+    return n ? sum / n : 0
+  }
+  const ma = mean(maskA, thinA)
+  const mb = mean(maskB, thinB)
+  if (ma === 0 && mb === 0) return 1
+  if (ma === 0 || mb === 0) return 0
+  return Math.min(ma, mb) / Math.max(ma, mb)
+}
+
+/** long straight runs of thin ink — the FRAMES: card borders, rules,
+ * underlines, table lines. Text glyphs never sustain a straight thin run
+ * this long; boxes and dividers are nothing but them. */
+function structureMask(thin: Uint8Array, w: number, h: number): { mask: Uint8Array; count: number } {
+  const out = new Uint8Array(w * h)
+  let count = 0
+  const runH = Math.max(12, Math.round(w * RUN_MIN_FRAC))
+  const runV = Math.max(12, Math.round(h * RUN_MIN_FRAC))
+  for (let y = 0; y < h; y++) {
+    let start = -1
+    for (let x = 0; x <= w; x++) {
+      const on = x < w && thin[y * w + x]
+      if (on && start < 0) start = x
+      if (!on && start >= 0) {
+        if (x - start >= runH) for (let k = start; k < x; k++) { out[y * w + k] = 1; count++ }
+        start = -1
+      }
+    }
+  }
+  for (let x = 0; x < w; x++) {
+    let start = -1
+    for (let y = 0; y <= h; y++) {
+      const on = y < h && thin[y * w + x]
+      if (on && start < 0) start = y
+      if (!on && start >= 0) {
+        if (y - start >= runV) for (let k = start; k < y; k++) { if (!out[k * w + x]) { out[k * w + x] = 1; count++ } }
+        start = -1
+      }
+    }
+  }
+  return { mask: out, count }
+}
+
+/** a FRAME stroke stands apart from filled ink — a filled shape's own
+ * 2px rim is thin by depth but hugs its thick interior, and must not
+ * masquerade as a border. Keep only thin ink ≥3px from any thick ink. */
+function frameCandidates(mask: Uint8Array, thin: Uint8Array, w: number, h: number): Uint8Array {
+  const thick = new Uint8Array(w * h)
+  let anyThick = 0
+  for (let i = 0; i < w * h; i++) { thick[i] = mask[i] && !thin[i] ? 1 : 0; anyThick += thick[i] }
+  if (!anyThick) return thin
+  const dt = distanceTransform(thick, w, h)
+  const out = new Uint8Array(w * h)
+  for (let i = 0; i < w * h; i++) if (thin[i] && dt[i] > 3) out[i] = 1
+  return out
+}
+
+/** chamfer similarity of the two structure masks; a source without frames
+ * asks nothing of the candidate */
+function structureSim(
+  maskA: Uint8Array, thinA: Uint8Array, maskB: Uint8Array, thinB: Uint8Array, w: number, h: number,
+): number {
+  const sa = structureMask(frameCandidates(maskA, thinA, w, h), w, h)
+  const sb = structureMask(frameCandidates(maskB, thinB, w, h), w, h)
+  if (sa.count === 0 && sb.count === 0) return 1
+  if (sa.count === 0 || sb.count === 0) return 0
+  return chamferSim(sa.mask, sb.mask, w, h)
 }
 
 /** symmetric truncated chamfer similarity: mean distance from each ink

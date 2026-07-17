@@ -36,9 +36,9 @@ export interface CorpusFixture {
    * and metric changes are judged by diffing these across re-captures, and
    * corpus.test.ts holds them above explicit floors */
   fidelity: Array<number | null>
-  /** the named axes behind each score (displacement · layout · appearance ·
+  /** the named axes behind each score (displacement · layout · appearance · ink-color · structure ·
    * completeness) — which axis a conversion change moved is the diff */
-  fidelityComponents: Array<{ displacement: number; layout: number; appearance: number; completeness: number } | null>
+  fidelityComponents: Array<{ displacement: number; layout: number; appearance: number; inkColor?: number; structure?: number; completeness: number } | null>
   /** the assembled dialect document — must stay profile-valid forever */
   deckHtml: string
 }

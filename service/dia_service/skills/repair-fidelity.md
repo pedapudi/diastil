@@ -27,12 +27,19 @@ You receive:
 ## Diagnose FIRST, then fix
 
 The mismatch names its axes (displacement · layout · appearance ·
-completeness) and often the exact discrepancies ("title: 64px vs 39px").
-Before writing any HTML, decide per axis what differs:
+ink-color · structure · completeness) and often the exact discrepancies
+("title: 64px vs 39px"). Before writing any HTML, decide per axis what
+differs:
 
 - **placement** off → move content (margins, anchoring, columns) —
   do not restyle or rewrite it
 - **appearance** off → fix colors/typography/surfaces — do not move it
+- **ink-color** off → the TEXT and stroke colors (or the face weight)
+  differ from the source even if the layout matches — recolor the
+  type, match the weight; never move or rewrite to fix this axis
+- **structure** off → the source FRAMES content (cards, borders,
+  rules, underlines, table lines) that the conversion dropped —
+  restore the framing elements; the words are already right
 - **composition** off → restructure which areas hold content
 - **completeness** off, or "MISSING from the candidate" lines →
   RESTORE the missing content — never delete content to reduce the
