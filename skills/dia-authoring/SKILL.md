@@ -284,7 +284,36 @@ dashed `var(--dia-rule)`, ONE accented element):
   with fading opacity.
 
 These are metaphor seeds, not a fixed menu — draw the deck's OWN
-subject with the same economy whenever a truer image exists.
+subject with the same economy whenever a truer image exists. Full-color
+pictorial pieces (a snowy summit with its route, a luminous pool) carry
+the same discipline: the palette is licensed, but one element still
+carries the argument and words inside stay in tokens.
+
+### Iterate the imagery — 3–4 passes, not one
+
+Figures are drafted, then improved. Plan on three to four passes over
+the WHOLE deck before calling it done:
+
+1. **theme pass** — read the finished prose top to bottom; write down
+   the deck's recurring themes and the one metaphor family that could
+   run through it (a route up a mountain, a river system, a survey of
+   a sky). Note, per slide, the single claim worth drawing.
+2. **analogy pass** — assign each content slide a pictorial analogy:
+   the deck's own subject first, a reference piece only as fallback.
+   If two slides share a metaphor, one of them needs a truer image.
+3. **draw pass** — build every figure to the register: faint
+   structure, dashed guides, one accented element, cartographer
+   labels, a takeaway caption.
+4. **improve pass** — render or preview each slide and upgrade what
+   you see: sharpen generic metaphors into subject-drawn ones, delete
+   marks that don't earn their place, confirm the accent is spent
+   exactly once, fix label collisions, and promote the deck's
+   strongest figure to the cover. Repeat this pass until it produces
+   no changes — usually once or twice more.
+
+A recurring metaphor family is the deck's visual identity: let it
+progress across slides (the route gains camps, the river gains
+tributaries) instead of resetting on every slide.
 
 - Always set a `viewBox`; size through the figure, not pixel
   width/height on the svg. Self-contained only: no external hrefs, no

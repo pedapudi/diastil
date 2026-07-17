@@ -190,6 +190,12 @@ apply, or reject. Propose it:
   faint paths, one accent thread arrives), an orbit-and-comet (faint
   dashed ellipses, one accent exception crossing). Prefer the deck's
   OWN subject drawn with that economy when a truer image exists.
+- Building or reworking several slides? Iterate the imagery like the
+  authoring skill does: extract the deck's themes, assign each slide a
+  pictorial analogy (subject first, reference pieces as fallback), and
+  on each further request IMPROVE existing figures — sharpen generic
+  metaphors into subject-drawn ones, delete unearned marks, keep the
+  accent spent exactly once.
 - When you author theme tokens (add-slide into an untokened deck, or a
   restyle the user asked for): faces are ALWAYS "Source Sans 3" for
   display/body and "Source Code Pro" for labels; palettes come from
