@@ -212,6 +212,13 @@ detection ladder, richest form wins:
 Import applies the same ladder automatically: uniform css-drawn bullets
 collapse to the glyph token; icon/variant markers become slots.
 
+### Tables
+
+Native `<table>` with the theme conventions: mono uppercase `th` over
+an ink rule, hairline row rules, and `class="num"` on numeric columns
+(right-aligned, `tabular-nums`, label face). The scaffold theme carries
+the rules; keep numbers in `.num` cells so they align.
+
 ## Math
 
 Formulas are native MathML with the LaTeX source preserved on the
@@ -269,6 +276,19 @@ whole deck's imagery 3–4 passes, never one draft.
 - `data-dia-step="1"` — build order (positive integers); the runtime
   reveals stepped elements in order in present mode (a gentle fade-rise,
   motion gated behind `prefers-reduced-motion`).
+- `data-dia-step-until="N"` — the element EXITS when step N arrives
+  (build-and-replace sequences).
+- `data-dia-spotlight` on a container — already-shown steps recede to
+  35% while the newest speaks (walking through a list).
+- `data-dia-part="section name"` on a slide — talk structure for
+  agenda/progress tooling.
+- `data-dia-auto="page"` on any element — runtime-owned page furniture:
+  the runtime AND the editor fill it as "N / N"; never hand-number
+  footers again.
+- Speaker notes: `<aside class="dia-notes">…</aside>` inside a slide —
+  hidden when presenting (theme + runtime), shown in the editor.
+- Charts are data — see `dia-scenes` for `svg.dia-chart`
+  (`data-chart="bar|line|scatter"`, `data-values="Q1:12, Q2:19"`).
 - `data-dia-transition="fade|slide|rise|none"` — how a slide ENTERS in
   present mode. Per-slide on `<section>`; deck default on `<html>`.
 - `data-dia-emphasis` — hover-linkage/highlight groups.
