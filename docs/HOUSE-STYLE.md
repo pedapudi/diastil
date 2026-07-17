@@ -69,6 +69,29 @@ contour map, the constellation, the sonar sweep, the braided river,
 the orbit-and-comet — construction recipes live in
 `skills/dia-authoring/SKILL.md`; all share the same economy: faint
 structure, dashed guides, one accented element that is the argument.
+**Every piece is drawn in `docs/register-reference.html`** — open it to
+see the register, line-art and full-color both.
+
+## the pictorial style (full color)
+
+The approved full-color language, established by the sherpa piece:
+flat faceted polygon planes (a lit face and a shadow face), recession
+by atmosphere or lightness, angular white facet glints, and the same
+argument grammar as the line art — ONE dotted accent path or beam with
+a dot terminal, recolored per ground for contrast. No gloss, no 3-D
+shading, no blur-driven dreaminess.
+
+Two variety rules keep a deck's pictorial set alive:
+
+- **each piece owns a palette family** — dawn, twilight, sandstone,
+  slate-green… — never four figures in one dominant hue;
+- **each piece owns a setting** — a landscape, an object study, an
+  interior, a machine — not nature-with-a-sun four times.
+
+The canon (drawn in `docs/register-reference.html`): **sherpa** (dawn
+on the route), **pensieve** (the twilight pool, an object study),
+**corpus** (the archive wall, an interior), **stream** (the works,
+industrial flow).
 
 Richer color beyond the theme tokens stays **licensed** for
 illustrations whose subject wants it (real palettes, layered fills,

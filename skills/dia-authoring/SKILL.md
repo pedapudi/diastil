@@ -284,10 +284,27 @@ dashed `var(--dia-rule)`, ONE accented element):
   with fading opacity.
 
 These are metaphor seeds, not a fixed menu — draw the deck's OWN
-subject with the same economy whenever a truer image exists. Full-color
-pictorial pieces (a snowy summit with its route, a luminous pool) carry
-the same discipline: the palette is licensed, but one element still
-carries the argument and words inside stay in tokens.
+subject with the same economy whenever a truer image exists.
+
+Full-color pictorial pieces carry the same discipline in a richer
+palette. The style (in this repo, every piece is drawn in
+`docs/register-reference.html`): flat faceted polygon planes with a
+lit and a shadow face, recession by atmosphere or lightness, angular
+white facet glints, no gloss or 3-D shading or blur — and ONE dotted
+accent path or beam with a dot terminal, recolored per ground for
+contrast, that is the argument. Words inside stay in tokens. Two
+variety rules for a deck's pictorial set:
+
+- **each piece owns a palette family** (dawn, twilight, sandstone,
+  slate-green, …) — never several figures in one dominant hue;
+- **each piece owns a setting** (a landscape, an object study, an
+  interior, a machine, …) — never nature-with-a-sun on repeat.
+
+The canon to imitate: sherpa (a dawn summit, the dotted route as the
+argument), pensieve (a twilight pool as an object study, one amber
+memory surfacing), corpus (an archive wall interior, one drawer out
+on a blue beam), stream (an industrial works, jittered lanes in, one
+ordered lane out).
 
 ### Iterate the imagery — 3–4 passes, not one
 
