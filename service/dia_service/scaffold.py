@@ -66,6 +66,16 @@ li:has(> .dia-marker) {{ list-style: none; display: grid; grid-template-columns:
 .dia-columns {{ display: grid; grid-template-columns: 1.05fr 1fr; gap: var(--dia-gap); }}
 .dia-stack {{ display: flex; flex-direction: column; gap: calc(var(--dia-gap) / 2); }}
 .dia-figure {{ align-self: center; }}
+aside.dia-notes {{ display: none; }} /* speaker notes — operator-only */
+table {{ border-collapse: collapse; font-size: var(--dia-scale-2); }}
+th {{ font-family: var(--dia-face-label); font-size: var(--dia-scale-1);
+  text-transform: uppercase; letter-spacing: .08em; color: var(--dia-ink-faint);
+  text-align: left; font-weight: 500; padding: 6px 18px 6px 0;
+  border-bottom: 1.5px solid var(--dia-ink); }}
+td {{ padding: 7px 18px 7px 0; border-bottom: 1px solid var(--dia-rule);
+  color: var(--dia-ink-soft); }}
+td.num, th.num {{ text-align: right; font-variant-numeric: tabular-nums;
+  font-family: var(--dia-face-label); }}
 .dia-cover {{ display: grid; align-content: center; }}
 .dia-scene {{ width: 100%; }}
 .dia-scene .dia-node-shape {{ fill: var(--dia-node-fill, var(--dia-paper)); stroke: var(--dia-node-stroke, var(--dia-ink)); stroke-width: var(--dia-node-stroke-w, 1.3); }}

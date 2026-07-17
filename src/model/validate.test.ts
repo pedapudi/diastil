@@ -249,3 +249,38 @@ describe('scene edge via', () => {
     expect(r.findings.some((f) => f.rule === 'scene/edge-via' && f.level === 'error')).toBe(true)
   })
 })
+
+describe('behavior grammar: steps, furniture, parts, notes', () => {
+  it('behavior/step-until — must be a positive integer', () => {
+    const r = check((d) => slide(d).querySelector('.dia-title')!.setAttribute('data-dia-step-until', '0'))
+    expect(rules(r)).toContain('behavior/step-until')
+    const ok = check((d) => slide(d).querySelector('.dia-title')!.setAttribute('data-dia-step-until', '3'))
+    expect(rules(ok)).not.toContain('behavior/step-until')
+  })
+
+  it('behavior/auto — only "page" is defined', () => {
+    const r = check((d) => slide(d).querySelector('.dia-title')!.setAttribute('data-dia-auto', 'clock'))
+    expect(rules(r)).toContain('behavior/auto')
+    const ok = check((d) => slide(d).querySelector('.dia-title')!.setAttribute('data-dia-auto', 'page'))
+    expect(rules(ok)).not.toContain('behavior/auto')
+  })
+
+  it('behavior/part — slides only', () => {
+    const r = check((d) => slide(d).querySelector('.dia-title')!.setAttribute('data-dia-part', 'intro'))
+    expect(rules(r)).toContain('behavior/part')
+    const ok = check((d) => slide(d).setAttribute('data-dia-part', 'intro'))
+    expect(rules(ok)).not.toContain('behavior/part')
+  })
+
+  it('spotlight containers and speaker notes are in-grammar', () => {
+    const r = check((d) => {
+      const sl = slide(d)
+      sl.querySelector('.dia-body')!.setAttribute('data-dia-spotlight', '')
+      const notes = d.createElement('aside')
+      notes.className = 'dia-notes'
+      notes.textContent = 'say the thing about the thing'
+      sl.appendChild(notes)
+    })
+    expect(r.findings).toEqual([])
+  })
+})

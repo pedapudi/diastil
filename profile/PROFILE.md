@@ -123,9 +123,18 @@ editing. No rule enforces this shape; a plain `<img>` is in-dialect.
 | rule | level | contract |
 | --- | --- | --- |
 | `behavior/step` | error | `data-dia-step` is a positive integer (build order) |
+| `behavior/step-until` | error | `data-dia-step-until` is a positive integer — the element EXITS when that step arrives |
+| `behavior/auto` | error | `data-dia-auto` value is `page` — runtime-owned furniture, filled as "N / N" by the runtime and the editor |
+| `behavior/part` | error | `data-dia-part` (a talk-section name) sits on a slide `section` |
 
-`data-dia-emphasis` (highlight linkage) and `data-dia-island` take any
-value including empty.
+`data-dia-emphasis` (highlight linkage), `data-dia-spotlight` (a
+container whose already-shown steps recede to 35% while the newest
+speaks), and `data-dia-island` take any value including empty.
+
+**Speaker notes**: `<aside class="dia-notes">` inside a slide holds
+operator notes — hidden in present mode by the runtime (and by theme
+convention), shown by the editor, harvested by import when the source
+carries notes. Ordinary content rules apply inside.
 
 ## 6. Islands
 
@@ -139,8 +148,10 @@ inside an island is validated.
 `data-dia-version` (html) · `data-dia-node`, `data-dia-edge`,
 `data-shape`, `data-path`, `data-rotate`, `data-x`, `data-y`, `data-w`,
 `data-h`, `data-anchors`, `data-route`, `data-via`, `data-label` (scene) ·
-`data-dia-step`, `data-dia-emphasis`, `data-dia-transition` (behavior) ·
-`data-dia-island` (islands) · `data-dia-tex` (math source, §2).
+`data-dia-step`, `data-dia-step-until`, `data-dia-spotlight`,
+`data-dia-part`, `data-dia-auto`, `data-dia-emphasis`,
+`data-dia-transition` (behavior) · `data-dia-island` (islands) ·
+`data-dia-tex` (math source, §2).
 
 Session-only attributes (`data-dia-id`, `data-dia-selected`,
 `data-dia-current`, `data-dia-step-shown`, `contenteditable`,

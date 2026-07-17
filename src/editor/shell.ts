@@ -27,7 +27,7 @@ import { legendOpen, toggleLegend, closeLegend } from './legend'
 import { installTextEditing, insertTextOnSlide } from './textedit'
 import { installContextMenu } from './contextmenu'
 import { toggleStoryboard } from './storyboard'
-import { focusedSlide, openSlideFocus } from '../studio/focus'
+import { focusedSlide, openSlideFocus, slidesInLogicalOrder } from '../studio/focus'
 import { buildSlideTree } from './tree'
 import { openCompare } from './compare'
 import { bootFromCli, openDeck, saveDeck, presentDeck } from './slides'
@@ -43,6 +43,19 @@ section.dia-slide { margin-block: 34px; }
 section.dia-slide:first-of-type { margin-block-start: 0; }
 section.dia-slide:last-of-type { margin-block-end: 0; }
 [data-dia-selected] { outline: 1.5px solid var(--accent); outline-offset: 4px; }
+/* speaker notes: hidden by theme/runtime for the audience, SHOWN in the
+ * editor as an operator strip */
+aside.dia-notes {
+  display: block !important; margin-top: 14px; padding: 8px 12px;
+  border: 1px dashed var(--rule); border-radius: 5px;
+  font: 12px/1.6 var(--sans, sans-serif); color: var(--ink-soft);
+  background: color-mix(in srgb, var(--panel) 60%, transparent);
+}
+aside.dia-notes::before {
+  content: 'notes — hidden when presenting'; display: block;
+  font: 600 9.5px/1.8 var(--mono, monospace); letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ink-faint);
+}
 /* blank svg areas are click-through by default (visiblePainted) — every
  * editable svg background must be selectable; islands stay untouched */
 section.dia-slide svg { pointer-events: bounding-box; }
@@ -255,6 +268,18 @@ export function mountEditor(host: HTMLElement): void {
   /* ---------- bus wiring (before submodule mounts, so artifact styles
    * and scene routing land before minimap/table rebuild their views) ---- */
 
+  /** runtime-owned page furniture, kept live while editing too — slides
+   * added or removed never leave a stale "7 / 16" behind */
+  function fillAutoPages(): void {
+    const slides = slidesInLogicalOrder()
+    slides.forEach((s, i) => {
+      for (const el of s.querySelectorAll('[data-dia-auto="page"]')) {
+        const want = `${i + 1} / ${slides.length}`
+        if (el.textContent !== want) el.textContent = want
+      }
+    })
+  }
+
   state.bus.on((e) => {
     switch (e.type) {
       case 'deck-loaded': {
@@ -264,6 +289,7 @@ export function mountEditor(host: HTMLElement): void {
           // heal the theme BEFORE any module (minimap!) snapshots deck styles
           if (deck.root.querySelector('svg.dia-scene')) ensureSceneStyleRules()
           routeAllScenes(deck)
+          fillAutoPages()
         }
         state.resetLog() // old ops reference the previous document's elements
         tick = 0
@@ -287,6 +313,7 @@ export function mountEditor(host: HTMLElement): void {
       }
       case 'op': {
         tick++
+        fillAutoPages()
         updateCrumbs()
         renderInspect()
         refreshTokenValues()

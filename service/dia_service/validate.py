@@ -23,6 +23,10 @@ ANCHOR_SIDES = {"N", "S", "E", "W", "auto"}
 
 DIA_ATTRS = {
     "data-dia-version", "data-dia-node", "data-dia-edge", "data-dia-step",
+    "data-dia-step-until",  # element EXITS when this step arrives
+    "data-dia-spotlight",  # container: shown steps recede behind the current
+    "data-dia-part",  # talk section name, on a slide
+    "data-dia-auto",  # runtime-owned furniture; value 'page' = "N / N"
     "data-dia-emphasis", "data-dia-island", "data-dia-transition",
     "data-dia-tex",  # LaTeX source of a .dia-math element; content is MathML
 }
@@ -204,6 +208,19 @@ def validate_html(html: str) -> dict:
             step = el.attrs.get("data-dia-step")
             if step is not None and not re.fullmatch(r"[1-9]\d*", step):
                 add("error", "behavior/step", el.path(), f'data-dia-step="{step}" is not a positive integer')
+
+            until = el.attrs.get("data-dia-step-until")
+            if until is not None and not re.fullmatch(r"[1-9]\d*", until):
+                add("error", "behavior/step-until", el.path(),
+                    f'data-dia-step-until="{until}" is not a positive integer')
+
+            auto = el.attrs.get("data-dia-auto")
+            if auto is not None and auto != "page":
+                add("error", "behavior/auto", el.path(),
+                    f'data-dia-auto="{auto}" — only "page" is defined')
+
+            if "data-dia-part" in el.attrs and not (el.tag == "section" and "dia-slide" in el.classes()):
+                add("error", "behavior/part", el.path(), "data-dia-part belongs on a slide section")
             transition = el.attrs.get("data-dia-transition")
             if transition is not None and transition not in ("none", "fade", "slide", "rise"):
                 add("error", "behavior/transition", el.path(),

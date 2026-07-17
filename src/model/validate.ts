@@ -34,6 +34,10 @@ const ANCHOR_SIDES = new Set(['N', 'S', 'E', 'W', 'auto'])
 /** persisted dialect data-dia-* vocabulary (profile §7) */
 const DIA_ATTRS = new Set([
   'data-dia-version', 'data-dia-node', 'data-dia-edge', 'data-dia-step',
+  'data-dia-step-until', // element EXITS when this step arrives
+  'data-dia-spotlight', // container: shown steps recede behind the current
+  'data-dia-part', // talk section name, on a slide
+  'data-dia-auto', // runtime-owned furniture; value 'page' = "N / N"
   'data-dia-emphasis', 'data-dia-island', 'data-dia-transition',
   'data-dia-tex', // LaTeX source of a .dia-math element; content is MathML
 ])
@@ -112,6 +116,17 @@ export function validateDocument(doc: Document): ProfileReport {
       const step = el.getAttribute('data-dia-step')
       if (step !== null && !/^[1-9]\d*$/.test(step))
         add('error', 'behavior/step', pathOf(el), `data-dia-step="${step}" is not a positive integer`)
+
+      const until = el.getAttribute('data-dia-step-until')
+      if (until !== null && !/^[1-9]\d*$/.test(until))
+        add('error', 'behavior/step-until', pathOf(el), `data-dia-step-until="${until}" is not a positive integer`)
+
+      const auto = el.getAttribute('data-dia-auto')
+      if (auto !== null && auto !== 'page')
+        add('error', 'behavior/auto', pathOf(el), `data-dia-auto="${auto}" — only "page" is defined`)
+
+      if (el.hasAttribute('data-dia-part') && !el.matches('section.dia-slide'))
+        add('error', 'behavior/part', pathOf(el), 'data-dia-part belongs on a slide section')
 
       const transition = el.getAttribute('data-dia-transition')
       if (transition !== null && !/^(none|fade|slide|rise)$/.test(transition))

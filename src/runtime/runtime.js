@@ -33,6 +33,10 @@
     /* connectors NEVER fill — svg's default black fill turns a curved edge
      * into a lens on decks whose theme predates the scene rules */
     ':where(svg.dia-scene [data-dia-edge] path) { fill: none; }' +
+    /* speaker notes are for the operator, never the audience */
+    'aside.dia-notes { display: none; }' +
+    /* spotlight: already-shown steps recede while the current one speaks */
+    '[data-dia-spotlight] [data-dia-step][data-dia-dimmed] { opacity: .35 !important; }' +
     '@media (prefers-reduced-motion: no-preference) {' +
     'section.dia-slide[data-dia-anim="fade"] { animation: diaFade .3s ease both; }' +
     'section.dia-slide[data-dia-anim="slide"] { animation: diaSlide .36s cubic-bezier(.2,.7,.2,1) both; }' +
@@ -43,6 +47,16 @@
     '@keyframes diaSlide { from { opacity: 0; transform: var(--dia-fit, none) translateX(3%); } to { transform: var(--dia-fit, none); } }' +
     '@keyframes diaRise { from { opacity: 0; transform: var(--dia-fit, none) translateY(2.5%); } to { transform: var(--dia-fit, none); } }';
   document.head.appendChild(style);
+
+  /* auto page furniture: the runtime owns the numbers, so hand-added
+   * slides never leave stale "7 / 16" footers behind */
+  function fillAuto() {
+    slides.forEach(function (s, i) {
+      Array.prototype.forEach.call(s.querySelectorAll('[data-dia-auto="page"]'), function (el) {
+        el.textContent = (i + 1) + ' / ' + slides.length;
+      });
+    });
+  }
 
   function fromHash() {
     var m = /^#(\d+)$/.exec(location.hash);
@@ -76,6 +90,11 @@
       el.style.opacity = '0';
       el.style.translate = '0 6px';
       el.removeAttribute('data-dia-step-shown');
+      el.removeAttribute('data-dia-dimmed');
+    });
+    // exit steps: visible again until their step arrives
+    Array.prototype.forEach.call(slides[current].querySelectorAll('[data-dia-step-until]'), function (el) {
+      if (!el.hasAttribute('data-dia-step')) el.style.opacity = '';
     });
     if (location.hash !== '#' + (current + 1)) history.replaceState(null, '', '#' + (current + 1));
   }
@@ -86,6 +105,19 @@
       pend[0].style.opacity = '';
       pend[0].style.translate = '';
       pend[0].setAttribute('data-dia-step-shown', '1');
+      var v = +pend[0].getAttribute('data-dia-step');
+      // exit steps leave when their step arrives
+      Array.prototype.forEach.call(slides[current].querySelectorAll('[data-dia-step-until]'), function (el) {
+        if (+el.getAttribute('data-dia-step-until') <= v) el.style.opacity = '0';
+      });
+      // spotlight: earlier steps in the same group recede
+      var spot = pend[0].closest && pend[0].closest('[data-dia-spotlight]');
+      if (spot) {
+        Array.prototype.forEach.call(spot.querySelectorAll('[data-dia-step][data-dia-step-shown]'), function (el) {
+          if (el !== pend[0]) el.setAttribute('data-dia-dimmed', '1');
+        });
+        pend[0].removeAttribute('data-dia-dimmed');
+      }
       return;
     }
     show(current + dir, true);
@@ -123,6 +155,7 @@
   addEventListener('hashchange', function () { fromHash(); show(current, true); });
   addEventListener('resize', fit);
 
+  fillAuto();
   fromHash();
   show(current, false);
   fit();
