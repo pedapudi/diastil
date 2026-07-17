@@ -17,7 +17,7 @@ import { findSlideRoots, forceVisible, STAMP } from './extract'
 import { DeckNavigator } from './navigate'
 import {
   scoreSlideFidelityDetailed, rasterizeRegion, rasterizeToDataUrl, rasterizeCropDataUrl,
-  diffHeatmapDataUrl, REPAIR_THRESHOLD, type SlideDiff,
+  diffHeatmapDataUrl, REPAIR_THRESHOLD, textSimilarity, type SlideDiff,
 } from './fidelity'
 import {
   describeHighlights, installMarquee, renderHighlightBoxes, stampHighlights,
@@ -845,6 +845,20 @@ class ReviewController {
     } finally {
       unforce?.()
     }
+    if (detail && orig && conv) {
+      // text is sacred AS A NUMBER: wording drift multiplies the score
+      // down even when blurred pixels would forgive it
+      detail.textMatch = textSimilarity(orig, conv)
+      detail.score.score = Math.round(
+        detail.score.score * Math.pow(detail.textMatch, 1.25) * 1000) / 1000
+      // clipped content is the loudest perceived failure — flag it
+      detail.overflow = conv.scrollHeight > conv.clientHeight + 4
+      const OVERFLOW_WARNING = 'content overflows the slide box — bottom content may be clipped'
+      const warns = this.conversions[i].warnings
+      const had = warns.indexOf(OVERFLOW_WARNING)
+      if (detail.overflow && had < 0) warns.push(OVERFLOW_WARNING)
+      if (!detail.overflow && had >= 0) warns.splice(had, 1)
+    }
     this.conversions[i].fidelity = detail ? detail.score.score : null
     this.slideDiffs[i] = detail
     this.syncVersionScore(i)
@@ -1441,8 +1455,17 @@ class ReviewController {
     if (comp) {
       const ic = comp.inkColor ?? 1
       const st = comp.structure ?? 1
+      const sf = comp.surface ?? 1
+      const al = comp.alignment ?? 1
       lines.push(
-        `axis scores — displacement ${comp.displacement.toFixed(2)}, layout ${comp.layout.toFixed(2)}, appearance ${comp.appearance.toFixed(2)}, ink-color ${ic.toFixed(2)}, structure ${st.toFixed(2)}.`)
+        `axis scores — displacement ${comp.displacement.toFixed(2)}, layout ${comp.layout.toFixed(2)}, appearance ${comp.appearance.toFixed(2)}, ink-color ${ic.toFixed(2)}, structure ${st.toFixed(2)}, surface ${sf.toFixed(2)}, alignment ${al.toFixed(2)}.`)
+      const tm = this.slideDiffs[i]?.textMatch
+      if (tm !== undefined && tm < 0.98) {
+        lines.push(`text match ${tm.toFixed(2)} — the WORDING drifts from the source; restore the source text verbatim before touching style.`)
+      }
+      if (this.slideDiffs[i]?.overflow) {
+        lines.push('the candidate OVERFLOWS its slide box — bottom content is clipped; tighten spacing/sizes until everything fits, never delete content to fit.')
+      }
       const worst = Math.min(comp.displacement, comp.layout, comp.appearance, ic, st)
       if (worst === ic && comp.displacement >= worst + 0.15 && comp.layout >= worst + 0.15) {
         lines.push('this is primarily an INK-COLOR problem: the text/stroke colors or the typeface weight differ from the source — recolor and re-face, do NOT move or rewrite content.')

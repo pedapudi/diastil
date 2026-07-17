@@ -2,7 +2,7 @@
  * needs a real canvas and is exercised in-browser. */
 
 import { describe, expect, it } from 'vitest'
-import { diffBitmaps, diffRegions, estimateVerticalDrift } from './fidelity'
+import { diffBitmaps, diffRegions, estimateVerticalDrift , textSimilarity } from './fidelity'
 
 function bitmap(w: number, h: number, rgba: [number, number, number, number]): ImageData {
   const data = new Uint8ClampedArray(w * h * 4)
@@ -356,5 +356,70 @@ describe('structure axis: dropped card frames are priced', () => {
     fill(a, 60, 40, 80, 40)
     fill(b, 60, 40, 80, 40)
     expect(diffBitmaps(a, b).components!.structure).toBe(1)
+  })
+})
+
+describe('loss v3: surfaces, alignment, saliency, text', () => {
+  function tint(img: ImageData, x0: number, y0: number, w: number, h: number, rgb: [number, number, number]): void {
+    for (let y = y0; y < y0 + h; y++) {
+      for (let x = x0; x < x0 + w; x++) {
+        const i = (y * img.width + x) * 4
+        img.data[i] = rgb[0]; img.data[i + 1] = rgb[1]; img.data[i + 2] = rgb[2]; img.data[i + 3] = 255
+      }
+    }
+  }
+
+  it('surface: a dropped subtle panel background is priced', () => {
+    const a = bitmap(200, 120, [255, 255, 255, 255])
+    const b = bitmap(200, 120, [255, 255, 255, 255])
+    // identical real ink both sides
+    tint(a, 30, 30, 60, 20, [0, 0, 0])
+    tint(b, 30, 30, 60, 20, [0, 0, 0])
+    // a subtle card tint (dev ≈ 10 — under the ink threshold) only in A
+    tint(a, 110, 20, 80, 90, [245, 245, 245])
+    const r = diffBitmaps(a, b)
+    expect(r.components!.surface).toBeLessThan(0.6)
+    tint(b, 110, 20, 80, 90, [245, 245, 245])
+    expect(diffBitmaps(a, b).components!.surface).toBeGreaterThan(0.9)
+  })
+
+  it('alignment: ragged differential drift costs more than uniform shift', () => {
+    const mk = (offsets: number[]): ImageData => {
+      const img = bitmap(240, 160, [255, 255, 255, 255])
+      offsets.forEach((dx, k) => tint(img, 40 + dx, 20 + k * 34, 150, 12, [0, 0, 0]))
+      return img
+    }
+    const src = mk([0, 0, 0, 0])
+    const uniform = mk([4, 4, 4, 4])
+    const ragged = mk([0, 9, -8, 14])
+    const u = diffBitmaps(src, uniform).components!
+    const g = diffBitmaps(src, ragged).components!
+    expect(u.alignment).toBeGreaterThan(g.alignment)
+  })
+
+  it('saliency: dropping title-scale ink costs more than footnote-scale', () => {
+    const src = bitmap(240, 160, [255, 255, 255, 255])
+    tint(src, 20, 16, 200, 26, [0, 0, 0])   // title: thick band
+    tint(src, 20, 140, 200, 4, [0, 0, 0])   // footnote: thin band
+    const noTitle = bitmap(240, 160, [255, 255, 255, 255])
+    tint(noTitle, 20, 140, 200, 4, [0, 0, 0])
+    const noFoot = bitmap(240, 160, [255, 255, 255, 255])
+    tint(noFoot, 20, 16, 200, 26, [0, 0, 0])
+    const cTitleGone = diffBitmaps(src, noTitle).components!.completeness
+    const cFootGone = diffBitmaps(src, noFoot).components!.completeness
+    expect(cTitleGone).toBeLessThan(cFootGone)
+  })
+
+  it('textSimilarity: rewrites cost, identical text is 1', () => {
+    const el = (t: string): HTMLElement => {
+      const d = document.createElement('div')
+      d.textContent = t
+      return d
+    }
+    expect(textSimilarity(el('The saved file is plain HTML'), el('The saved file is plain HTML'))).toBe(1)
+    const drift = textSimilarity(el('The saved file is plain HTML'), el('Files are saved as basic web pages'))
+    expect(drift).toBeLessThan(0.5)
+    expect(textSimilarity(el(''), el(''))).toBe(1)
+    expect(textSimilarity(el('words'), el(''))).toBe(0)
   })
 })

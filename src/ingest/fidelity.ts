@@ -257,10 +257,20 @@ export interface ScoreComponents {
    * dropped card outline is a few hundred pixels and nearly free to every
    * mass-weighted term; this axis prices the missing FRAME itself */
   structure: number
+  /** SUBTLE fills — panel/card backgrounds within a few steps of the
+   * ground, below the ink threshold and so invisible to every other
+   * axis; compared per coarse cell by presence and hue */
+  surface: number
+  /** alignment discipline: the x positions where content EDGES stack up
+   * (column starts) — uniform drift is chamfer's business, but ragged
+   * differential drift breaks the grid a human reads instantly */
+  alignment: number
   /** fraction of the original's ink CELLS that the candidate still covers —
    * the anti-gaming axis: every term above is ink-mass-weighted, which
    * makes SMALL elements (a footer, a caption) nearly free to drop; cell
-   * completeness charges per dropped REGION, and multiplies the score */
+   * completeness charges per dropped REGION, and multiplies the score.
+   * Cells are SALIENCY-weighted: title-scale ink (thick strokes) counts
+   * more than footnote-scale ink. */
   completeness: number
 }
 
@@ -286,12 +296,15 @@ function visualScore(a: ImageData, b: ImageData): { score: number; components: S
     appearance: r3(appearanceSim(a, b, maskA, maskB, w, h)),
     inkColor: r3(inkColorSim(a, b, maskA, maskB, thinA, thinB, w, h)),
     structure: r3(structureSim(maskA, thinA, maskB, thinB, w, h)),
+    surface: r3(surfaceSim(a, b, maskA, maskB, w, h)),
+    alignment: r3(alignmentSim(maskA, maskB, w, h)),
     completeness: r3(cellCompleteness(maskA, maskB, w, h)),
   }
   // completeness MULTIPLIES (exponent > 1 for teeth): dropping content can
   // never be traded against improving what remains
-  const base = 0.28 * components.displacement + 0.24 * components.layout +
-    0.24 * components.appearance + 0.14 * components.inkColor + 0.10 * components.structure
+  const base = 0.24 * components.displacement + 0.20 * components.layout +
+    0.20 * components.appearance + 0.12 * components.inkColor +
+    0.08 * components.structure + 0.08 * components.surface + 0.08 * components.alignment
   const score = base * Math.pow(components.completeness, 1.5)
   return { score: r3(score), components }
 }
@@ -458,6 +471,143 @@ function structureSim(
   return chamferSim(sa.mask, sb.mask, w, h)
 }
 
+/* ---------- surfaces: the fills too subtle to be ink ---------- */
+
+const SURFACE_LO = 4 // below: raster noise; above INK_TOLERANCE: real ink
+
+/** exact background color: the mean of pixels in the mode bucket —
+ * estimateBackground() returns the bucket CENTER (±8 per channel), which
+ * is coarse enough to swallow the subtle band this axis lives in */
+function refineBackground(img: ImageData): [number, number, number] {
+  const approx = estimateBackground(img)
+  let r = 0
+  let g = 0
+  let b = 0
+  let n = 0
+  for (let i = 0; i < img.data.length; i += 7 * 4) {
+    if (
+      Math.abs(img.data[i] - approx[0]) <= 8 &&
+      Math.abs(img.data[i + 1] - approx[1]) <= 8 &&
+      Math.abs(img.data[i + 2] - approx[2]) <= 8
+    ) { r += img.data[i]; g += img.data[i + 1]; b += img.data[i + 2]; n++ }
+  }
+  return n ? [r / n, g / n, b / n] : approx
+}
+
+/** per-cell presence+hue of SUBTLE fills (4 < deviation ≤ INK_TOLERANCE):
+ * a dropped panel background is invisible to every ink-based axis, but a
+ * quarter of the slide quietly losing its card tint is what the user sees */
+function surfaceSim(
+  a: ImageData, b: ImageData, maskA: Uint8Array, maskB: Uint8Array, w: number, h: number,
+): number {
+  const GX = 16
+  const GY = 9
+  const cellOf = (img: ImageData, mask: Uint8Array, bg: [number, number, number]) => {
+    const frac = new Float32Array(GX * GY)
+    const col = new Float32Array(GX * GY * 3)
+    const npx = new Float32Array(GX * GY)
+    for (let y = 0; y < h; y++) {
+      const gy = Math.min(GY - 1, Math.floor((y / h) * GY))
+      for (let x = 0; x < w; x++) {
+        const c = gy * GX + Math.min(GX - 1, Math.floor((x / w) * GX))
+        npx[c]++
+        const i = y * w + x
+        if (mask[i]) continue // real ink is other axes' business
+        const j = (y * img.width + x) * 4
+        const dev = Math.max(
+          Math.abs(img.data[j] - bg[0]), Math.abs(img.data[j + 1] - bg[1]), Math.abs(img.data[j + 2] - bg[2]))
+        if (dev > SURFACE_LO && dev <= INK_TOLERANCE * 1.5) {
+          frac[c]++
+          col[c * 3] += img.data[j]
+          col[c * 3 + 1] += img.data[j + 1]
+          col[c * 3 + 2] += img.data[j + 2]
+        }
+      }
+    }
+    for (let c = 0; c < GX * GY; c++) {
+      if (frac[c] > 0) for (let k = 0; k < 3; k++) col[c * 3 + k] /= frac[c]
+      frac[c] = npx[c] ? frac[c] / npx[c] : 0
+    }
+    return { frac, col }
+  }
+  const A = cellOf(a, maskA, refineBackground(a))
+  const B = cellOf(b, maskB, refineBackground(b))
+  let n = 0
+  let sum = 0
+  for (let c = 0; c < GX * GY; c++) {
+    const fa = A.frac[c]
+    const fb = B.frac[c]
+    if (fa < 0.15 && fb < 0.15) continue // no meaningful surface on either side
+    n++
+    const presence = 1 - Math.min(1, Math.abs(fa - fb) / Math.max(fa, fb))
+    let hue = 1
+    if (fa >= 0.15 && fb >= 0.15) {
+      const d = Math.max(
+        Math.abs(A.col[c * 3] - B.col[c * 3]),
+        Math.abs(A.col[c * 3 + 1] - B.col[c * 3 + 1]),
+        Math.abs(A.col[c * 3 + 2] - B.col[c * 3 + 2]))
+      hue = 1 - Math.min(1, d / 96)
+    }
+    sum += 0.6 * presence + 0.4 * hue
+  }
+  return n ? sum / n : 1
+}
+
+/* ---------- alignment: where edges stack up ---------- */
+
+/** left-edge projection peaks — the x positions where many rows START ink.
+ * A uniform shift moves every peak together (cheap, correctly); ragged
+ * per-block drift scatters them (expensive, correctly). */
+function edgePeaks(mask: Uint8Array, w: number, h: number): number[] {
+  const starts = new Float32Array(w)
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (mask[y * w + x] && (x === 0 || !mask[y * w + x - 1])) starts[x]++
+    }
+  }
+  // smooth ±1 then take strong local maxima
+  const sm = new Float32Array(w)
+  for (let x = 0; x < w; x++) sm[x] = starts[x] + (x > 0 ? starts[x - 1] : 0) + (x < w - 1 ? starts[x + 1] : 0)
+  let peakMax = 0
+  for (let x = 0; x < w; x++) peakMax = Math.max(peakMax, sm[x])
+  const peaks: number[] = []
+  for (let x = 1; x < w - 1; x++) {
+    if (sm[x] >= peakMax * 0.3 && sm[x] >= sm[x - 1] && sm[x] > sm[x + 1]) peaks.push(x)
+  }
+  return peaks.slice(0, 12)
+}
+
+function alignmentSim(maskA: Uint8Array, maskB: Uint8Array, w: number, h: number): number {
+  const pa = edgePeaks(maskA, w, h)
+  const pb = edgePeaks(maskB, w, h)
+  if (pa.length === 0 && pb.length === 0) return 1
+  if (pa.length === 0 || pb.length === 0) return 0
+  const tol = Math.max(3, w * 0.02)
+  const cost = (offset: number): number => {
+    const side = (from: number[], to: number[], sign: number): number => {
+      let sum = 0
+      for (const x of from) {
+        let best = Infinity
+        for (const y of to) best = Math.min(best, Math.abs(x - (y + sign * offset)))
+        sum += Math.min(best, tol) / tol
+      }
+      return sum / from.length
+    }
+    return (side(pa, pb, 1) + side(pb, pa, -1)) / 2
+  }
+  // a UNIFORM shift is displacement's business — factor out the best
+  // global offset first, then charge only the RESIDUAL raggedness
+  const maxOff = w * 0.1
+  let best = cost(0)
+  for (const x of pa) {
+    for (const y of pb) {
+      const o = x - y
+      if (Math.abs(o) <= maxOff) best = Math.min(best, cost(o))
+    }
+  }
+  return 1 - best
+}
+
 /** symmetric truncated chamfer similarity: mean distance from each ink
  * pixel to the nearest ink in the OTHER mask, saturated and normalized */
 function chamferSim(maskA: Uint8Array, maskB: Uint8Array, w: number, h: number): number {
@@ -516,13 +666,20 @@ function cellCompleteness(maskA: Uint8Array, maskB: Uint8Array, w: number, h: nu
   const GY = 9
   const cellsA = new Float32Array(GX * GY)
   const cellsB = new Float32Array(GX * GY)
+  const depthA = new Float32Array(GX * GY) // saliency: mean stroke half-width
+  // stroke depth of the ORIGINAL's ink — title-scale strokes are thick
+  const inv = new Uint8Array(w * h)
+  for (let i = 0; i < w * h; i++) inv[i] = maskA[i] ? 0 : 1
+  const depth = distanceTransform(inv, w, h)
   for (let y = 0; y < h; y++) {
     const gy = Math.min(GY - 1, Math.floor((y / h) * GY))
     for (let x = 0; x < w; x++) {
       const gx = Math.min(GX - 1, Math.floor((x / w) * GX))
       const c = gy * GX + gx
-      cellsA[c] += maskA[y * w + x]
-      cellsB[c] += maskB[y * w + x]
+      const i = y * w + x
+      cellsA[c] += maskA[i]
+      cellsB[c] += maskB[i]
+      if (maskA[i]) depthA[c] += depth[i]
     }
   }
   const cellPx = (w / GX) * (h / GY)
@@ -532,7 +689,10 @@ function cellCompleteness(maskA: Uint8Array, maskB: Uint8Array, w: number, h: nu
     for (let cx = 0; cx < GX; cx++) {
       const c = cy * GX + cx
       if (cellsA[c] < cellPx * 0.03) continue // no meaningful original ink here
-      inked++
+      // SALIENCY: a dropped title cell (thick strokes) costs more than a
+      // dropped footnote cell — weight by mean stroke half-width, capped
+      const weight = 1 + Math.min(2, depthA[c] / Math.max(1, cellsA[c]))
+      inked += weight
       // covered when candidate ink exists HERE or in a neighboring cell —
       // displacement is chamfer's job; completeness only asks "does this
       // content still exist anywhere near where it was?"
@@ -544,10 +704,39 @@ function cellCompleteness(maskA: Uint8Array, maskB: Uint8Array, w: number, h: nu
           if (nx >= 0 && ny >= 0 && nx < GX && ny < GY) near += cellsB[ny * GX + nx]
         }
       }
-      if (near >= cellsA[c] * 0.2) covered++
+      if (near >= cellsA[c] * 0.2) covered += 1 + Math.min(2, depthA[c] / Math.max(1, cellsA[c]))
     }
   }
   return inked > 0 ? covered / inked : 1
+}
+
+/* ---------- text correctness (structural, not pixels) ---------- */
+
+/** normalized token-multiset Dice between two elements' visible text —
+ * "text is sacred" as a NUMBER: rewrites, typos, and dropped runs cost
+ * even when the pixels blur them away. Empty-vs-empty agrees. */
+export function textSimilarity(a: Element | null, b: Element | null): number {
+  const tokens = (el: Element | null): Map<string, number> => {
+    const m = new Map<string, number>()
+    if (!el) return m
+    const raw = (el.textContent ?? '').toLowerCase().normalize('NFKC')
+    for (const t of raw.split(/[^\p{L}\p{N}]+/u)) {
+      if (t.length === 0) continue
+      m.set(t, (m.get(t) ?? 0) + 1)
+    }
+    return m
+  }
+  const ta = tokens(a)
+  const tb = tokens(b)
+  let na = 0
+  let nb = 0
+  let inter = 0
+  for (const v of ta.values()) na += v
+  for (const v of tb.values()) nb += v
+  if (na === 0 && nb === 0) return 1
+  if (na === 0 || nb === 0) return 0
+  for (const [t, v] of ta) inter += Math.min(v, tb.get(t) ?? 0)
+  return (2 * inter) / (na + nb)
 }
 
 /** continuous Dice coefficient of ink mass on a coarse grid — same
@@ -857,6 +1046,11 @@ export async function scoreSlideFidelity(
  * the score, the clustered mismatch regions, and the human/VLM heatmap */
 export interface SlideDiff {
   score: FidelityScore
+  /** token-multiset Dice of visible text, source vs candidate — MULTIPLIES
+   * into the recorded fidelity (text is sacred as a number) */
+  textMatch?: number
+  /** the candidate overflows its slide box — bottom content clipped */
+  overflow?: boolean
   regions: DiffRegion[]
   /** PNG data URL — red marks differing content, dim grayscale matches */
   heatmapUrl: string | null

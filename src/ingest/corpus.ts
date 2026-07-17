@@ -38,7 +38,7 @@ export interface CorpusFixture {
   fidelity: Array<number | null>
   /** the named axes behind each score (displacement · layout · appearance · ink-color · structure ·
    * completeness) — which axis a conversion change moved is the diff */
-  fidelityComponents: Array<{ displacement: number; layout: number; appearance: number; inkColor?: number; structure?: number; completeness: number } | null>
+  fidelityComponents: Array<{ displacement: number; layout: number; appearance: number; inkColor?: number; structure?: number; surface?: number; alignment?: number; completeness: number } | null>
   /** the assembled dialect document — must stay profile-valid forever */
   deckHtml: string
 }

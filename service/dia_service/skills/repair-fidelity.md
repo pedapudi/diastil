@@ -27,7 +27,8 @@ You receive:
 ## Diagnose FIRST, then fix
 
 The mismatch names its axes (displacement · layout · appearance ·
-ink-color · structure · completeness) and often the exact discrepancies
+ink-color · structure · surface · alignment · completeness — and a
+text-match multiplier) and often the exact discrepancies
 ("title: 64px vs 39px"). Before writing any HTML, decide per axis what
 differs:
 
@@ -40,6 +41,15 @@ differs:
 - **structure** off → the source FRAMES content (cards, borders,
   rules, underlines, table lines) that the conversion dropped —
   restore the framing elements; the words are already right
+- **surface** off → subtle panel/card BACKGROUND fills differ or are
+  missing — restore the tinted surfaces, nothing else
+- **alignment** off → content edges no longer stack: blocks drifted by
+  DIFFERENT amounts and broke the grid — align to the source's column
+  starts before any other change
+- **text match** below 1 → the WORDING drifts from the source: restore
+  the source text verbatim first; it multiplies the whole score
+- **overflow** flagged → the slide is taller than its box and clips —
+  tighten spacing/sizes until everything fits; never delete content
 - **composition** off → restructure which areas hold content
 - **completeness** off, or "MISSING from the candidate" lines →
   RESTORE the missing content — never delete content to reduce the
