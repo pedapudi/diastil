@@ -433,6 +433,12 @@ async def read_file(path: str) -> dict[str, Any]:
     p = _resolve_opened(path)
     if not p.is_file():
         raise HTTPException(status_code=404, detail="file not found")
+    # binary formats (.pptx) travel base64 — a text read would mangle them
+    if p.suffix.lower() == ".pptx":
+        import base64
+
+        return {"b64": base64.b64encode(p.read_bytes()).decode("ascii"),
+                "mtime": p.stat().st_mtime}
     return {"html": p.read_text(encoding="utf-8"), "mtime": p.stat().st_mtime}
 
 

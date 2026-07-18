@@ -67,3 +67,23 @@ beside converted, per slide. `←`/`→` move between slides, `Esc` cancels.
 - Every import report also carries profile-validator findings; `profile
   error` lines mean the converted output itself is out of contract
   (should not happen — report as a bug).
+
+
+## PowerPoint (.pptx)
+
+`.pptx` files import through the same pipeline: a built-in renderer
+first converts the OOXML to faithful positioned HTML (theme colors and
+fonts, master/layout placeholder inheritance, shapes, text with
+bullets, images, tables, charts, speaker notes; hidden slides are
+skipped), and that page flows through execute → extract → convert →
+measure → repair exactly like any foreign HTML deck.
+
+- Open the .pptx from the editor's open dialog, or run
+  `dia ingest deck.pptx`.
+- Chart data is LIFTED: single-series bar/line/scatter charts become
+  editable `svg.dia-chart` elements (values as data, token-bound
+  rendering), not frozen pictures.
+- Speaker notes land as `aside.dia-notes` on their slides.
+- The fidelity score compares the converted deck against the rendered
+  original — repair rounds raise placement/structure exactly as with
+  HTML sources.

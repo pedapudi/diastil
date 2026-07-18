@@ -12,6 +12,7 @@ import { clearPreview } from '../copilot/preview'
 import { closeStudio } from '../studio/studio'
 import { closeSlideFocus } from '../studio/focus'
 import { startImport } from '../ingest/pipeline'
+import { looksLikePptx, pptxToHtml } from '../ingest/pptx'
 import { SERVICE_BASE } from '../service/client'
 import { setImportReport } from './table'
 
@@ -25,16 +26,31 @@ type PickerWindow = Window & {
 
 let fileHandle: DEFileHandle | null = null
 
-async function pickHtmlFile(): Promise<{ text: string; name: string; handle: DEFileHandle | null } | null> {
+interface PickedFile { text: string; bytes: ArrayBuffer | null; name: string; handle: DEFileHandle | null }
+
+async function readPicked(f: File, handle: DEFileHandle | null): Promise<PickedFile> {
+  // .pptx (or any zip) is binary — a text() read would mangle it
+  if (/\.pptx$/i.test(f.name) || f.type.includes('presentation')) {
+    return { text: '', bytes: await f.arrayBuffer(), name: f.name, handle }
+  }
+  return { text: await f.text(), bytes: null, name: f.name, handle }
+}
+
+async function pickHtmlFile(): Promise<PickedFile | null> {
   const w = window as PickerWindow
   if (typeof w.showOpenFilePicker === 'function') {
     try {
       const [handle] = await w.showOpenFilePicker({
-        types: [{ description: 'HTML deck', accept: { 'text/html': ['.html', '.htm'] } }],
+        types: [{
+          description: 'Deck (HTML or PowerPoint)',
+          accept: {
+            'text/html': ['.html', '.htm'],
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation': ['.pptx'],
+          },
+        }],
       })
       if (!handle) return null
-      const file = await handle.getFile()
-      return { text: await file.text(), name: file.name, handle }
+      return await readPicked(await handle.getFile(), handle)
     } catch {
       return null // user cancelled
     }
@@ -42,11 +58,11 @@ async function pickHtmlFile(): Promise<{ text: string; name: string; handle: DEF
   return new Promise((resolve) => {
     const input = document.createElement('input')
     input.type = 'file'
-    input.accept = '.html,.htm,text/html'
+    input.accept = '.html,.htm,.pptx,text/html'
     input.addEventListener('change', () => {
       const f = input.files?.[0]
       if (!f) { resolve(null); return }
-      f.text().then((text) => resolve({ text, name: f.name, handle: null }))
+      void readPicked(f, null).then(resolve)
     })
     input.addEventListener('cancel', () => resolve(null))
     input.click()
@@ -66,14 +82,21 @@ let serviceMtime = 0
 let lastSyncedHtml = ''
 let watchTimer = 0
 
-async function readServiceFile(path: string): Promise<{ html: string; mtime: number } | null> {
+async function readServiceFile(path: string): Promise<{ html: string; b64?: string; mtime: number } | null> {
   try {
     const r = await fetch(`${SERVICE_BASE}/file?path=${encodeURIComponent(path)}`)
     if (!r.ok) return null
-    return await r.json() as { html: string; mtime: number }
+    return await r.json() as { html: string; b64?: string; mtime: number }
   } catch {
     return null
   }
+}
+
+function b64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64)
+  const out = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+  return out
 }
 
 /** Boot from CLI query params. Returns true when a file was handled. */
@@ -89,6 +112,17 @@ export async function bootFromCli(canvasHost: HTMLElement): Promise<boolean> {
     return false
   }
   const name = path.split('/').pop() ?? 'deck.html'
+  // .pptx over the bridge arrives base64 — render it to foreign HTML and
+  // continue down the exact same import path
+  if (file.b64 !== undefined) {
+    try {
+      void startImport(pptxToHtml(b64ToBytes(file.b64), name), name)
+    } catch (err) {
+      console.error(err)
+      alert(err instanceof Error ? err.message : `could not read ${name}`)
+    }
+    return true
+  }
   // ?import= forces conversion; ?file= auto-detects — a foreign file opened
   // with `dia edit` converts instead of loading as a broken dialect deck
   if (!editPath || !isDialectHtml(file.html)) {
@@ -147,6 +181,16 @@ export async function openDeck(canvasHost: HTMLElement): Promise<void> {
   if (!picked) return
   servicePath = null
   window.clearInterval(watchTimer)
+  if (picked.bytes && looksLikePptx(picked.bytes, picked.name)) {
+    fileHandle = null
+    try {
+      startImport(pptxToHtml(picked.bytes, picked.name), picked.name)
+    } catch (err) {
+      console.error(err)
+      alert(err instanceof Error ? err.message : `could not read ${picked.name}`)
+    }
+    return
+  }
   if (isDialectHtml(picked.text)) {
     fileHandle = picked.handle
     setImportReport(null)

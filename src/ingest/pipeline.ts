@@ -37,7 +37,7 @@ export async function startImport(html: string, name: string): Promise<void> {
   const host = document.querySelector<HTMLElement>('#deck-host')
   if (!host) throw new Error('ingest: #deck-host not found — the shell must render the canvas host before import')
 
-  const fileName = name.replace(/\.html?$/, '') + '.dia.html'
+  const fileName = name.replace(/\.(html?|pptx)$/i, '') + '.dia.html'
   appendProfileFindings(outcome.report, outcome.deckHtml)
   const deck = loadDeck(outcome.deckHtml, host, fileName)
   state.deck = deck

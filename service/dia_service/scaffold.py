@@ -185,6 +185,8 @@ step and no private data model.
 
 ### Operate dia
 
+- `dia ingest <deck.html|deck.pptx>` — convert a foreign deck (HTML or
+  PowerPoint) through the review flow
 - `dia validate <files…>` — profile check (stdlib-only, no install needed
   beyond the package)
 - `dia new <file> [--title t]` — scaffold a valid deck

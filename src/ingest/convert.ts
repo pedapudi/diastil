@@ -11,6 +11,7 @@ import type { RegionNote, ImportReport } from '../types'
 import { STAMP, norm, type ElementSample, type ExtractedSlide, type Extraction } from './extract'
 import { liftSimpleSvg, roundedRectPath } from './svglift'
 import { renderNodeShape } from '../scene/route'
+import { renderChart } from '../scene/chart'
 
 export interface SlideConversion {
   html: string
@@ -844,7 +845,21 @@ function convertNode(el: Element, ctx: Ctx): Node[] {
     return []
   }
   if (tag === 'IMG') return [figure(el, ctx)]
+  // chart lift hints (pptx front-end, or any source that carries them):
+  // the DATA maps 1:1 onto the dialect chart grammar — emit a real
+  // token-bound dia-chart instead of freezing a picture
+  if (tag === 'SVG' && el.getAttribute('data-chart') && el.getAttribute('data-values')) {
+    return [chartNode(el, ctx)]
+  }
   if (tag === 'SVG') return [svgNode(el, ctx)]
+  // speaker notes are already dialect — keep them whole
+  if (tag === 'ASIDE' && el.classList.contains('dia-notes')) {
+    const notes = document.createElement('aside')
+    notes.className = 'dia-notes'
+    notes.innerHTML = el.innerHTML
+    notes.removeAttribute('style')
+    return [notes]
+  }
   if (UNMAPPABLE.has(tag)) {
     return [island(el, ctx, `<${tag.toLowerCase()}> may carry live behavior we cannot verify`)]
   }
@@ -932,6 +947,30 @@ function sizeToSource(el: HTMLElement | SVGElement, s: ElementSample | undefined
 function fitMedia(el: HTMLElement | SVGElement): void {
   el.style.maxWidth = '100%'
   el.style.height = 'auto'
+}
+
+/** a source svg carrying dia-chart data hints → a dialect chart, derived
+ * fresh through the real renderer so it re-themes with the deck */
+function chartNode(el: Element, ctx: Ctx): Element {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('class', 'dia-chart')
+  svg.setAttribute('viewBox', '0 0 430 300')
+  svg.setAttribute('role', 'img')
+  svg.setAttribute('aria-label', el.getAttribute('aria-label') ?? 'chart')
+  for (const a of ['data-chart', 'data-values', 'data-max', 'data-unit']) {
+    const v = el.getAttribute(a)
+    if (v !== null) svg.setAttribute(a, v)
+  }
+  renderChart(svg)
+  const fig = document.createElement('figure')
+  fig.className = 'dia-figure'
+  // keep the source frame's footprint — an unsized figure svg fills the
+  // slide and clips
+  const srcW = parseFloat(el.getAttribute('width') ?? '')
+  fig.setAttribute('style', `margin: 0; width: ${Number.isFinite(srcW) && srcW > 40 ? Math.round(srcW) : 460}px; max-width: 100%;`)
+  fig.appendChild(svg)
+  ctx.notes.push({ node: fig, kind: 'lifted-svg', note: 'chart lifted to data — edit the values, the rendering re-derives' })
+  return fig
 }
 
 function svgNode(el: Element, ctx: Ctx): Element {

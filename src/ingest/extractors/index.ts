@@ -6,6 +6,7 @@
  * the generic layout heuristic last, whole-body as the final fallback.
  * Adding a new deck shape = one file + one registry entry. */
 
+import { declared } from './declared'
 import { reveal } from './reveal'
 import { impress } from './impress'
 import { marp } from './marp'
@@ -20,7 +21,7 @@ export interface SlideExtractor {
   detect(doc: Document): HTMLElement[] | null
 }
 
-export const EXTRACTORS: SlideExtractor[] = [reveal, impress, marp, remark, siblings]
+export const EXTRACTORS: SlideExtractor[] = [declared, reveal, impress, marp, remark, siblings]
 
 export function findSlideRoots(doc: Document): { roots: HTMLElement[]; method: string } {
   for (const ex of EXTRACTORS) {
