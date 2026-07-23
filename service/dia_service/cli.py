@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 import threading
 import webbrowser
@@ -192,6 +193,39 @@ def cmd_validate(paths: list[str]) -> int:
     return 1 if any_errors else 0
 
 
+def cmd_export(path: str, out: str | None) -> int:
+    """Render a saved dialect deck to a .pptx (opens in PowerPoint / Keynote,
+    converts to native, editable Google Slides on import). Text roles become
+    text boxes; scenes become native shapes + connectors; charts become vector
+    shapes; inline SVG becomes shapes/freeforms; speaker notes become notes."""
+    try:
+        from .pptx_export import deck_slide_count, deck_title, export_file
+    except ImportError:
+        print(
+            "dia: export needs python-pptx — install the service package:\n"
+            "  cd service && python3 -m venv .venv && .venv/bin/pip install -e .",
+            file=sys.stderr,
+        )
+        return 2
+
+    p = Path(path)
+    if not p.is_file():
+        print(f"dia: no such file: {p}", file=sys.stderr)
+        return 2
+    html = p.read_text(encoding="utf-8")
+    if deck_slide_count(html) == 0:
+        print(f"dia: no dia-slide sections found in {p}", file=sys.stderr)
+        return 2
+    if out:
+        out_path = Path(out)
+    else:
+        safe = re.sub(r"[^\w .-]+", " ", deck_title(html)).strip() or p.stem
+        out_path = p.with_name(f"{safe}.pptx")
+    n = export_file(str(p), str(out_path))
+    print(f"dia: wrote {out_path} ({n} slides)")
+    return 0
+
+
 def cmd_serve(
     open_editor: bool = False, no_open: bool = False, port: int | None = None
 ) -> int:
@@ -230,7 +264,7 @@ def main(argv: list[str] | None = None) -> None:
     argv = list(sys.argv[1:] if argv is None else argv)
 
     # `dia <deck.html>` sugar: a path as the first arg means edit
-    if argv and argv[0] not in {"edit", "ingest", "present", "validate", "serve", "eval", "new", "agents-md", "mcp", "-h", "--help"}:
+    if argv and argv[0] not in {"edit", "ingest", "present", "validate", "export", "serve", "eval", "new", "agents-md", "mcp", "-h", "--help"}:
         argv.insert(0, "edit")
 
     parser = argparse.ArgumentParser(prog="dia", description=__doc__,
@@ -254,6 +288,10 @@ def main(argv: list[str] | None = None) -> None:
                    help="print an AGENTS.md-ready section so any coding agent can generate and operate dia")
     sub.add_parser("mcp", help="run the Model Context Protocol server over stdio")
     sub.add_parser("validate", help="profile-validate saved decks").add_argument("paths", nargs="+")
+    ex = sub.add_parser("export", help="render a saved deck to a .pptx (PowerPoint / Keynote / Slides)")
+    ex.add_argument("path")
+    ex.add_argument("--pptx", dest="out", default=None,
+                    help="output .pptx path (default: <deck title>.pptx beside the deck)")
     sv = sub.add_parser("serve", help="run the inference service (add --editor to also host the editor)")
     sv.add_argument("--port", type=int, default=None,
                     help="port to bind (default 8317). Non-default ports pair with "
@@ -284,6 +322,8 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(cmd_present(args.path, no_open=args.no_open))
     elif args.cmd == "validate":
         sys.exit(cmd_validate(args.paths))
+    elif args.cmd == "export":
+        sys.exit(cmd_export(args.path, args.out))
     elif args.cmd == "eval":
         from .evals import main as eval_main
 

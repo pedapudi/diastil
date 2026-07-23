@@ -13,6 +13,7 @@ dependencies = [
     "fastapi",
     "uvicorn",
     "sse-starlette",
+    "python-pptx",
 ]
 
 [project.scripts]

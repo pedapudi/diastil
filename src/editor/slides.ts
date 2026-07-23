@@ -276,6 +276,40 @@ export function presentDeck(deck: Deck): void {
   setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
+/**
+ * Export to .pptx — the service renders the deck to PowerPoint (Open XML) and
+ * returns it as a download. Scenes/charts/inline-SVG become native shapes and
+ * connectors and text roles become text boxes, so the file opens in PowerPoint
+ * / Keynote and converts to native, editable Google Slides on import.
+ */
+export async function exportPptx(deck: Deck): Promise<void> {
+  const html = serializeClean(deck)
+  let r: Response
+  try {
+    r = await fetch(`${SERVICE_BASE}/export/pptx`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ html, title: deck.title || deck.fileName || null }),
+    })
+  } catch {
+    throw new Error('the local service is not reachable — start it with: dia serve')
+  }
+  if (!r.ok) {
+    const detail = await r.text().catch(() => '')
+    throw new Error(`export failed (${r.status}): ${detail}`)
+  }
+  const blob = await r.blob()
+  const base = (deck.title || deck.fileName || 'deck').replace(/\.html?$/i, '')
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${base}.pptx`
+  document.body.append(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 4000)
+}
+
 /* ---------- slide templates ---------- */
 
 let idSeq = 1

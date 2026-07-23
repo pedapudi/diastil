@@ -187,6 +187,9 @@ step and no private data model.
 
 - `dia ingest <deck.html|deck.pptx>` — convert a foreign deck (HTML or
   PowerPoint) through the review flow
+- `dia export <deck.html> [--pptx out]` — render a deck to a native .pptx
+  (text boxes, shapes + connectors, vector charts and tables; opens in
+  PowerPoint/Keynote, imports to Google Slides as editable objects)
 - `dia validate <files…>` — profile check (stdlib-only, no install needed
   beyond the package)
 - `dia new <file> [--title t]` — scaffold a valid deck

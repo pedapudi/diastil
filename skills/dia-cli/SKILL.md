@@ -33,6 +33,12 @@ dia new deck.html [--title t]
                          # scaffold a profile-valid starting deck — the
                          #   generation entry point: scaffold, edit the
                          #   html, hold yourself to `dia validate`
+dia export deck.html [--pptx out.pptx]
+                         # render the deck to a .pptx (opens in PowerPoint /
+                         #   Keynote; converts to native, editable Google
+                         #   Slides on import). scenes/charts/inline-SVG ->
+                         #   native shapes; tables -> native tables; text
+                         #   roles -> text boxes; notes -> speaker notes
 dia validate a.html b…   # profile-validate; prints rule-id findings;
                          #   exit 1 on any error-level finding (stdlib-only)
 dia agents-md            # print an AGENTS.md-ready section teaching any
