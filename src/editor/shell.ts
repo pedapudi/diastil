@@ -31,7 +31,7 @@ import { toggleStoryboard } from './storyboard'
 import { focusedSlide, openSlideFocus, slidesInLogicalOrder } from '../studio/focus'
 import { buildSlideTree } from './tree'
 import { openCompare } from './compare'
-import { bootFromCli, openDeck, saveDeck, presentDeck } from './slides'
+import { bootFromCli, openDeck, saveDeck, presentDeck, exportPptx } from './slides'
 import { canStudio, openStudio } from '../studio/studio'
 import { newDrawingOnSlide } from '../studio/svgimport'
 import { applyTex, mathOf, renderTex } from './math'
@@ -161,6 +161,12 @@ export function mountEditor(host: HTMLElement): void {
   const btnOpen = dnButton('open', () => { void openDeck(canvasHost) })
   btnOpen.title = 'open any HTML deck — diastil files load directly; foreign decks convert through review'
   const btnSave = dnButton('save', () => { void doSave() })
+  const btnExport = dnButton('export .pptx', () => {
+    if (!state.deck) return
+    void exportPptx(state.deck).catch((e: unknown) =>
+      alert('Export to .pptx failed.\n\n' + (e instanceof Error ? e.message : String(e))))
+  })
+  btnExport.title = 'download a .pptx (opens in PowerPoint / Keynote; import to Google Slides)'
   btnSave.title = `write the deck back as self-contained HTML (${/Mac|iP(hone|ad|od)/.test(navigator.platform) ? '⌘S' : 'Ctrl+S'})`
 
   const pickerSlot = h('div')
@@ -170,7 +176,7 @@ export function mountEditor(host: HTMLElement): void {
   const statusWord = h('span', '', 'valid · v1')
   status.append(h('span', 'de-sdot'), statusWord)
 
-  topbar.append(brand, respreview, crumbs, h('div', 'de-spacer'), seg, btnOpen, btnSave, pickerSlot, status)
+  topbar.append(brand, respreview, crumbs, h('div', 'de-spacer'), seg, btnOpen, btnSave, btnExport, pickerSlot, status)
 
   /* ---------- layout ---------- */
 

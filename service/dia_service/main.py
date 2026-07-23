@@ -22,7 +22,7 @@ import json
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
@@ -447,6 +447,40 @@ async def write_file(req: FileWrite) -> dict[str, Any]:
     p = _resolve_opened(req.path)
     p.write_text(req.html, encoding="utf-8")
     return {"mtime": p.stat().st_mtime}
+
+
+class ExportPptx(BaseModel):
+    html: str
+    title: str | None = None
+
+
+@app.post("/export/pptx")
+async def export_pptx(req: ExportPptx) -> Response:
+    """Render the dialect deck to a .pptx and return it as a download. The file
+    opens in PowerPoint / Keynote and converts to native, editable Google Slides
+    on import (text roles -> text boxes, scenes -> shapes + connectors, charts ->
+    vector shapes, inline SVG -> shapes, speaker notes -> notes)."""
+    import re
+
+    from .pptx_export import deck_slide_count, deck_title, deck_to_pptx
+
+    if deck_slide_count(req.html) == 0:
+        raise HTTPException(
+            status_code=422, detail="no dia-slide sections found in the deck")
+    try:
+        data = deck_to_pptx(req.html)
+    except Exception as exc:  # noqa: BLE001 - never surface a raw 500 traceback
+        raise HTTPException(
+            status_code=500, detail=f"deck render failed: {exc}") from exc
+    title = (req.title or deck_title(req.html) or "presentation").strip()
+    safe = re.sub(r"[^\w .-]+", " ", title).strip() or "presentation"
+    return Response(
+        content=data,
+        media_type=(
+            "application/vnd.openxmlformats-officedocument"
+            ".presentationml.presentation"),
+        headers={"Content-Disposition": f'attachment; filename="{safe}.pptx"'},
+    )
 
 
 def mount_editor(dist: Path) -> None:
