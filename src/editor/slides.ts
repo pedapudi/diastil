@@ -284,11 +284,16 @@ export function presentDeck(deck: Deck): void {
  */
 export async function exportPptx(deck: Deck): Promise<void> {
   const html = serializeClean(deck)
-  const r = await fetch(`${SERVICE_BASE}/export/pptx`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ html, title: deck.title || deck.fileName || null }),
-  })
+  let r: Response
+  try {
+    r = await fetch(`${SERVICE_BASE}/export/pptx`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ html, title: deck.title || deck.fileName || null }),
+    })
+  } catch {
+    throw new Error('the local service is not reachable — start it with: dia serve')
+  }
   if (!r.ok) {
     const detail = await r.text().catch(() => '')
     throw new Error(`export failed (${r.status}): ${detail}`)

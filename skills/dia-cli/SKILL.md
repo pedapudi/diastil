@@ -37,7 +37,8 @@ dia export deck.html [--pptx out.pptx]
                          # render the deck to a .pptx (opens in PowerPoint /
                          #   Keynote; converts to native, editable Google
                          #   Slides on import). scenes/charts/inline-SVG ->
-                         #   native shapes; text roles -> text boxes
+                         #   native shapes; tables -> native tables; text
+                         #   roles -> text boxes; notes -> speaker notes
 dia validate a.html b…   # profile-validate; prints rule-id findings;
                          #   exit 1 on any error-level finding (stdlib-only)
 dia agents-md            # print an AGENTS.md-ready section teaching any

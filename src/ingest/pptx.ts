@@ -39,7 +39,12 @@ function xmlOf(parts: Parts, path: string): Document | null {
   // r:* attributes share localName with plain attributes (`id` vs `r:id`
   // on p:sldId) — some XML DOMs drop one of the pair. Neutralize the
   // relationship prefix textually so lookups are plain and portable.
-  const safe = text.replace(/\br:(id|embed|link|pict|dm|lo|qs|cs)=/g, 'r_$1=')
+  // Also drop the XML declaration: lxml-based producers (python-pptx,
+  // Aspose) write it with single quotes, which some XML DOMs reject —
+  // the text is already decoded, so the declaration carries no information.
+  const safe = text
+    .replace(/^\uFEFF?\s*<\?xml[\s\S]*?\?>/, '')
+    .replace(/\br:(id|embed|link|pict|dm|lo|qs|cs)=/g, 'r_$1=')
   const doc = new DOMParser().parseFromString(safe, 'application/xml')
   return doc.querySelector('parsererror') ? null : doc
 }

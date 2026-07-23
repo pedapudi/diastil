@@ -198,7 +198,15 @@ def cmd_export(path: str, out: str | None) -> int:
     converts to native, editable Google Slides on import). Text roles become
     text boxes; scenes become native shapes + connectors; charts become vector
     shapes; inline SVG becomes shapes/freeforms; speaker notes become notes."""
-    from .pptx_export import deck_slide_count, deck_title, export_file
+    try:
+        from .pptx_export import deck_slide_count, deck_title, export_file
+    except ImportError:
+        print(
+            "dia: export needs python-pptx — install the service package:\n"
+            "  cd service && python3 -m venv .venv && .venv/bin/pip install -e .",
+            file=sys.stderr,
+        )
+        return 2
 
     p = Path(path)
     if not p.is_file():

@@ -106,6 +106,9 @@ itself never lives in config.
 - `POST /skills/lift-diagram` → `{sceneHtml}` raw SVG → scene vocabulary.
 - `GET/PUT /file` → read/write local files, allowlisted to paths the CLI
   opened — the editor's save-back channel for `dia <deck.html>`.
+- `POST /export/pptx` → the deck rendered to a native `.pptx` download
+  (text boxes, shapes + connectors, vector charts and tables — stays
+  editable in PowerPoint / Keynote / Google Slides).
 
 ## Privacy
 
