@@ -35,6 +35,9 @@
   white-space: nowrap;
 }
 .dn-seg button.dn-on { background: var(--accent); color: var(--paper); }
+/* split button: primary verb + a caret opening related verbs */
+.dn-split button:hover { background: var(--rule-soft); color: var(--ink); }
+.dn-split button + button { border-left: 1px solid var(--rule-soft); padding: 4px 7px; }
 
 .dn-input {
   font-family: var(--sans);

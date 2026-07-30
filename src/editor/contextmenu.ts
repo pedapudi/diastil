@@ -16,7 +16,10 @@ import {
 } from '../studio/tools'
 import { insertTextOnSlide, startEdit } from './textedit'
 import { openCompare } from './compare'
-import { assignFreshIds } from './slides'
+import {
+  assignFreshIds, exportPptxAction, pptxExportAvailable,
+  PPTX_EXPORT_HINT, PPTX_EXPORT_OFFLINE_HINT,
+} from './slides'
 import {
   deleteSceneSelection, insertShapeNode,
   openEdgeLabelEdit, openLabelEdit, openSvgTextEdit,
@@ -109,8 +112,14 @@ function deckEntries(target: Element, slide: HTMLElement): Entry[] {
       items.push({ label: 'compare with original', run: () => openCompare(deck, Math.max(0, idx)) })
     }
   }
+  items.push(SEP, {
+    label: 'export deck to .pptx',
+    run: () => exportPptxAction(),
+    disabled: !pptxExportAvailable(),
+    hint: pptxExportAvailable() ? PPTX_EXPORT_HINT : PPTX_EXPORT_OFFLINE_HINT,
+  })
   if (state.slides().length > 1) {
-    items.push({ label: 'delete slide', run: () => remove(slide), danger: true })
+    items.push(SEP, { label: 'delete slide', run: () => remove(slide), danger: true })
   }
   return items
 }

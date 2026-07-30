@@ -7,6 +7,11 @@ export interface Item {
   label: string
   run: () => void
   danger?: boolean
+  /** shown but not clickable — the capability exists, a precondition is
+   * missing; pair with a hint that names the unlock */
+  disabled?: boolean
+  /** tooltip (title) — on disabled items, say what would enable them */
+  hint?: string
 }
 
 export const SEP: unique symbol = Symbol('sep')
@@ -29,6 +34,8 @@ export function openMenu(x: number, y: number, entries: Entry[]): void {
     b.type = 'button'
     b.textContent = entry.label
     if (entry.danger) b.className = 'is-danger'
+    if (entry.disabled) b.disabled = true
+    if (entry.hint) b.title = entry.hint
     b.addEventListener('click', () => { closeMenu(); entry.run() })
     menu.appendChild(b)
   }

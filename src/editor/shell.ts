@@ -31,7 +31,11 @@ import { toggleStoryboard } from './storyboard'
 import { focusedSlide, openSlideFocus, slidesInLogicalOrder } from '../studio/focus'
 import { buildSlideTree } from './tree'
 import { openCompare } from './compare'
-import { bootFromCli, openDeck, saveDeck, presentDeck, exportPptx } from './slides'
+import {
+  bootFromCli, exportPptxAction, openDeck, pptxExportAvailable,
+  PPTX_EXPORT_HINT, PPTX_EXPORT_OFFLINE_HINT, presentDeck, saveDeck,
+} from './slides'
+import { openMenu } from './menu'
 import { canStudio, openStudio } from '../studio/studio'
 import { newDrawingOnSlide } from '../studio/svgimport'
 import { applyTex, mathOf, renderTex } from './math'
@@ -160,14 +164,27 @@ export function mountEditor(host: HTMLElement): void {
 
   const btnOpen = dnButton('open', () => { void openDeck(canvasHost) })
   btnOpen.title = 'open any HTML deck — diastil files load directly; foreign decks convert through review'
-  const btnSave = dnButton('save', () => { void doSave() })
-  const btnExport = dnButton('export .pptx', () => {
-    if (!state.deck) return
-    void exportPptx(state.deck).catch((e: unknown) =>
-      alert('Export to .pptx failed.\n\n' + (e instanceof Error ? e.message : String(e))))
-  })
-  btnExport.title = 'download a .pptx (opens in PowerPoint / Keynote; import to Google Slides)'
+
+  // save is a split button: the button saves (the frequent act), the caret
+  // opens save & export — exporters live in the menu, not the toolbar
+  const btnSave = segButton('save', () => { void doSave() })
   btnSave.title = `write the deck back as self-contained HTML (${/Mac|iP(hone|ad|od)/.test(navigator.platform) ? '⌘S' : 'Ctrl+S'})`
+  const btnSaveMore = segButton('▾', () => {
+    const r = btnSaveMore.getBoundingClientRect()
+    const online = pptxExportAvailable()
+    openMenu(r.right - 196, r.bottom + 4, [
+      { label: 'save', run: () => { void doSave() } },
+      {
+        label: 'export .pptx',
+        run: () => exportPptxAction(),
+        disabled: !online,
+        hint: online ? PPTX_EXPORT_HINT : PPTX_EXPORT_OFFLINE_HINT,
+      },
+    ])
+  })
+  btnSaveMore.title = 'save & export…'
+  const saveSplit = h('span', 'dn-seg dn-split')
+  saveSplit.append(btnSave, btnSaveMore)
 
   const pickerSlot = h('div')
   pickerSlot.id = 'picker-slot'
@@ -176,7 +193,7 @@ export function mountEditor(host: HTMLElement): void {
   const statusWord = h('span', '', 'valid · v1')
   status.append(h('span', 'de-sdot'), statusWord)
 
-  topbar.append(brand, respreview, crumbs, h('div', 'de-spacer'), seg, btnOpen, btnSave, btnExport, pickerSlot, status)
+  topbar.append(brand, respreview, crumbs, h('div', 'de-spacer'), seg, btnOpen, saveSplit, pickerSlot, status)
 
   /* ---------- layout ---------- */
 

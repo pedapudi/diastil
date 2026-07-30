@@ -390,6 +390,8 @@
   padding: 5px 11px; cursor: pointer; white-space: nowrap;
 }
 .de-menu button:hover { background: var(--rule-soft); }
+.de-menu button:disabled { opacity: .45; cursor: default; }
+.de-menu button:disabled:hover { background: transparent; }
 .de-menu button.is-danger { color: var(--bad, #c33); }
 .de-menu button.is-danger:hover { background: var(--bad-soft, rgba(200,50,50,.15)); }
 .de-menu hr { border: 0; border-top: 1px solid var(--rule-soft); margin: 5px 6px; }

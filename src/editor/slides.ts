@@ -276,6 +276,32 @@ export function presentDeck(deck: Deck): void {
   setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
+/* ---------- .pptx export (service-rendered) ---------- */
+
+// the copilot rail probes /health and broadcasts the verdict on this bus;
+// export surfaces gate on the last broadcast instead of probing again
+let serviceOnline = false
+window.addEventListener('dia-service-status', (ev) => {
+  serviceOnline = Boolean((ev as CustomEvent<{ online?: boolean }>).detail?.online)
+})
+
+export function pptxExportAvailable(): boolean {
+  return serviceOnline
+}
+
+export const PPTX_EXPORT_HINT =
+  'download a .pptx — opens in PowerPoint / Keynote; imports to Google Slides as editable objects'
+export const PPTX_EXPORT_OFFLINE_HINT =
+  'needs the local service — start it with: dia serve'
+
+/** the ONE export action every surface (save menu, context menu) routes
+ * through: current deck, user-facing failure */
+export function exportPptxAction(): void {
+  if (!state.deck) return
+  void exportPptx(state.deck).catch((e: unknown) =>
+    alert('Export to .pptx failed.\n\n' + (e instanceof Error ? e.message : String(e))))
+}
+
 /**
  * Export to .pptx — the service renders the deck to PowerPoint (Open XML) and
  * returns it as a download. Scenes/charts/inline-SVG become native shapes and
