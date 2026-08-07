@@ -42,13 +42,15 @@ import { installBibliography } from '../doc/bibliography'
 import { mountOutline, showOutline } from './outline'
 import { mountComments } from '../doc/commentrail'
 import { activateSource, deactivateSource, jumpToLine, mountSourceView } from './source'
-import { openMenu, SEP } from './menu'
+import { openMenu, SEP, type Entry } from './menu'
 import {
-  autoCompileOn, compileNow, compileState, exportPdfAction, installAutoCompile, installTectonic,
+  autoCompileOn, compileNow, compileState, exportPdfAction, grantFolderAndRecompile,
+  installAutoCompile, installTectonic,
   onCompileState, previewPdfAction, setAutoCompile, texAvailable, texDownloadable, texHint,
   PDF_PREVIEW_HINT, TEX_INSTALL_ACTION, TEX_NO_ENGINE_HINT, TEX_OFFLINE_HINT,
   type CompileState,
 } from './doccompile'
+import { folderGrantAvailable } from './folderGrant'
 import { mountProblems, problemsCount, toggleProblems } from './problems'
 import { canStudio, openStudio } from '../studio/studio'
 import { newDrawingOnSlide } from '../studio/svgimport'
@@ -280,7 +282,8 @@ export function mountEditor(host: HTMLElement): void {
   texMore.title = 'the engine’s report, and how the native view uses it'
   texMore.addEventListener('click', () => {
     const r = texMore.getBoundingClientRect()
-    const problems = problemsCount(compileState())
+    const s = compileState()
+    const problems = problemsCount(s)
     openMenu(r.right - 210, r.bottom + 4, [
       {
         label: problems === 0 ? 'problems' : `problems (${problems})`,
@@ -299,6 +302,13 @@ export function mountEditor(host: HTMLElement): void {
         run: () => setMirrorOn(!mirrorOn()),
         hint: 'show the dialect’s own rendering instead of the compiled crops, for this session',
       },
+      // only offered when the last failure is EXACTLY a blind compile
+      // tripping on a missing file, and only where the API exists to fix it
+      ...(s.blindMissing && folderGrantAvailable() ? [SEP, {
+        label: 'grant folder access…',
+        run: () => { if (state.doc) void grantFolderAndRecompile(state.doc) },
+        hint: 'read the document’s folder in the browser and send its styles, classes and figures with the compile',
+      }] as Entry[] : []),
     ])
   })
   texChip.append(texMain, texMore)

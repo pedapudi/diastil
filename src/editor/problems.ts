@@ -10,8 +10,9 @@
 
 import type { Doc } from '../model/doc'
 import { state } from '../state'
-import { onCompileState, type CompileState, type TexError } from './doccompile'
+import { grantFolderAndRecompile, onCompileState, type CompileState, type TexError } from './doccompile'
 import { flashBlock, scrollToBlock } from './docview'
+import { folderGrantAvailable } from './folderGrant'
 
 let drawer: HTMLElement | null = null
 let list: HTMLElement | null = null
@@ -91,6 +92,9 @@ function render(s: CompileState): void {
     note.textContent = s.detail
     list.append(note)
   }
+  // the one-click recovery: only offered when the failure is EXACTLY the
+  // shape a folder grant fixes, and only where the API exists to fix it
+  if (s.blindMissing && folderGrantAvailable()) list.append(grantRow())
   for (const f of findings) list.append(rowFor(f))
 
   // a failed compile opens the drawer itself; a clean one never closes it
@@ -98,6 +102,32 @@ function render(s: CompileState): void {
   const became = s.status !== lastStatus
   lastStatus = s.status
   if (became && s.status === 'failed' && findings.length > 0) toggleProblems(true)
+}
+
+let granting = false
+
+/** the drawer's offer for a blind compile: read the document's folder in
+ * the browser and resubmit with its styles/figures attached */
+function grantRow(): HTMLElement {
+  const row = document.createElement('div')
+  row.className = 'de-prob-grant'
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.textContent = 'grant folder access…'
+  btn.title = 'read this document’s folder in the browser and send its styles, classes and figures along with the compile'
+  const original = btn.textContent
+  btn.addEventListener('click', () => {
+    if (granting || !state.doc) return
+    granting = true
+    btn.disabled = true
+    btn.textContent = 'choose a folder…'
+    void grantFolderAndRecompile(state.doc).then((result) => {
+      // null: the user cancelled the picker — leave the offer exactly as it was
+      if (result === null) { btn.textContent = original; btn.disabled = false }
+    }).finally(() => { granting = false })
+  })
+  row.append(btn)
+  return row
 }
 
 function rowFor(f: TexError): HTMLElement {

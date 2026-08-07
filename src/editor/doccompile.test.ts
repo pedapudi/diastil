@@ -5,8 +5,8 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  INITIAL_COMPILE_STATE, compileNow, compileState, createAutoCompiler, reduceCompile,
-  resetCompileState, texAvailable, texDownloadable, texHint,
+  INITIAL_COMPILE_STATE, compileGrant, compileNow, compileState, createAutoCompiler, reduceCompile,
+  resetCompileState, setCompileGrant, texAvailable, texDownloadable, texHint,
   TEX_INSTALL_HINT, TEX_NO_ENGINE_HINT, TEX_OFFLINE_HINT,
   type CompileEvent, type CompileState,
 } from './doccompile'
@@ -154,16 +154,34 @@ describe('a blind compile failing on a missing file', () => {
     expect(s.status).toBe('failed')
     expect(s.detail).toContain('dia edit')
     expect(s.warnings[0]?.message).toContain('invisible to the compile')
+    // this is the ONE shape the folder-grant offer gates on
+    expect(s.blindMissing).toBe(true)
   })
   it('stays quiet when the compile could see the folder', () => {
     const s = run([online(ENGINE), { kind: 'start' }, { kind: 'frame', frame: doneFail, blind: false }])
     expect(s.detail ?? '').not.toContain('dia edit')
     expect(s.warnings).toHaveLength(0)
+    expect(s.blindMissing).toBe(false)
   })
   it('stays quiet on failures that are not about missing files', () => {
     const other = { type: 'done', status: 'failed', errors: [{ level: 'error', file: 'main.tex', line: 5, message: 'Undefined control sequence.' }] }
     const s = run([online(ENGINE), { kind: 'start' }, { kind: 'frame', frame: other, blind: true }])
     expect(s.detail ?? '').not.toContain('dia edit')
+    expect(s.blindMissing).toBe(false)
+  })
+  it('a fresh compile clears a stale blindMissing before the next result lands', () => {
+    const s = run([
+      online(ENGINE), { kind: 'start' }, { kind: 'frame', frame: doneFail, blind: true },
+      { kind: 'start' },
+    ])
+    expect(s.blindMissing).toBe(false)
+  })
+  it('a request-level failure (offline, no-engine) is not a blindMissing failure', () => {
+    const s = run([
+      online(ENGINE), { kind: 'start' }, { kind: 'frame', frame: doneFail, blind: true },
+      { kind: 'fail', status: 'offline', detail: TEX_OFFLINE_HINT },
+    ])
+    expect(s.blindMissing).toBe(false)
   })
 })
 
@@ -348,6 +366,54 @@ describe('compileNow over a stubbed service', () => {
     expect(await stale).toBeNull()
     expect(fresh?.ok).toBe(true)
     expect(compileState()).toMatchObject({ status: 'ok', pages: 9, errors: [] })
+  })
+})
+
+/* ---------- the folder grant riding along on the compile POST ---------- */
+
+describe('a granted folder’s assets ride along on the compile', () => {
+  afterEach(() => { vi.unstubAllGlobals(); resetCompileState() })
+
+  it('with no grant, the POST body carries no assets key', async () => {
+    const fetchMock = stubService([
+      { type: 'done', jobId: 'job42', status: 'ok', engine: 'tectonic', pages: 1, durationMs: 5, errors: [] },
+    ])
+    await compileNow(makeDoc(TINY))
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body)) as { assets?: unknown }
+    expect(body.assets).toBeUndefined()
+  })
+
+  it('a granted folder’s assets are attached to the very next compile', async () => {
+    setCompileGrant('papers', { 'neurips_2022.sty': '% a style file', 'fig1.png': 'data:application/octet-stream;base64,AA==' }, 1)
+    expect(compileGrant()).toMatchObject({ folderName: 'papers', skippedCount: 1 })
+
+    const fetchMock = stubService([
+      { type: 'done', jobId: 'job42', status: 'ok', engine: 'tectonic', pages: 1, durationMs: 5, errors: [] },
+    ])
+    await compileNow(makeDoc(TINY))
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body)) as { assets?: Record<string, string> }
+    expect(body.assets).toEqual({
+      'neurips_2022.sty': '% a style file',
+      'fig1.png': 'data:application/octet-stream;base64,AA==',
+    })
+  })
+
+  it('the grant persists across compiles until reset — the session-scoped promise', async () => {
+    setCompileGrant('papers', { 'neurips_2022.sty': '% a style file' })
+    stubService([{ type: 'done', jobId: 'job1', status: 'ok', engine: 'tectonic', pages: 1, durationMs: 5, errors: [] }])
+    const doc = makeDoc(TINY)
+    await compileNow(doc)
+
+    const fetchMock = stubService([{ type: 'done', jobId: 'job2', status: 'ok', engine: 'tectonic', pages: 1, durationMs: 5, errors: [] }])
+    await compileNow(doc)
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body)) as { assets?: Record<string, string> }
+    expect(body.assets).toEqual({ 'neurips_2022.sty': '% a style file' })
+  })
+
+  it('resetCompileState clears the grant along with everything else', async () => {
+    setCompileGrant('papers', { 'x.sty': 'y' })
+    resetCompileState()
+    expect(compileGrant()).toBeNull()
   })
 })
 
