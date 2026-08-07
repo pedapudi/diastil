@@ -3,7 +3,7 @@
  * read that folder — showDirectoryPicker() is a permission the user grants
  * inline, in a click, and the daemon never learns of it except through what
  * arrives in the existing `assets` map. write_assets() on the service side
- * already validates every name it receives (service/dia_service/main.py
+ * already validates every name it receives (service/dia_service/texcompile.py
  * `_safe_asset_path`); this module's job is to be a good citizen on the way
  * there — read plausible support files, cap what it sends, and say what it
  * left behind rather than truncating silently.
@@ -55,7 +55,7 @@ export function isTextSupportFile(name: string): boolean {
   return TEXT_EXTENSIONS.has(extOf(name))
 }
 
-/** Mirrors the daemon's `_safe_asset_path` (service/dia_service/main.py) for
+/** Mirrors the daemon's `_safe_asset_path` (service/dia_service/texcompile.py) for
  * a FLAT name. The picker only ever hands back one directory's own listing —
  * there is no `..` for a real entry to contain — but a name can still carry
  * a separator on an exotic filesystem or a mounted share, and the daemon's
