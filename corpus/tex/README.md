@@ -26,3 +26,23 @@ redistribution), flatten it, drop it here, run the corpus test, and commit
 the new floors it prints. To lower a floor: don't — unless a deliberate
 parser change makes structure honestly coarser, in which case lower it in
 the same commit with a comment saying why.
+
+## Authored fixtures (document-family breadth)
+
+The six papers above are all article-class, mostly two-column conference
+layouts — every heuristic in `src/latex/` had only ever been hardened
+against that one shape. issue #8 broadens the corpus to other document
+FAMILIES a real user will open: a thesis, a beamer deck, a biblatex
+document, a math-heavy monograph. Real papers of these shapes are much
+harder to source under a redistribution-compatible license (theses and
+decks are rarely CC-licensed), so these four are authored — fictional
+content, plainly fictional authorship ("A. Author"), real LaTeX structure
+(real sectioning, cross-references, citations, floats, theorem
+environments, overlays). They hold the same ratchets as the arXiv six.
+
+| dir | class/packages | exercises |
+|---|---|---|
+| thesis/ | book, twoside | `\chapter`, front/back matter, `\tableofcontents`, double-page headers, appendix |
+| beamer/ | beamer | frames, overlays (`\pause`, `\onslide`, `\item<n->`), `\section` nav markup |
+| biblatex/ | biblatex (backend=bibtex) | `\printbibliography`, `\autocite`/`\parencite`/`\textcite` incl. sentence-case |
+| theorems/ | amsthm, amsmath | theorem/lemma/proof environments, numbered display math, `align`/`cases` |

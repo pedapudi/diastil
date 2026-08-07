@@ -13,7 +13,7 @@ import { showToast as showEditToast } from '../scene/overlay'
 
 const ROLE_SELECTOR = '.dia-title, .dia-kicker, .dia-body, .dia-caption'
 /** document-mode editable leaves — prose shapes, not slide roles */
-const DOC_LEAF = 'p, h2.dia-sec, h3.dia-sec, h4.dia-sec, h5.dia-sec, figcaption, li, dt, dd, td'
+const DOC_LEAF = 'p, h1.dia-sec, h2.dia-sec, h3.dia-sec, h4.dia-sec, h5.dia-sec, figcaption, li, dt, dd, td'
 
 let canvas!: HTMLElement
 let editing: { el: HTMLElement; original: string; math?: boolean } | null = null

@@ -204,12 +204,21 @@ describe('doc round-trip', () => {
     expect(out).not.toContain('data-dia-id')
   })
 
-  it('a real paper round-trips byte-identically', () => {
-    const tex = readFileSync(join(repo, 'corpus', 'tex', 'llama', 'llama.tex'), 'utf-8')
-    const s1 = serializeDoc(mountTex(tex, 'llama.tex'))
-    expect(exportTex(mountHtml(s1))).toBe(tex)
-    expect(serializeDoc(mountHtml(s1))).toBe(s1)
-  })
+  // one fixture per document FAMILY the corpus covers (see corpus/tex/README.md
+  // and issue #8) — a two-column conference paper, plus book/beamer/biblatex/
+  // amsthm, each exercising presentation heuristics the others don't
+  const REAL_PAPERS = [
+    'llama/llama.tex', 'thesis/thesis.tex', 'beamer/beamer.tex',
+    'biblatex/biblatex.tex', 'theorems/theorems.tex',
+  ]
+  for (const rel of REAL_PAPERS) {
+    it(`a real paper round-trips byte-identically (${rel})`, () => {
+      const tex = readFileSync(join(repo, 'corpus', 'tex', rel), 'utf-8')
+      const s1 = serializeDoc(mountTex(tex, rel.split('/').pop()))
+      expect(exportTex(mountHtml(s1))).toBe(tex)
+      expect(serializeDoc(mountHtml(s1))).toBe(s1)
+    })
+  }
 })
 
 describe('comments trailer', () => {

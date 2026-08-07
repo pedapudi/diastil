@@ -162,7 +162,8 @@ function mountDoc(host: HTMLElement, input: MountInput): Doc {
     .de-mirror-part + .de-mirror-part { margin-top: 0.18rem; }
     /* the crop is trimmed to its own ink, so the vertical rhythm between
      * blocks is this file's job again — roughly what the theme spends */
-    article.dia-doc > h2.dia-sec > .de-mirror, article.dia-doc > h3.dia-sec > .de-mirror,
+    article.dia-doc > h1.dia-sec > .de-mirror, article.dia-doc > h2.dia-sec > .de-mirror,
+    article.dia-doc > h3.dia-sec > .de-mirror,
     article.dia-doc > h4.dia-sec > .de-mirror, article.dia-doc > h5.dia-sec > .de-mirror,
     article.dia-doc > figure > .de-mirror, article.dia-doc > div.dia-math > .de-mirror,
     article.dia-doc > div.dia-tex-island > .de-mirror, article.dia-doc > table > .de-mirror
@@ -383,8 +384,9 @@ article.dia-doc {
 .dia-abstract::before { content: "abstract"; display: block; font-family: var(--dia-face-label);
   font-size: 0.72em; letter-spacing: .14em; text-transform: uppercase; color: var(--dia-accent);
   margin-bottom: 0.6em; }
-h2.dia-sec, h3.dia-sec, h4.dia-sec, h5.dia-sec { font-family: var(--dia-face-display);
+h1.dia-sec, h2.dia-sec, h3.dia-sec, h4.dia-sec, h5.dia-sec { font-family: var(--dia-face-display);
   line-height: 1.25; margin: 1.8em 0 0.6em; }
+h1.dia-sec { font-size: 1.85em; margin-top: 2.4em; }
 h2.dia-sec { font-size: 1.45em; }
 h3.dia-sec { font-size: 1.2em; }
 h4.dia-sec, h5.dia-sec { font-size: 1.05em; }

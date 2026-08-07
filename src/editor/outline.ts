@@ -42,7 +42,7 @@ function rebuild(): void {
   }
   const openPerBlock = openCommentsByBlock()
   blocks.forEach((b, i) => {
-    if (!b.matches('h2.dia-sec, h3.dia-sec, h4.dia-sec, h5.dia-sec')) return
+    if (!b.matches('h1.dia-sec, h2.dia-sec, h3.dia-sec, h4.dia-sec, h5.dia-sec')) return
     const level = Number(b.tagName[1]) - 1 // h2 → 1
     const row = document.createElement('button')
     row.type = 'button'

@@ -14,19 +14,32 @@ import { cleanOuter } from '../latex/emit'
 export function refreshDerived(article: HTMLElement): void {
   const numbers = new Map<string, string>()
   const counters = [0, 0, 0, 0]
+  let chapters = 0
   let figures = 0
   let tables = 0
   let equations = 0
 
   for (const el of article.querySelectorAll<HTMLElement>(
-    'h2.dia-sec, h3.dia-sec, h4.dia-sec, figure.dia-figure, div.dia-math[data-dia-env]',
+    'h1.dia-sec, h2.dia-sec, h3.dia-sec, h4.dia-sec, figure.dia-figure, div.dia-math[data-dia-env]',
   )) {
     const label = el.getAttribute('data-dia-label')
+    // \chapter (book/report classes) sits above \section: its own counter,
+    // never folded into `counters` — chapter-less documents (the common
+    // case) keep numbering \section as "1", "2" exactly as before
+    if (el.matches('h1.dia-sec')) {
+      chapters++
+      counters.fill(0)
+      if (label) numbers.set(label, String(chapters))
+      continue
+    }
     if (el.matches('.dia-sec')) {
       const level = Number(el.tagName[1]) - 2 // h2 → 0
       counters[level]++
       for (let i = level + 1; i < counters.length; i++) counters[i] = 0
-      if (label) numbers.set(label, counters.slice(0, level + 1).join('.'))
+      if (label) {
+        const own = counters.slice(0, level + 1).join('.')
+        numbers.set(label, chapters > 0 ? `${chapters}.${own}` : own)
+      }
       continue
     }
     if (el.matches('figure.dia-figure')) {
