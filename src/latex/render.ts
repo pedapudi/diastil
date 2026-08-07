@@ -25,6 +25,16 @@ export interface RenderedBlock {
 export interface BlockMemo { slice: string; html: string }
 export const blockMemo = new WeakMap<HTMLElement, BlockMemo>()
 
+/** one original tabular cell, in source order, mapped to its rendered <td>
+ * (or null for a \multirow-covered placeholder, which never gets a <td> —
+ * see the tabular render case). start/end are offsets into the table's OWN
+ * blockMemo slice, so emit.ts can splice an edited cell back in without
+ * disturbing anything else in the row: rules, alignment specs, whitespace,
+ * every other cell. pristineHtml mirrors blockMemo's tamper seal, at cell
+ * grain, captured before session id-stamping so it stays comparable. */
+export interface TabCellSlot { start: number; end: number; td: HTMLElement | null; pristineHtml: string | null }
+export const tabularCellMemo = new WeakMap<HTMLElement, TabCellSlot[]>()
+
 export interface RenderedDoc {
   article: HTMLElement
   blocks: RenderedBlock[]
@@ -234,31 +244,45 @@ function renderBlockInner(b: LxBlock, src: string): HTMLElement {
     case 'tabular': {
       const table = document.createElement('table')
       table.setAttribute('data-dia-colspec', b.colspec)
+      if (b.trailingRule) table.setAttribute('data-dia-trailing-rule', b.trailingRule)
       const tbody = document.createElement('tbody')
       // a \multirow covers grid positions in the rows below it; multirow's
       // convention leaves those source cells EMPTY, and HTML wants them
       // absent — a covered position consumes its empty placeholder cell
       const coveredUntil = new Map<number, number>() // column -> last covered row
+      const slots: TabCellSlot[] = []
       b.rows.forEach((row, r) => {
         const tr = document.createElement('tr')
+        if (row.rule) tr.setAttribute('data-dia-rule', row.rule)
         let col = 0
-        for (const cell of row) {
+        for (const cell of row.cells) {
+          const slotSpan = { start: cell.contentSpan.start - b.span.start, end: cell.contentSpan.end - b.span.start }
           const empty = cell.inline.length === 0 && !cell.colspan && !cell.rowspan
-          if (empty && (coveredUntil.get(col) ?? -1) >= r) { col++; continue }
+          if (empty && (coveredUntil.get(col) ?? -1) >= r) {
+            slots.push({ ...slotSpan, td: null, pristineHtml: null })
+            col++
+            continue
+          }
           while ((coveredUntil.get(col) ?? -1) >= r) col++
           const td = document.createElement('td')
-          if (cell.colspan) td.setAttribute('colspan', String(cell.colspan))
+          if (cell.colspan) {
+            td.setAttribute('colspan', String(cell.colspan))
+            if (cell.colspanSpec !== undefined) td.setAttribute('data-dia-colspan-spec', cell.colspanSpec)
+          }
           if (cell.rowspan) {
             td.setAttribute('rowspan', String(cell.rowspan))
+            if (cell.rowspanWidth !== undefined) td.setAttribute('data-dia-rowspan-width', cell.rowspanWidth)
             for (let c = 0; c < (cell.colspan ?? 1); c++) coveredUntil.set(col + c, r + cell.rowspan - 1)
           }
           td.append(...renderInlines(cell.inline, src))
           tr.appendChild(td)
+          slots.push({ ...slotSpan, td, pristineHtml: td.outerHTML })
           col += cell.colspan ?? 1
         }
         tbody.appendChild(tr)
       })
       table.appendChild(tbody)
+      tabularCellMemo.set(table, slots)
       return table
     }
     case 'math':

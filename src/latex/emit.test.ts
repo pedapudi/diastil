@@ -133,6 +133,54 @@ describe('edited blocks reconstruct', () => {
   })
 })
 
+describe('table cell edits are surgical (issue #10 acceptance)', () => {
+  /** the ONLY differing substring between two strings, by longest common
+   * prefix/suffix — the acceptance bar is that this substring is exactly
+   * the touched cell's old and new text, nothing else in the table */
+  function onlyDiff(a: string, b: string): { removed: string; added: string } {
+    let p = 0
+    while (p < a.length && p < b.length && a[p] === b[p]) p++
+    let sa = a.length
+    let sb = b.length
+    while (sa > p && sb > p && a[sa - 1] === b[sb - 1]) { sa--; sb-- }
+    return { removed: a.slice(p, sa), added: b.slice(p, sb) }
+  }
+
+  it('llama.tex: editing one cell of a booktabs \\multicolumn/\\multirow table touches only that cell', () => {
+    const src = readFileSync(join(repo, 'corpus', 'tex', 'llama', 'llama.tex'), 'utf-8')
+    const pairs = renderPairs(src)
+    const target = pairs.find(({ slice }) => slice.includes('\\multicolumn{2}{c}{HumanEval}'))!
+    expect(target.slice).toContain('\\multicolumn{2}{c}{HumanEval}')
+    expect(target.slice).toContain('\\multirow{4}{*}{\\model}')
+    const td = [...target.el.querySelectorAll('td')].find((c) => c.textContent?.trim() === '56.2')!
+    td.textContent = (td.textContent ?? '').replace('56.2', '99.9')
+    const out = emitBlockTex(target.el)
+    const { removed, added } = onlyDiff(target.slice, out)
+    expect(removed).toBe('56.2')
+    expect(added).toBe('99.9')
+    // the rules and the spanning cells' specs survive untouched
+    expect(out).toContain('\\multicolumn{2}{c}{HumanEval}')
+    expect(out).toContain('\\multirow{4}{*}{\\model}')
+    expect(out).toContain('\\toprule')
+    expect(out).toContain('\\bottomrule')
+  })
+
+  it('cot.tex: editing one cell under a chained \\cmidrule(lr) run touches only that cell', () => {
+    const src = readFileSync(join(repo, 'corpus', 'tex', 'cot', 'cot.tex'), 'utf-8')
+    const pairs = renderPairs(src)
+    const target = pairs.find(({ slice }) => slice.includes('\\label{tab:all-lm-math}'))!
+    expect(target.slice).toContain('\\cmidrule(lr){3-4} \\cmidrule(lr){5-6}')
+    const td = [...target.el.querySelectorAll('td')].find((c) => c.textContent?.trim() === '16.6')!
+    td.textContent = (td.textContent ?? '').replace('16.6', '77.7')
+    const out = emitBlockTex(target.el)
+    const { removed, added } = onlyDiff(target.slice, out)
+    expect(removed).toBe('16.6')
+    expect(added).toBe('77.7')
+    expect(out).toContain('\\cmidrule(lr){3-4} \\cmidrule(lr){5-6}')
+    expect(out).toContain('\\multicolumn{2}{c}{GSM8K}')
+  })
+})
+
 describe('inline emission', () => {
   it('escapes special characters and round-trips through the parser', () => {
     const p = document.createElement('p')

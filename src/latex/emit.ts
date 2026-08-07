@@ -12,7 +12,7 @@
  * Contract (tested): emitBlockTex(render(parse(x))) === slice(x) unedited,
  * and for edited blocks the emission re-parses to an equivalent tree. */
 
-import { blockMemo } from './render'
+import { blockMemo, tabularCellMemo } from './render'
 
 const EDITOR_ATTRS = ['data-dia-id', 'contenteditable', 'spellcheck', 'data-dia-selected', 'data-dia-current']
 
@@ -158,20 +158,27 @@ function emitItemBody(host: HTMLElement): string {
   return parts.join('\n')
 }
 
-/** floats reconstruct surgically: only the caption is natively editable in
- * v1, so replace the \caption group inside the original slice and leave
+/** floats reconstruct surgically: the caption and any embedded tabular are
+ * the natively editable parts in v1, so patch the \caption group and splice
+ * any edited table's own reconstruction into the original slice, leaving
  * everything else (placement, centering, graphics, sizing) byte-intact */
 function emitFloat(el: HTMLElement, slice: string | null): string {
   const cap = el.querySelector(':scope > figcaption')
   const capTex = cap ? emitInlines(cap.childNodes) : null
   if (slice) {
-    if (capTex === null) return slice
-    const patched = replaceCommandGroup(slice, 'caption', capTex)
-    if (patched !== null) return patched
-    // no \caption in the original — append one before \end
-    const env = el.getAttribute('data-dia-float') ?? 'figure'
-    const at = slice.lastIndexOf(`\\end{${env}`)
-    if (at >= 0) return `${slice.slice(0, at)}\\caption{${capTex}}\n${slice.slice(at)}`
+    let out = slice
+    if (capTex !== null) {
+      const patched = replaceCommandGroup(out, 'caption', capTex)
+      if (patched !== null) {
+        out = patched
+      } else {
+        // no \caption in the original — append one before \end
+        const env = el.getAttribute('data-dia-float') ?? 'figure'
+        const at = out.lastIndexOf(`\\end{${env}`)
+        if (at >= 0) out = `${out.slice(0, at)}\\caption{${capTex}}\n${out.slice(at)}`
+      }
+    }
+    return spliceEditedTables(el, out)
   }
   const env = el.getAttribute('data-dia-float') ?? 'figure'
   const label = el.getAttribute('data-dia-label')
@@ -190,21 +197,69 @@ function emitFloat(el: HTMLElement, slice: string | null): string {
   return lines.join('\n')
 }
 
-/** tabular reconstructs whole — a known v1 loss: rule commands (\toprule…)
- * and a spanning cell's exact alignment spec do not survive a cell edit;
- * structural table editing lives in the source view */
+/** an edited table's own reconstruction replaces its ORIGINAL bytes inside
+ * the float's slice — found by a plain text search, safe because a table's
+ * memo slice is disjoint from the caption group the step above may have
+ * just patched. An unedited table (or one with no memo — a fresh insert
+ * outside any parse) is left as whatever the slice already carries. */
+function spliceEditedTables(el: HTMLElement, slice: string): string {
+  let out = slice
+  for (const table of el.querySelectorAll<HTMLElement>('table')) {
+    const tmemo = blockMemo.get(table)
+    if (!tmemo || cleanOuter(table) === tmemo.html) continue
+    const at = out.indexOf(tmemo.slice)
+    if (at < 0) continue
+    out = out.slice(0, at) + emitTabular(table) + out.slice(at + tmemo.slice.length)
+  }
+  return out
+}
+
+/** tabular reconstruction is cell-grain: an unedited cell — a row's rule
+ * commands, a spanning cell's exact alignment spec / multirow width, every
+ * OTHER cell, all whitespace between them — re-emits from the table's own
+ * memo slice untouched; only a cell whose rendered markup diverged from its
+ * pristine snapshot re-serializes. A cell edit's diff is therefore exactly
+ * that cell's bytes. Structural edits (add/remove a row or column) are out
+ * of scope for now — the source view is the escape hatch. */
 function emitTabular(el: HTMLElement): string {
+  const memo = blockMemo.get(el)
+  const slots = tabularCellMemo.get(el)
+  if (!memo || !slots) return emitTabularFresh(el)
+
+  let out = ''
+  let cursor = 0
+  for (const slot of slots) {
+    out += memo.slice.slice(cursor, slot.start)
+    out += slot.td === null || (slot.pristineHtml !== null && cleanOuter(slot.td) === slot.pristineHtml)
+      ? memo.slice.slice(slot.start, slot.end)
+      : emitInlines(slot.td.childNodes)
+    cursor = slot.end
+  }
+  out += memo.slice.slice(cursor)
+  return out
+}
+
+/** from-scratch reconstruction — reachable only when a table carries no
+ * render memo (it never came from a parse, e.g. programmatically inserted).
+ * Rules/specs/widths come from the data-dia-* attributes render.ts stamps,
+ * falling back to the loose defaults a bare \multicolumn/\multirow accepts. */
+function emitTabularFresh(el: HTMLElement): string {
   const colspec = el.getAttribute('data-dia-colspec') ?? 'l'
   const rows = [...el.querySelectorAll(':scope > tbody > tr, :scope > tr')]
-    .map((tr) => [...tr.children].map((td) => {
-      let cell = emitInlines(td.childNodes)
-      const rs = Number(td.getAttribute('rowspan') ?? 1)
-      const cs = Number(td.getAttribute('colspan') ?? 1)
-      if (rs > 1) cell = `\\multirow{${rs}}{*}{${cell}}`
-      if (cs > 1) cell = `\\multicolumn{${cs}}{c}{${cell}}`
-      return cell
-    }).join(' & '))
-  return `\\begin{tabular}{${colspec}}\n${rows.join(' \\\\\n')}\n\\end{tabular}`
+    .map((tr) => {
+      const rule = tr.getAttribute('data-dia-rule')
+      const cells = [...tr.children].map((td) => {
+        let cell = emitInlines(td.childNodes)
+        const rs = Number(td.getAttribute('rowspan') ?? 1)
+        const cs = Number(td.getAttribute('colspan') ?? 1)
+        if (rs > 1) cell = `\\multirow{${rs}}{${td.getAttribute('data-dia-rowspan-width') ?? '*'}}{${cell}}`
+        if (cs > 1) cell = `\\multicolumn{${cs}}{${td.getAttribute('data-dia-colspan-spec') ?? 'c'}}{${cell}}`
+        return cell
+      }).join(' & ')
+      return rule ? `${rule} ${cells}` : cells
+    })
+  const trailing = el.getAttribute('data-dia-trailing-rule')
+  return `\\begin{tabular}{${colspec}}\n${rows.join(' \\\\\n')}${trailing ? `\n${trailing}` : ''}\n\\end{tabular}`
 }
 
 /* ---------- inline emission ---------- */

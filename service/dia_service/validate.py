@@ -343,6 +343,10 @@ DOC_ATTRS = {
     "data-dia-graphic-opts",  # \includegraphics options, carried verbatim
     "data-dia-colspec",  # tabular column spec, carried verbatim
     "data-dia-expand",  # display-only expansion of a text-macro island (CSS ::after)
+    "data-dia-rule",  # tr: rule command(s) (\toprule…, a \cmidrule(lr){…} chain) before this row, verbatim
+    "data-dia-trailing-rule",  # table: rule command(s) after the last row's \\, verbatim
+    "data-dia-colspan-spec",  # td: a \multicolumn cell's own {spec} argument, verbatim
+    "data-dia-rowspan-width",  # td: a \multirow cell's own {width} argument, verbatim
 }
 DOC_FLOATS = {"figure", "table"}
 THREAD_STATUSES = {"open", "resolved", "orphaned"}
