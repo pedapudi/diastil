@@ -677,6 +677,19 @@ class CompileJob:
                 return p
         return None
 
+    @property
+    def bbl_path(self) -> Path | None:
+        """The compiled bibliography — bibtex's main.bbl, or the precompiled
+        one adopted from an arXiv bundle under diarefs.bbl (see
+        _adopt_precompiled_bbl). Either holds \\bibitem[{label}]{key} entries
+        whose optional label is the client's source for author-year cite
+        text; a document with no bibliography has neither."""
+        for name in ("main.bbl", "diarefs.bbl"):
+            p = self.workdir / name
+            if p.is_file():
+                return p
+        return None
+
     def status_dict(self) -> dict[str, Any]:
         return {
             "jobId": self.id,

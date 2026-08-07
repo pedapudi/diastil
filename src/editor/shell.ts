@@ -38,6 +38,7 @@ import {
 import { mountDocView, activateDoc, deactivateDoc, scrollToBlock } from './docview'
 import { activatePages, deactivatePages, mountPagesView } from './pagesview'
 import { installBlockMirror, mirrorOn, setMirrorOn } from '../doc/blockmirror'
+import { installBibliography } from '../doc/bibliography'
 import { mountOutline, showOutline } from './outline'
 import { mountComments } from '../doc/commentrail'
 import { activateSource, deactivateSource, jumpToLine, mountSourceView } from './source'
@@ -586,6 +587,7 @@ export function mountEditor(host: HTMLElement): void {
   installHistory(canvasHost)
   installContextMenu(canvasHost)
   installBlockMirror()
+  installBibliography()
   installAutoCompile()
   mountThemePicker(pickerSlot)
   mountTypePicker(pickerSlot)
