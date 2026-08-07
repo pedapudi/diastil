@@ -13,6 +13,7 @@ Endpoints:
   GET  /compile/{id}/events     -> SSE stream of phase/log/done frames
   GET  /compile/{id}/pdf        -> the compiled PDF (404 until the job is ok)
   GET  /compile/{id}/synctex    -> coarse source-line -> page/x/y map
+  GET  /compile/{id}/bbl        -> raw .bbl text (404 when there is none)
   GET  /compile/{id}/pages      -> {available, tool, count, pages, ySemantics}
   GET  /compile/{id}/page/{n}.png?dpi= -> one page rasterized by poppler
   DELETE /compile/{id}          -> cancel a running compile
@@ -673,6 +674,23 @@ async def compile_synctex(job_id: str) -> dict[str, Any]:
                 "xSemantics": texcompile.SYNCTEX_X_SEMANTICS,
                 "ySemantics": texcompile.SYNCTEX_Y_SEMANTICS}
     return texcompile.parse_synctex(path)
+
+
+@app.get("/compile/{job_id}/bbl")
+async def compile_bbl(job_id: str) -> Response:
+    """The raw .bbl text this compile ran with — bibtex's own output, or the
+    precompiled one adopted from an arXiv bundle. The client parses its
+    \\bibitem labels into author-year cite text; this endpoint stays a dumb
+    file read so that parsing (and its tests) lives in one place, not two."""
+    job = _job_or_404(job_id)
+    path = job.bbl_path
+    if path is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"no bibliography for job {job_id}")
+    return Response(
+        content=path.read_text(encoding="utf-8"),
+        media_type="text/plain; charset=utf-8")
 
 
 @app.get("/compile/{job_id}/pages")

@@ -72,7 +72,7 @@ Inside `article.dia-doc`:
 | verbatim / lstlisting / minted | `pre.dia-verbatim[data-dia-env]` |
 | `\textbf` `\textit` `\emph` `\texttt` `\underline` `\textsc` | `strong` `i` `em` `code` `u` `span.dia-smallcaps` |
 | `\ref` family | `a.dia-ref[data-dia-ref][data-dia-ref-cmd]` — text is DERIVED (resolved number) |
-| `\cite` family | `a.dia-cite[data-dia-cite][data-dia-cite-opt][data-dia-cite-pre][data-dia-cite-cmd]` |
+| `\cite` family | `a.dia-cite[data-dia-cite][data-dia-cite-opt][data-dia-cite-pre][data-dia-cite-cmd]` — text is DERIVED (author-year from the compile's .bbl, once one exists); `[key]` otherwise |
 | `\footnote` | `span.dia-footnote` |
 | `\url` / `\href` | `a.dia-url[href]` |
 | `\label` in flow | `span.dia-label[data-dia-label]` (hidden) |
