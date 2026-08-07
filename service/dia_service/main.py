@@ -792,7 +792,15 @@ def mount_editor(dist: Path) -> None:
         @app.get("/editor/", include_in_schema=False)
         @app.get("/editor/index.html", include_in_schema=False)
         def _editor_index() -> HTMLResponse:
-            return HTMLResponse(marked)
+            # Never framable. A localhost page that ANY website may iframe is a
+            # cross-origin read of whatever the user has open — and this editor
+            # speaks a postMessage protocol (the MCP App bridge), so a hostile
+            # parent could drive it. The MCP App is unaffected: hosts render the
+            # ui:// resource they read over stdio, not this mount.
+            return HTMLResponse(marked, headers={
+                "X-Frame-Options": "DENY",
+                "Content-Security-Policy": "frame-ancestors 'none'",
+            })
 
     app.mount("/editor", StaticFiles(directory=dist, html=True), name="editor")
 

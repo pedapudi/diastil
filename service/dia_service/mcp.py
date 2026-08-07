@@ -7,8 +7,13 @@ inference tools (translate/repair/lift) proxy to the local dia service
 over HTTP — start it with `dia serve`. No service ⇒ those tools return
 a clear error instead of failing opaquely.
 
-Protocol: JSON-RPC 2.0, newline-delimited, initialize/tools-list/
-tools-call — the minimal subset every MCP client speaks.
+The editor itself is offered as an MCP App: `dia_open_editor` renders the
+visual editor inline in hosts that support the Apps extension (it serves the
+built single-file editor as a ui:// resource); on other hosts it is just a
+tool that returns the deck.
+
+Protocol: JSON-RPC 2.0, newline-delimited — initialize / tools-list /
+tools-call, plus resources-list / resources-read for the MCP App resource.
 """
 
 from __future__ import annotations
@@ -25,7 +30,33 @@ from .validate import validate_html
 SERVICE = "http://127.0.0.1:8317"
 PROTOCOL_VERSION = "2024-11-05"
 
+# MCP Apps (https://modelcontextprotocol.io/extensions/apps): the editor is
+# offered as an interactive app. `dia_open_editor` links to a ui:// resource that
+# serves the whole editor as one self-contained HTML page (built by
+# `npm run standalone` -> dist/diastil.html); the host renders it in a sandboxed
+# iframe and the app opens the deck we return, streaming edits back to the model.
+UI_EXTENSION_ID = "io.modelcontextprotocol/ui"
+UI_MIME_TYPE = "text/html;profile=mcp-app"
+EDITOR_RESOURCE_URI = "ui://diastil/editor.html"
+
 TOOLS: list[dict[str, Any]] = [
+    {
+        "name": "dia_open_editor",
+        "description": "Open the diastil visual editor as an interactive app (an MCP App) to view and edit a deck inline. Pass a deck's `html` or `path`; omit both to open the built-in demo deck. The host renders the editor in a panel; edits round-trip back into the conversation. Requires a host that supports MCP Apps.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "html": {"type": "string", "description": "deck html to open in the editor"},
+                "path": {"type": "string", "description": "deck file to open (alternative to html)"},
+            },
+        },
+        "_meta": {
+            # canonical nested form + the deprecated flat mirror, for host-version
+            # compatibility (both are recognized by the MCP Apps extension).
+            "ui": {"resourceUri": EDITOR_RESOURCE_URI},
+            "ui/resourceUri": EDITOR_RESOURCE_URI,
+        },
+    },
     {
         "name": "dia_new",
         "description": "Scaffold a profile-valid diastil deck at the given path (refuses to overwrite). The scaffold IS the house style: zicato paper palette, sans/mono role faces. The generation loop: scaffold, edit the html (visualize by default — see dia_manual), hold yourself to dia_validate.",
@@ -141,6 +172,37 @@ def _validation_text(html: str, label: str) -> str:
     return "\n".join(lines)
 
 
+def _find_standalone_html() -> Path | None:
+    """Locate the built single-file editor (dist/diastil.html, from
+    `npm run standalone`). Env override, then the repo dist/, then cwd/dist —
+    mirrors cli._find_editor_dist."""
+    import os
+
+    env = os.environ.get("DIA_MCP_APP_HTML")
+    candidates = [Path(env)] if env else []
+    # repo layout: <repo>/dist/diastil.html (this file is <repo>/service/dia_service/)
+    candidates.append(Path(__file__).resolve().parents[2] / "dist" / "diastil.html")
+    candidates.append(Path.cwd() / "dist" / "diastil.html")
+    for c in candidates:
+        if c.is_file():
+            return c
+    return None
+
+
+def _open_editor_deck(args: dict[str, Any]) -> tuple[str | None, str, str | None]:
+    """Resolve the deck `dia_open_editor` should open: explicit html, a file
+    path, or neither (the app falls back to its built-in demo deck).
+    → (deckHtml | None, name, error | None)."""
+    if args.get("html"):
+        return str(args["html"]), "deck.html", None
+    if args.get("path"):
+        p = Path(str(args["path"]))
+        if not p.is_file():
+            return None, "", f"no such file: {p}"
+        return p.read_text(encoding="utf-8"), p.name, None
+    return None, "demo", None
+
+
 def call_tool(name: str, args: dict[str, Any]) -> tuple[str, bool]:
     """→ (text, isError). Every branch returns text a model can act on."""
     if name == "dia_new":
@@ -233,24 +295,74 @@ def serve() -> int:
         if method == "initialize":
             _reply(msg_id, {
                 "protocolVersion": PROTOCOL_VERSION,
-                "capabilities": {"tools": {}},
+                # resources + the MCP Apps extension so `dia_open_editor` can serve
+                # its ui:// editor resource; tools as before.
+                "capabilities": {
+                    "tools": {},
+                    "resources": {},
+                    "extensions": {UI_EXTENSION_ID: {"mimeTypes": [UI_MIME_TYPE]}},
+                },
                 "serverInfo": {"name": "dia", "version": "0.1.0"},
             })
         elif method == "ping":
             _reply(msg_id, {})
+        elif method == "resources/list":
+            _reply(msg_id, {"resources": [{
+                "uri": EDITOR_RESOURCE_URI,
+                "name": "diastil editor",
+                "description": "The diastil visual deck editor, as an interactive MCP App.",
+                "mimeType": UI_MIME_TYPE,
+            }]})
+        elif method == "resources/read":
+            uri = str((msg.get("params") or {}).get("uri", ""))
+            if uri != EDITOR_RESOURCE_URI:
+                _reply_error(msg_id, -32002, f"resource not found: {uri}")
+            else:
+                path = _find_standalone_html()
+                if path is None:
+                    _reply_error(
+                        msg_id, -32002,
+                        "editor bundle not built — run `npm run standalone` in the "
+                        "diastil repo (or set DIA_MCP_APP_HTML to dist/diastil.html)")
+                else:
+                    _reply(msg_id, {"contents": [{
+                        "uri": EDITOR_RESOURCE_URI,
+                        "mimeType": UI_MIME_TYPE,
+                        "text": path.read_text(encoding="utf-8"),
+                    }]})
         elif method == "tools/list":
             _reply(msg_id, {"tools": TOOLS})
         elif method == "tools/call":
             params = msg.get("params") or {}
-            try:
-                text, is_error = call_tool(
-                    str(params.get("name", "")), params.get("arguments") or {})
-            except Exception as exc:  # noqa: BLE001 — a tool crash must not kill the server
-                text, is_error = f"tool failed: {exc}", True
-            _reply(msg_id, {
-                "content": [{"type": "text", "text": text}],
-                "isError": is_error,
-            })
+            name = str(params.get("name", ""))
+            args = params.get("arguments") or {}
+            if name == "dia_open_editor":
+                # The app reads the deck from the tool result: structuredContent is
+                # UI-facing (not model context), content is the model-facing note.
+                try:
+                    deck, deck_name, err = _open_editor_deck(args)
+                except Exception as exc:  # noqa: BLE001
+                    deck, deck_name, err = None, "", f"could not open deck: {exc}"
+                if err is not None:
+                    _reply(msg_id, {"content": [{"type": "text", "text": err}], "isError": True})
+                else:
+                    structured: dict[str, Any] = {"name": deck_name}
+                    if deck is not None:
+                        structured["deckHtml"] = deck
+                    _reply(msg_id, {
+                        "content": [{"type": "text", "text": "Opened the diastil editor."}],
+                        "structuredContent": structured,
+                        "isError": False,
+                    })
+            else:
+                try:
+                    text, is_error = call_tool(name, args)
+                except Exception as exc:  # noqa: BLE001 — a tool crash must not kill the server
+                    text, is_error = f"tool failed: {exc}", True
+                _reply(msg_id, {
+                    "content": [{"type": "text", "text": text}],
+                    "isError": is_error,
+                })
         else:
             _reply_error(msg_id, -32601, f"method not found: {method}")
     return 0
