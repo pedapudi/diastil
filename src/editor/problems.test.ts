@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { loadDocFromTex } from '../model/doc'
 import { blockForLine, idForLine, mountProblems, problemsOpen, toggleProblems } from './problems'
-import { compileNow, resetCompileState } from './doccompile'
+import { compileNow, compileState, resetCompileState } from './doccompile'
 import { state } from '../state'
 
 const TEX = `\\documentclass{article}
@@ -169,5 +169,95 @@ describe('the problems drawer', () => {
     const row = main.querySelector('.de-prob-row')
     expect(row?.classList.contains('is-flat')).toBe(true)
     expect(row?.getAttribute('title')).toContain('geometry.sty')
+  })
+})
+
+/* ---------- the folder-grant offer ---------- */
+
+/** stub the daemon: one compile that fails as a BLIND missing-file failure —
+ * the one shape reduceCompile marks blindMissing for */
+function stubBlindMissingService(): void {
+  const enc = new TextEncoder()
+  vi.stubGlobal('fetch', vi.fn(async (url: string | URL) => {
+    if (String(url).endsWith('/compile')) {
+      return new Response(JSON.stringify({ jobId: 'j', texinputs: false }), { status: 200 })
+    }
+    return new Response(new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(enc.encode(`data: ${JSON.stringify({
+          type: 'done', status: 'failed', pages: null, durationMs: 10,
+          errors: [{ level: 'error', file: 'main.tex', line: 37, message: "LaTeX Error: File `neurips_2022.sty' not found." }],
+        })}\n\n`))
+        c.close()
+      },
+    }), { status: 200 })
+  }))
+}
+
+describe('the folder-grant offer in the drawer', () => {
+  afterEach(() => { vi.unstubAllGlobals(); resetCompileState(); state.doc = null })
+
+  it('stays absent when the API is unavailable, even on a blind missing-file failure', async () => {
+    const main = document.createElement('div')
+    document.body.append(main)
+    mountProblems(main)
+    stubBlindMissingService()
+    const doc = docOf()
+    state.doc = doc
+    await compileNow(doc)
+
+    expect(main.querySelector('.de-prob-grant')).toBeNull()
+  })
+
+  it('offers the grant, and picking a folder resubmits the compile with its assets', async () => {
+    // the picker must be available BEFORE the failing compile renders — the
+    // drawer decides whether to offer the row at render time
+    const dir = {
+      kind: 'directory' as const,
+      name: 'papers',
+      async *values() {
+        yield {
+          kind: 'file' as const, name: 'neurips_2022.sty',
+          getFile: async () => new File(['% style'], 'neurips_2022.sty', { type: 'text/plain' }),
+        }
+      },
+    }
+    vi.stubGlobal('showDirectoryPicker', vi.fn(async () => dir))
+
+    const main = document.createElement('div')
+    document.body.append(main)
+    mountProblems(main)
+    stubBlindMissingService()
+    const doc = docOf()
+    state.doc = doc
+    await compileNow(doc)
+    expect(main.querySelector('.de-prob-grant')).not.toBeNull()
+
+    // now swap the fetch stub for the recompile the click will trigger —
+    // grantFolderAndRecompile reads the folder, then calls compileNow again
+    const enc = new TextEncoder()
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      if (String(url).endsWith('/compile')) {
+        const body = JSON.parse(String(init?.body)) as { assets?: Record<string, string> }
+        expect(body.assets).toEqual({ 'neurips_2022.sty': '% style' })
+        return new Response(JSON.stringify({ jobId: 'j2', texinputs: false }), { status: 200 })
+      }
+      return new Response(new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(enc.encode(`data: ${JSON.stringify({
+            type: 'done', status: 'ok', pages: 4, durationMs: 50, errors: [],
+          })}\n\n`))
+          c.close()
+        },
+      }), { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const btn = main.querySelector<HTMLButtonElement>('.de-prob-grant button')
+    expect(btn).not.toBeNull()
+    btn?.click()
+    // let the picker + read + recompile settle
+    await vi.waitFor(() => expect(compileState().status).toBe('ok'))
+    expect(fetchMock).toHaveBeenCalled()
   })
 })

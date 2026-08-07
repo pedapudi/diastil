@@ -18,6 +18,7 @@ import type { Doc } from '../model/doc'
 import { state } from '../state'
 import { SERVICE_BASE, sseData, type TexCapability } from '../service/client'
 import { servicePathOf } from './slides'
+import { grantFolderAccess, summarizeSkips, type FolderGrantResult } from './folderGrant'
 
 /** one finding from the engine's log, as the daemon's parse_log emits it */
 export interface TexError {
@@ -44,6 +45,11 @@ export interface CompileState {
   /** managed-tectonic install in flight: 0..1, or null when not installing */
   installing: number | null
   installNote: string
+  /** the last failure was a blind compile tripping on a file it could not
+   * see — the one shape a folder grant can actually fix, so this is what
+   * the problems drawer and tex chip gate the "grant folder access" offer
+   * on rather than re-deriving it from the detail string each render */
+  blindMissing: boolean
 }
 
 /** Until /health says otherwise the daemon is assumed absent — the copilot
@@ -59,6 +65,7 @@ export const INITIAL_COMPILE_STATE: CompileState = {
   detail: null,
   installing: null,
   installNote: '',
+  blindMissing: false,
 }
 
 export type CompileEvent =
@@ -109,11 +116,11 @@ export function reduceCompile(prev: CompileState, ev: CompileEvent): CompileStat
       return { ...prev, status, engine, downloadable, detail: null }
     }
     case 'start':
-      return { ...prev, status: 'compiling', errors: [], warnings: [], pages: null, ms: 0, detail: null }
+      return { ...prev, status: 'compiling', errors: [], warnings: [], pages: null, ms: 0, detail: null, blindMissing: false }
     case 'frame':
       return reduceFrame(prev, ev.frame, ev.blind === true)
     case 'fail':
-      return { ...prev, status: ev.status, detail: ev.detail, installing: null }
+      return { ...prev, status: ev.status, detail: ev.detail, installing: null, blindMissing: false }
     case 'install':
       return { ...prev, installing: ev.pct, installNote: ev.note }
   }
@@ -136,7 +143,8 @@ function reduceFrame(prev: CompileState, frame: Record<string, unknown>, blind: 
   // a blind compile failing on a missing file is almost never a document
   // problem — it is the daemon unable to SEE the file; say that, or the
   // user stares at "neurips_2022.sty not found" beside a folder that has it
-  if (status === 'failed' && blind && missingFileFailure(errors, detail)) {
+  const blindMissing = status === 'failed' && blind && missingFileFailure(errors, detail)
+  if (blindMissing) {
     detail = detail ? `${detail} — ${TEX_BLIND_HINT}` : TEX_BLIND_HINT
     warnings.unshift({ level: 'warning', file: null, line: null, message: TEX_BLIND_HINT })
   }
@@ -149,6 +157,7 @@ function reduceFrame(prev: CompileState, frame: Record<string, unknown>, blind: 
     pages: typeof frame.pages === 'number' ? frame.pages : null,
     ms: typeof frame.durationMs === 'number' ? frame.durationMs : prev.ms,
     detail,
+    blindMissing,
   }
 }
 
@@ -205,6 +214,7 @@ export function resetCompileState(): void {
   current = INITIAL_COMPILE_STATE
   generation++
   lastOkJob = null
+  grant = null
 }
 
 // the copilot rail owns the /health poll and broadcasts the verdict; every
@@ -229,6 +239,46 @@ export function texHint(): string {
   if (current.status === 'offline') return TEX_OFFLINE_HINT
   if (current.engine === null) return current.downloadable ? TEX_INSTALL_HINT : TEX_NO_ENGINE_HINT
   return PDF_EXPORT_HINT
+}
+
+/* ---------- the folder grant ---------- */
+
+/** what a granted folder gave us, kept for the rest of the browser session
+ * (this module's lifetime, like `autoOn` below) so every auto-compile after
+ * the grant keeps sending the same assets without asking again */
+export interface CompileGrant {
+  folderName: string
+  assets: Record<string, string>
+  skippedCount: number
+}
+
+let grant: CompileGrant | null = null
+
+/** tests reach for this to exercise compileNow's asset attachment without a
+ * real showDirectoryPicker(); grantFolderAndRecompile is the production path */
+export function setCompileGrant(folderName: string, assets: Record<string, string>, skippedCount = 0): void {
+  grant = { folderName, assets, skippedCount }
+}
+
+export function clearCompileGrant(): void { grant = null }
+
+export function compileGrant(): CompileGrant | null { return grant }
+
+/** the one-click recovery from a blind compile: ask the browser for the
+ * document's folder, remember what it gave us, and immediately retry the
+ * compile that just failed for lack of it. Resolves null if the user
+ * cancelled the picker or the API is unavailable — callers should leave
+ * their affordance exactly as it was rather than reporting a failure. */
+export async function grantFolderAndRecompile(doc: Doc): Promise<FolderGrantResult | null> {
+  const result = await grantFolderAccess()
+  if (result === null) return null
+  grant = { folderName: result.folderName, assets: result.assets, skippedCount: result.skipped.length }
+  if (result.skipped.length > 0) {
+    const n = Object.keys(result.assets).length
+    alert(`Sent ${n} file${n === 1 ? '' : 's'} from “${result.folderName}”.\n\n${summarizeSkips(result.skipped)}`)
+  }
+  await compileNow(doc)
+  return result
 }
 
 /* ---------- compiling ---------- */
@@ -263,6 +313,9 @@ export async function compileNow(doc: Doc): Promise<CompileResult | null> {
         texSource: doc.source.text,
         docId: docIdOf(doc),
         docPath: servicePathOf() ?? undefined,
+        // a granted folder's files ride along on every compile for the rest
+        // of the session, not just the one that prompted the grant
+        ...(grant ? { assets: grant.assets } : {}),
       }),
     })
   } catch {
