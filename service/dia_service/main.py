@@ -9,6 +9,15 @@ Endpoints:
   POST /skills/lift-diagram     -> {sceneHtml} (raw SVG -> scene vocabulary)
   GET  /file?path=              -> {html, mtime} (CLI-opened files only)
   PUT  /file                    -> {mtime}       (CLI-opened files only)
+  POST /compile                 -> {jobId} (LaTeX -> PDF, runs a real engine)
+  GET  /compile/{id}/events     -> SSE stream of phase/log/done frames
+  GET  /compile/{id}/pdf        -> the compiled PDF (404 until the job is ok)
+  GET  /compile/{id}/synctex    -> coarse source-line -> page/x/y map
+  GET  /compile/{id}/pages      -> {available, tool, count, pages, ySemantics}
+  GET  /compile/{id}/page/{n}.png?dpi= -> one page rasterized by poppler
+  DELETE /compile/{id}          -> cancel a running compile
+  POST /tex/install             -> SSE progress for the managed tectonic install
+  POST /tex/refresh             -> {tex} (re-probe the engine ladder)
   /editor/*                     -> built editor bundle (mounted by the CLI)
 
 No telemetry. The only outbound traffic is to the endpoint the user
@@ -18,6 +27,7 @@ process is not running.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -27,7 +37,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
-from . import agents
+from . import agents, tex, texcompile
 
 HOST = "127.0.0.1"
 PORT = 8317
@@ -148,9 +158,14 @@ class LiftRequest(BaseModel):
 
 @app.get("/health")
 async def health() -> dict[str, Any]:
+    # `tex` rides on both branches: compiling needs no model, so a machine
+    # with tectonic and no adk still reports a usable engine. The probe is
+    # memoized — /health is polled, and re-running four --version calls per
+    # poll would be a self-inflicted load problem.
+    capability = tex.discover(config=CONFIG).as_dict()
     if not agents.ADK_AVAILABLE:
-        return {"ok": False, "detail": "adk not installed"}
-    return {"ok": True, "model": agents.endpoint_for(CONFIG)["model"]}
+        return {"ok": False, "detail": "adk not installed", "tex": capability}
+    return {"ok": True, "model": agents.endpoint_for(CONFIG)["model"], "tex": capability}
 
 
 # ---------------------------------------------------------------------------
@@ -166,6 +181,8 @@ def _compose_message(req: ChatRequest) -> str:
     """Fold the editor's ChatContext into the user turn so the agent sees
     exactly what the context line in the rail claims it sees."""
     ctx = req.context or {}
+    if ctx.get("docMode"):
+        return _compose_doc_message(req, ctx)
     lines = ["<editor-context>"]
     lines.append(f"altitude: {ctx.get('altitude', 'stage')}")
     # ONE numbering for the whole conversation: slides are 1-based in the
@@ -228,6 +245,67 @@ def _compose_message(req: ChatRequest) -> str:
         lines.append("a render of the current slide is attached as an image")
     elif has_original_render:
         lines.append("a render of the ORIGINAL imported slide is attached as an image")
+    lines.append("</editor-context>")
+    lines.append("")
+    lines.append(req.message)
+    return "\n".join(lines)
+
+
+def _compose_doc_message(req: ChatRequest, ctx: dict[str, Any]) -> str:
+    """The document turn. Same envelope, different document kind: the truth
+    is LaTeX source, the unit is a section, and the wire fields the deck uses
+    for its slide (slideIndex, slideImage) carry the block and the section
+    render — so the image loop below is one code path, not two."""
+    lines = ["<editor-context>"]
+    lines.append(
+        "document-mode: this artifact is a LaTeX-backed DOCUMENT, not a deck."
+        " Its truth is the .tex source; every op you propose is applied to the"
+        " rendered block AND its source slice together."
+    )
+    lines.append(f"current-block: {int(ctx.get('slideIndex', 0)) + 1} (1-based, like every number here)")
+    section = ctx.get("sectionHtml")
+    if section:
+        lines.append("current-section (rendered dialect markup — what the user is reading):")
+        lines.append(str(section))
+    source = ctx.get("sourceExcerpt")
+    if source:
+        lines.append(
+            "current-section-source (the LaTeX behind that markup — reason in"
+            " tex, and keep the document's own conventions):"
+        )
+        lines.append(str(source))
+    selection = ctx.get("selectionHtml")
+    if selection:
+        lines.append("selection:")
+        lines.append(str(selection))
+    tokens = ctx.get("tokensCss")
+    if tokens:
+        lines.append("theme-tokens:")
+        lines.append(str(tokens))
+    comments = ctx.get("comments") or []
+    if comments:
+        lines.append(
+            f"open comment threads in this section ({len(comments)}) — each is a REQUEST"
+            " about the quoted text; address them unless the user says otherwise:"
+        )
+        for c in comments:
+            if isinstance(c, dict):
+                lines.append(
+                    f"- {c.get('id')} on \"{c.get('quote')}\": {c.get('note')}"
+                )
+    errors = ctx.get("compileErrors") or []
+    if errors:
+        lines.append(
+            f"the last compile FAILED with {len(errors)} error(s) (line numbers are"
+            " into the .tex source):"
+        )
+        for e in errors:
+            if isinstance(e, dict):
+                line_no = e.get("line")
+                where = f"line {line_no}: " if line_no else ""
+                lines.append(f"- {where}{e.get('message')}")
+    if ctx.get("slideImage"):
+        lines.append("a render of the current section is attached as an image")
     lines.append("</editor-context>")
     lines.append("")
     lines.append(req.message)
@@ -481,6 +559,212 @@ async def export_pptx(req: ExportPptx) -> Response:
             ".presentationml.presentation"),
         headers={"Content-Disposition": f'attachment; filename="{safe}.pptx"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# /compile — LaTeX -> PDF, as a job (compiles are slow)
+# ---------------------------------------------------------------------------
+
+class CompileRequest(BaseModel):
+    texSource: str
+    docId: str
+    # relative path -> plain text (.bib/.sty) or a data: URI (images)
+    assets: dict[str, str] = {}
+    # force a specific engine; unset means "best available"
+    engine: str | None = None
+    # the file this document was opened from; grants read-only TEXINPUTS
+    # access to its directory, but only if the CLI opened it
+    docPath: str | None = None
+
+
+def _texinputs_for(doc_path: str | None) -> Path | None:
+    """The directory relative \\includegraphics may read from, or None.
+
+    Only paths the CLI opened qualify — the same allowlist the /file bridge
+    uses. A docPath outside it is ignored rather than refused: the compile
+    still works, it just cannot see the user's figures, and the response
+    says so instead of failing a whole document over one image."""
+    if not doc_path:
+        return None
+    try:
+        resolved = Path(doc_path).resolve()
+    except OSError:
+        return None
+    if resolved not in OPENED_FILES:
+        return None
+    return resolved.parent
+
+
+@app.post("/compile")
+async def compile_tex(req: CompileRequest) -> dict[str, Any]:
+    texinputs = _texinputs_for(req.docPath)
+    try:
+        job = texcompile.submit(
+            tex_source=req.texSource,
+            doc_id=req.docId,
+            assets=req.assets,
+            engine=req.engine,
+            texinputs_dir=texinputs,
+            config=CONFIG,
+        )
+    except texcompile.AssetError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except texcompile.CompileError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"jobId": job.id, "engine": job.engine, "texinputs": texinputs is not None}
+
+
+def _job_or_404(job_id: str) -> texcompile.CompileJob:
+    job = texcompile.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="no such compile job")
+    return job
+
+
+async def _compile_events(job: texcompile.CompileJob) -> AsyncIterator[dict[str, str]]:
+    """Replay the job's frames and follow it live. Late subscribers get the
+    whole history — the client may POST and connect a beat later, and a
+    stream that started mid-compile would show a log with no beginning."""
+    index = 0
+    while True:
+        # events_since blocks on a Condition; off the event loop it goes
+        batch = await asyncio.to_thread(job.events_since, index, 15.0)
+        index += len(batch)
+        for event in batch:
+            yield _frame(event)
+            if event.get("type") == "done":
+                return
+        if not batch and job.finished:
+            return
+
+
+@app.get("/compile/{job_id}/events")
+async def compile_events(job_id: str) -> EventSourceResponse:
+    return EventSourceResponse(_compile_events(_job_or_404(job_id)))
+
+
+@app.get("/compile/{job_id}/pdf")
+async def compile_pdf(job_id: str) -> Response:
+    job = _job_or_404(job_id)
+    if job.status != "ok" or not job.pdf_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail=f"no pdf for job {job_id} (status: {job.status})")
+    return Response(
+        content=job.pdf_path.read_bytes(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'inline; filename="document.pdf"'},
+    )
+
+
+@app.get("/compile/{job_id}/synctex")
+async def compile_synctex(job_id: str) -> dict[str, Any]:
+    """`{pages, lines: [{line, page, x, y, w?}], xSemantics, ySemantics}`.
+
+    `x` and `y` are points from the top-left of the PAPER and `w` is the
+    width of the box the line typeset — the column's, for body text — so a
+    client can crop a block to the column it is in rather than to the full
+    page width. `w` is absent for a line that typeset nothing on the page.
+    parse_synctex documents which of a line's boxes is reported and why."""
+    job = _job_or_404(job_id)
+    path = job.synctex_path
+    if path is None:
+        return {"pages": [], "lines": [],
+                "xSemantics": texcompile.SYNCTEX_X_SEMANTICS,
+                "ySemantics": texcompile.SYNCTEX_Y_SEMANTICS}
+    return texcompile.parse_synctex(path)
+
+
+@app.get("/compile/{job_id}/pages")
+async def compile_pages(job_id: str) -> dict[str, Any]:
+    """Page count and per-page size in PDF points, plus what the synctex `y`
+    axis means. Everything the client needs to place a rendered page and put
+    an overlay on it; `available: false` with a `reason` when it cannot be
+    rendered here, which is a state the UI shows rather than an error."""
+    job = _job_or_404(job_id)
+    return await asyncio.to_thread(texcompile.page_geometry, job)
+
+
+@app.get("/compile/{job_id}/page/{n}.png")
+async def compile_page_png(job_id: str, n: int, dpi: int = texcompile.PAGE_DPI_DEFAULT) -> Response:
+    """One full page as a PNG. `dpi` is clamped rather than validated —
+    see texcompile.clamp_dpi."""
+    job = _job_or_404(job_id)
+    png = await asyncio.to_thread(texcompile.render_page, job, n, dpi)
+    if png is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"no page {n} for job {job_id} (status: {job.status})")
+    return Response(
+        content=png.read_bytes(),
+        media_type="image/png",
+        # a job id names one immutable PDF, so this render can never change;
+        # re-scrolling past an island should not re-fetch it
+        headers={"Cache-Control": "private, max-age=86400, immutable"},
+    )
+
+
+@app.get("/compile/{job_id}")
+async def compile_status(job_id: str) -> dict[str, Any]:
+    return _job_or_404(job_id).status_dict()
+
+
+@app.delete("/compile/{job_id}")
+async def compile_cancel(job_id: str) -> dict[str, Any]:
+    job = _job_or_404(job_id)
+    job.cancel()
+    return {"jobId": job.id, "status": job.status}
+
+
+# ---------------------------------------------------------------------------
+# /tex/* — engine discovery and the managed tectonic install
+# ---------------------------------------------------------------------------
+
+async def _install_events() -> AsyncIterator[dict[str, str]]:
+    """Run the install on a thread, forwarding its progress dicts as frames.
+    The callback fires from the worker thread, so it hands events to the
+    loop rather than touching the queue directly."""
+    from .texdl import InstallError, install_tectonic
+
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue[dict | None] = asyncio.Queue()
+
+    def progress(event: dict) -> None:
+        loop.call_soon_threadsafe(queue.put_nowait, event)
+
+    async def run() -> None:
+        try:
+            await asyncio.to_thread(install_tectonic, progress)
+        except InstallError as exc:
+            await queue.put({"phase": "error", "message": str(exc)})
+        except Exception as exc:  # noqa: BLE001 — the stream reports, never crashes
+            await queue.put({"phase": "error", "message": f"install failed: {exc}"})
+        await queue.put(None)
+
+    task = asyncio.create_task(run())
+    try:
+        while True:
+            event = await queue.get()
+            if event is None:
+                break
+            yield _frame({"type": "install", **event})
+    finally:
+        task.cancel()
+    yield _frame({"type": "done", "tex": tex.discover(refresh=True, config=CONFIG).as_dict()})
+
+
+@app.post("/tex/install")
+async def tex_install() -> EventSourceResponse:
+    """Download the pinned tectonic into the diastil cache (SSE progress).
+    Nothing about the URL is client-controlled — see texdl.py."""
+    return EventSourceResponse(_install_events())
+
+
+@app.post("/tex/refresh")
+async def tex_refresh() -> dict[str, Any]:
+    """Re-probe the engine ladder — after installing TeX outside the app,
+    or editing `[tex] engine` in config.toml."""
+    return {"tex": tex.discover(refresh=True, config=CONFIG).as_dict()}
 
 
 def mount_editor(dist: Path) -> None:

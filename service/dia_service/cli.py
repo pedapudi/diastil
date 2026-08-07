@@ -5,6 +5,7 @@
   dia new <deck.html>    scaffold a profile-valid starting deck
   dia ingest <file.html> open the editor with the import review on the file
   dia present <deck.html>open the deck in the browser (it presents itself)
+  dia compile <file.tex> compile LaTeX to PDF with a real engine (exit 1 on errors)
   dia validate <file>…   profile-validate saved decks (exit 1 on errors)
   dia agents-md          print an AGENTS.md section for coding agents
   dia mcp                MCP server over stdio (tools for shell-less agents)
@@ -30,6 +31,7 @@ import re
 import sys
 import threading
 import webbrowser
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import quote
 
@@ -139,7 +141,7 @@ def cmd_present(path: str, no_open: bool = False) -> int:
     return 0
 
 
-def cmd_new(path: str, title: str, no_open: bool = False) -> int:
+def cmd_new(path: str, title: str, no_open: bool = False, doc: bool = False) -> int:
     """Scaffold a profile-valid starting deck — the generation entry point
     for agents: scaffold, edit the html, hold yourself to `dia validate`."""
     from .scaffold import deck_html
@@ -148,6 +150,15 @@ def cmd_new(path: str, title: str, no_open: bool = False) -> int:
     if p.exists():
         print(f"dia: {p} already exists — not overwriting", file=sys.stderr)
         return 2
+    # --doc (or a .tex path): a LaTeX document starter — the editor opens it
+    # with `dia edit`, the daemon compiles it with `dia compile`
+    if doc or p.suffix.lower() == ".tex":
+        from .scaffold import doc_tex
+
+        p.write_text(doc_tex(title or p.stem.replace("-", " ").replace("_", " ")), encoding="utf-8")
+        print(f"dia: wrote {p} (LaTeX document starter)")
+        print(f"dia: next — `dia edit {p}` to edit, `dia compile {p}` for a PDF")
+        return 0
     html = deck_html(title or p.stem.replace("-", " ").replace("_", " "))
     report = validate_html(html)  # the scaffold must never ship invalid
     errors = [f for f in report["findings"] if f["level"] == "error"]
@@ -193,11 +204,139 @@ def cmd_validate(paths: list[str]) -> int:
     return 1 if any_errors else 0
 
 
-def cmd_export(path: str, out: str | None) -> int:
+# ---------------------------------------------------------------------------
+# LaTeX
+# ---------------------------------------------------------------------------
+
+class _DocSourceReader(HTMLParser):
+    """Pull the JSON out of <script type="application/json" id="dia-source">.
+
+    A LaTeX document may legally contain `</script>` inside a verbatim
+    environment, which is exactly why the source rides in a JSON block: the
+    writer escapes it as `<\\/script>` — still valid JSON, no longer an end
+    tag — and json.loads gives the bytes back unchanged. Nothing here needs
+    to un-escape anything; that is the point of choosing JSON."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=False)
+        self.json_text: str | None = None
+        self._capturing = False
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag != "script":
+            return
+        table = {k: (v or "") for k, v in attrs}
+        self._capturing = table.get("id") == "dia-source"
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "script":
+            self._capturing = False
+
+    def handle_data(self, data: str) -> None:
+        if self._capturing:
+            self.json_text = (self.json_text or "") + data
+
+
+def tex_from_html(html: str) -> tuple[str | None, str]:
+    """(tex source, complaint) from a dialect document artifact."""
+    import json
+
+    reader = _DocSourceReader()
+    reader.feed(html)
+    if reader.json_text is None:
+        return None, 'no <script id="dia-source"> — is this a dialect document?'
+    try:
+        payload = json.loads(reader.json_text)
+    except ValueError as exc:
+        return None, f"dia-source is not valid JSON: {exc}"
+    source = payload.get("tex") if isinstance(payload, dict) else None
+    if not isinstance(source, str):
+        return None, "dia-source carries no `tex` string"
+    return source, ""
+
+
+def _read_tex(path: Path) -> tuple[str | None, Path | None, str]:
+    """(tex, directory for relative \\includegraphics, complaint) for either
+    input kind: a plain .tex, or a dialect document artifact carrying one."""
+    if not path.is_file():
+        return None, None, f"no such file: {path}"
+    text = path.read_text(encoding="utf-8")
+    if path.suffix.lower() in {".tex", ".ltx"}:
+        return text, path.resolve().parent, ""
+    source, complaint = tex_from_html(text)
+    if source is None:
+        return None, None, f"{path}: {complaint}"
+    return source, path.resolve().parent, ""
+
+
+def cmd_compile(path: str, out: str | None, engine: str | None,
+                quiet: bool = False) -> int:
+    """Compile a .tex file — or the LaTeX inside a dialect document — to PDF.
+
+    Headless and synchronous: the same job code the /compile endpoint runs,
+    minus the threads. Errors print as `file:line: message` so an editor or
+    a coding agent can jump straight to them; exit 1 means the document did
+    not produce a PDF."""
+    from . import tex as tex_mod
+    from . import texcompile
+
+    p = Path(path)
+    source, workdir, complaint = _read_tex(p)
+    if source is None:
+        print(f"dia: {complaint}", file=sys.stderr)
+        return 2
+
+    capability = tex_mod.discover()
+    if capability.engine is None:
+        print(
+            f"dia: {capability.detail or 'no TeX engine found'} — install tectonic "
+            "or TeX Live, or run `dia serve` and use the editor's one-click install",
+            file=sys.stderr,
+        )
+        return 2
+
+    def on_event(event: dict) -> None:
+        if not quiet and event.get("type") == "log":
+            print(event["line"], file=sys.stderr)
+
+    try:
+        job = texcompile.compile_sync(
+            tex_source=source, doc_id=str(p.resolve()), engine=engine,
+            texinputs_dir=workdir, on_log=on_event,
+        )
+    except texcompile.CompileError as exc:
+        print(f"dia: {exc}", file=sys.stderr)
+        return 2
+
+    try:
+        for err in job.errors:
+            where = f"{err.file or p.name}:{err.line}: " if err.line else ""
+            print(f"{where}{err.level}: {err.message}", file=sys.stderr)
+
+        if job.status != "ok":
+            detail = job.detail or f"compile {job.status}"
+            print(f"dia: {p} failed to compile ({detail})", file=sys.stderr)
+            return 1
+
+        out_path = Path(out) if out else p.with_suffix(".pdf")
+        out_path.write_bytes(job.pdf_path.read_bytes())
+        pages = f"{job.pages} page{'s' * (job.pages != 1)}" if job.pages else "pdf"
+        print(f"dia: wrote {out_path} ({pages}, {job.engine}, "
+              f"{job.duration:.1f}s)")
+        return 0
+    finally:
+        job.cleanup()
+
+
+def cmd_export(path: str, out: str | None, pdf: str | None = None) -> int:
     """Render a saved dialect deck to a .pptx (opens in PowerPoint / Keynote,
     converts to native, editable Google Slides on import). Text roles become
     text boxes; scenes become native shapes + connectors; charts become vector
-    shapes; inline SVG becomes shapes/freeforms; speaker notes become notes."""
+    shapes; inline SVG becomes shapes/freeforms; speaker notes become notes.
+
+    `--pdf` takes the other branch: a dialect *document* compiled to PDF."""
+    if pdf is not None:
+        return cmd_compile(path, pdf, engine=None, quiet=True)
     try:
         from .pptx_export import deck_slide_count, deck_title, export_file
     except ImportError:
@@ -264,7 +403,7 @@ def main(argv: list[str] | None = None) -> None:
     argv = list(sys.argv[1:] if argv is None else argv)
 
     # `dia <deck.html>` sugar: a path as the first arg means edit
-    if argv and argv[0] not in {"edit", "ingest", "present", "validate", "export", "serve", "eval", "new", "agents-md", "mcp", "-h", "--help"}:
+    if argv and argv[0] not in {"edit", "ingest", "present", "validate", "export", "compile", "serve", "eval", "new", "agents-md", "mcp", "-h", "--help"}:
         argv.insert(0, "edit")
 
     parser = argparse.ArgumentParser(prog="dia", description=__doc__,
@@ -280,9 +419,10 @@ def main(argv: list[str] | None = None) -> None:
     pr = sub.add_parser("present", help="open a saved deck in the browser")
     pr.add_argument("path")
     pr.add_argument("--no-open", action="store_true", help=no_open_help)
-    nw = sub.add_parser("new", help="scaffold a profile-valid starting deck")
+    nw = sub.add_parser("new", help="scaffold a starting deck (or --doc for a LaTeX document)")
     nw.add_argument("path")
     nw.add_argument("--title", default="", help="deck title (default: derived from the filename)")
+    nw.add_argument("--doc", action="store_true", help="scaffold a LaTeX document instead of a deck")
     nw.add_argument("--no-open", action="store_true", help=no_open_help)
     sub.add_parser("agents-md",
                    help="print an AGENTS.md-ready section so any coding agent can generate and operate dia")
@@ -292,6 +432,17 @@ def main(argv: list[str] | None = None) -> None:
     ex.add_argument("path")
     ex.add_argument("--pptx", dest="out", default=None,
                     help="output .pptx path (default: <deck title>.pptx beside the deck)")
+    ex.add_argument("--pdf", dest="pdf", nargs="?", const="", default=None,
+                    help="compile a dialect DOCUMENT to PDF instead "
+                         "(default: <name>.pdf beside the document)")
+    cp = sub.add_parser("compile", help="compile LaTeX to PDF with a real engine")
+    cp.add_argument("path", help="a .tex file, or a dialect document carrying one")
+    cp.add_argument("--pdf", dest="out", default=None,
+                    help="output .pdf path (default: <name>.pdf beside the input)")
+    cp.add_argument("--engine", default=None,
+                    help="force an engine: tectonic | latexmk | xelatex | pdflatex")
+    cp.add_argument("--quiet", action="store_true",
+                    help="suppress the engine log; print only errors and the result")
     sv = sub.add_parser("serve", help="run the inference service (add --editor to also host the editor)")
     sv.add_argument("--port", type=int, default=None,
                     help="port to bind (default 8317). Non-default ports pair with "
@@ -307,7 +458,7 @@ def main(argv: list[str] | None = None) -> None:
 
     args = parser.parse_args(argv)
     if args.cmd == "new":
-        sys.exit(cmd_new(args.path, args.title, no_open=args.no_open))
+        sys.exit(cmd_new(args.path, args.title, no_open=args.no_open, doc=args.doc))
     elif args.cmd == "agents-md":
         sys.exit(cmd_agents_md())
     elif args.cmd == "mcp":
@@ -323,7 +474,9 @@ def main(argv: list[str] | None = None) -> None:
     elif args.cmd == "validate":
         sys.exit(cmd_validate(args.paths))
     elif args.cmd == "export":
-        sys.exit(cmd_export(args.path, args.out))
+        sys.exit(cmd_export(args.path, args.out, pdf=args.pdf))
+    elif args.cmd == "compile":
+        sys.exit(cmd_compile(args.path, args.out, args.engine, quiet=args.quiet))
     elif args.cmd == "eval":
         from .evals import main as eval_main
 

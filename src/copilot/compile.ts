@@ -4,6 +4,7 @@
  * proposal must never throw and never take the editor down. */
 
 import type { NodeGeom, NodeShape, Op, ProposedOp } from '../types'
+import type { Doc } from '../model/doc'
 import { state } from '../state'
 import { slidesInLogicalOrder } from '../studio/focus'
 import { batch } from '../model/ops'
@@ -13,6 +14,10 @@ import {
 } from '../model/ops'
 import { findNode, renderNodeShape, routeEdge } from '../scene/route'
 import { setEdgeLabelOp, setNodeLabelOp, setShapeOp } from '../scene/interact'
+import { syncedDocOp, topBlockOf } from '../doc/sync'
+import { mathToMathml } from '../latex/render'
+import { lex } from '../latex/lex'
+import { parseLatex } from '../latex/parse'
 
 const BY = 'copilot' as const
 
@@ -24,6 +29,7 @@ export interface CompileResult {
 }
 
 export function compileOps(proposed: ProposedOp[]): CompileResult {
+  if (state.mode === 'doc') return compileDocOps(proposed)
   const ops: Op[] = []
   const skipped: Array<{ op: ProposedOp; reason: string }> = []
   for (const p of proposed) {
@@ -268,6 +274,358 @@ function retargetEdgeOp(scene: SVGSVGElement, edge: SVGGElement, value: string, 
     apply() { attr.apply(); routeEdge(scene, edge) },
     invert() { return retargetEdgeOp(scene, edge, prev, `un-${label}`) },
   }
+}
+
+/* ---------- documents ----------
+ * A document's truth is its LaTeX source, so a copilot edit may NEVER be a
+ * bare DOM op: every compiled op is wrapped in the paired block op (DOM +
+ * source patch + derived refresh, one invertible step) that native editing
+ * uses. Ops are grouped by the top-level block they land in — one wrapper
+ * per block, in first-seen order — and anything that would touch the source
+ * outside a block, or that has no source-patchable shape yet (moving or
+ * removing whole blocks), is SKIPPED with a reason the model can act on. */
+
+interface DocEntry { block: HTMLElement | null; ops: Op[]; label: string }
+type DocOutcome = DocEntry | { skip: string }
+
+function compileDocOps(proposed: ProposedOp[]): CompileResult {
+  const skipped: Array<{ op: ProposedOp; reason: string }> = []
+  const doc = state.doc
+  if (!doc) return { ops: [], skipped: proposed.map((op) => ({ op, reason: 'no document is loaded' })) }
+
+  const order: DocEntry[] = []
+  const byBlock = new Map<HTMLElement, DocEntry>()
+  for (const p of proposed) {
+    let outcome: DocOutcome
+    try {
+      outcome = compileDocOne(p, doc)
+    } catch (err) {
+      outcome = { skip: err instanceof Error ? err.message : String(err) }
+    }
+    if ('skip' in outcome) {
+      skipped.push({ op: p, reason: outcome.skip })
+      console.warn('[copilot] skipped proposal:', outcome.skip, p)
+      continue
+    }
+    const existing = outcome.block ? byBlock.get(outcome.block) : null
+    if (existing) existing.ops.push(...outcome.ops)
+    else {
+      order.push(outcome)
+      if (outcome.block) byBlock.set(outcome.block, outcome)
+    }
+  }
+  const ops = order.map((e) =>
+    e.block ? syncedDocOp(doc, e.block, e.ops, e.label, BY) : batch(e.label, e.ops, BY))
+  return { ops, skipped }
+}
+
+function compileDocOne(p: ProposedOp, doc: Doc): DocOutcome {
+  const inBlock = (el: HTMLElement | null, ops: () => Op[]): DocOutcome => {
+    if (!el) return { skip: `target "${p.target}" did not resolve in the document` }
+    const block = topBlockOf(doc, el)
+    if (!block) {
+      return { skip: `target "${p.target}" is not inside a source-backed block (the title header and the preamble are edited in the source view)` }
+    }
+    return { block, ops: ops(), label: p.label }
+  }
+
+  switch (p.action) {
+    case 'set-text':
+    case 'set-inline-html': {
+      const el = findDocEl(p.target, doc)
+      if (el && el.closest('.dia-math, .dia-tex-island')) {
+        return { skip: 'math and LaTeX islands carry their own source — use set-tex' }
+      }
+      if (p.value === undefined) return { skip: 'no value given' }
+      const value = p.value
+      return inBlock(el, () => [p.action === 'set-text'
+        ? setText(el as HTMLElement, value, BY)
+        : setInlineHtml(el as HTMLElement, value, BY)])
+    }
+
+    case 'set-tex': {
+      const el = findDocEl(p.target, doc)
+      if (!el) return { skip: `target "${p.target}" did not resolve in the document` }
+      if (p.value === undefined) return { skip: 'no value given' }
+      const target = el.closest<HTMLElement>('.dia-math, .dia-tex-island')
+      if (!target) return { skip: 'set-tex addresses a math block or a LaTeX island; nothing else carries tex' }
+      const ops = target.classList.contains('dia-math')
+        ? mathTexOps(target, p.value)
+        : islandTexOps(target, p.value)
+      if ('skip' in ops) return ops
+      return inBlock(target, () => ops.ops)
+    }
+
+    case 'set-attr': {
+      const el = findDocEl(p.target, doc)
+      const name = str(p.extra?.name)
+      if (!name || p.value === undefined) return { skip: 'set-attr needs extra.name and a value' }
+      if (/^on/i.test(name)) return { skip: 'event handlers never enter the dialect' }
+      if (name === 'data-dia-tex') return { skip: 'use set-tex to change math — it re-renders the MathML too' }
+      const value = p.value
+      return inBlock(el, () => [setAttr(el as HTMLElement, name, value, BY)])
+    }
+
+    case 'set-token': {
+      // the document theme is CSS in the artifact, not LaTeX — no source
+      // patch to pair, so this one op stands alone
+      if (p.value === undefined) return { skip: 'no value given' }
+      return { block: null, ops: [setToken(doc.themeStyle, p.target, p.value, BY)], label: p.label }
+    }
+
+    case 'insert-html': {
+      const parent = findDocEl(p.target, doc)
+      if (!parent || p.value === undefined) {
+        return { skip: `target "${p.target}" did not resolve, or no value was given` }
+      }
+      if (parent === doc.article) {
+        return { skip: 'adding whole blocks is not supported in documents yet — write them in the source view' }
+      }
+      const el = parseFragment(p.value)
+      if (!el) return { skip: 'the value is not one parseable element' }
+      const index = clampIndex(num(p.extra?.index), parent.children.length)
+      return inBlock(parent, () => [insertEl(parent, index, el, p.label, BY)])
+    }
+
+    case 'remove': {
+      const el = findDocEl(p.target, doc)
+      if (!el) return { skip: `target "${p.target}" did not resolve in the document` }
+      if (topBlockOf(doc, el) === el) {
+        return { skip: 'removing a whole block is not supported in documents yet — delete it in the source view' }
+      }
+      return inBlock(el, () => [removeEl(el, p.label, BY)])
+    }
+
+    case 'set-style':
+      return { skip: 'inline styles are not part of the LaTeX source — restyle with set-token, or edit the preamble in the source view' }
+
+    case 'move-el':
+      return { skip: 'moving blocks is not supported in documents yet — reorder them in the source view' }
+
+    case 'add-slide':
+      return { skip: 'this is a document, not a deck — it has no slides' }
+
+    default:
+      return { skip: `"${p.action}" is a deck action; documents take set-text, set-inline-html, set-tex, set-attr, set-token, insert-html and remove` }
+  }
+}
+
+/** math: the tex attribute IS the source, the MathML is derived — both move
+ * in one op, and tex temml cannot render is refused rather than rendered as
+ * a hole in the document */
+function mathTexOps(el: HTMLElement, tex: string): { ops: Op[] } | { skip: string } {
+  const env = el.getAttribute('data-dia-env') ?? undefined
+  const display = !el.matches('span')
+  const mathml = mathToMathml(tex, env, display)
+  if (mathml === null) return { skip: 'the proposed tex does not render as math — check the syntax' }
+  const ops: Op[] = [setAttr(el, 'data-dia-tex', tex, BY), setInlineHtml(el, mathml, BY)]
+  // a block that was showing its source (unrenderable before) becomes math
+  if (el.classList.contains('dia-math-src')) {
+    const cls = [...el.classList].filter((c) => c !== 'dia-math-src').join(' ')
+    ops.push(setAttr(el, 'class', cls, BY))
+  }
+  return { ops }
+}
+
+/** an island's rendered text IS its LaTeX — replacing it replaces the
+ * source slice verbatim, so it is validated before it can get there */
+function islandTexOps(el: HTMLElement, tex: string): { ops: Op[] } | { skip: string } {
+  const bad = texFragmentError(tex)
+  if (bad) return { skip: `the proposed LaTeX is malformed: ${bad}` }
+  const host = el.querySelector<HTMLElement>('pre') ?? el
+  return { ops: [setText(host, tex, BY)] }
+}
+
+/** the structural checks a span-exact editor can make without a TeX engine:
+ * the source must scan, its braces must balance, and its environments must
+ * nest. The daemon compile remains the semantic authority. */
+export function texFragmentError(tex: string): string | null {
+  const parsed = parseLatex(tex)
+  const only = parsed.blocks.length === 1 ? parsed.blocks[0] : null
+  if (only?.kind === 'island' && only.reason === 'lexer tiling failure') {
+    return 'it could not be scanned'
+  }
+  let depth = 0
+  const envs: string[] = []
+  for (const t of lex(tex)) {
+    if (t.kind === 'open') depth++
+    else if (t.kind === 'close') {
+      if (--depth < 0) return 'a } closes a group that was never opened'
+    } else if (t.kind === 'envbegin') envs.push(t.name)
+    else if (t.kind === 'envend') {
+      const open = envs.pop()
+      if (open !== t.name) {
+        return open === undefined
+          ? `\\end{${t.name}} has no \\begin`
+          : `\\end{${t.name}} closes \\begin{${open}}`
+      }
+    }
+  }
+  if (depth > 0) return `${depth} unclosed {`
+  if (envs.length > 0) return `\\begin{${envs[0]}} is never closed`
+  return null
+}
+
+/* ---------- document addressing ---------- */
+
+function findDocEl(target: string, doc: Doc): HTMLElement | null {
+  return resolveDocTarget(target, doc.article, state.currentBlock)
+}
+
+/** doc-side role words → dialect selectors (DOC-PROFILE grammar) */
+const DOC_ROLE_ALIASES: Record<string, string> = {
+  section: 'h2.dia-sec, h3.dia-sec, h4.dia-sec, h5.dia-sec',
+  heading: 'h2.dia-sec, h3.dia-sec, h4.dia-sec, h5.dia-sec',
+  para: 'p', paragraph: 'p', text: 'p',
+  eq: '.dia-math', math: '.dia-math', equation: 'div.dia-math',
+  island: '.dia-tex-island', tex: '.dia-tex-island',
+  figure: 'figure.dia-figure', caption: 'figcaption', image: 'img',
+  table: 'table', list: 'ul, ol, dl', item: 'li',
+  abstract: 'section.dia-abstract', verbatim: 'pre.dia-verbatim',
+  ref: 'a.dia-ref', cite: 'a.dia-cite', footnote: 'span.dia-footnote',
+}
+
+/** Resolve a proposal target inside a document. The deck grammar's shape,
+ * with sections where slides were:
+ *   1. a data-dia-id (exact)
+ *   2. "section 3" / `section "Methods"`      → the heading's section
+ *   3. "section 3 para 2" / `section "Methods" eq 1`
+ *   4. "block 7"                              → the 7th top-level block
+ *   5. a bare descriptor ("para 2")           → current section, then doc
+ *   6. a CSS selector
+ *   7. "…text…"                               → innermost matching element
+ * Exported for tests; compile passes live editor state. */
+export function resolveDocTarget(
+  target: string,
+  article: HTMLElement,
+  currentBlock: number,
+): HTMLElement | null {
+  const t = target.trim()
+  if (!t) return null
+
+  try {
+    const byId = article.querySelector<HTMLElement>(`[data-dia-id="${cssEscape(t)}"]`)
+    if (byId) return byId
+  } catch { /* a target with quotes is never an id — keep resolving */ }
+
+  const blocks = [...article.children].filter((c): c is HTMLElement => c instanceof HTMLElement)
+
+  // "block N" — the raw top-level address, ordinal in flow order
+  const blockForm = /^block\s*#?(\d+)$/i.exec(t)
+  if (blockForm) return blocks[parseInt(blockForm[1], 10) - 1] ?? null
+
+  // "section N …" / `section "Title" …`
+  const sectionForm = /^section\s*(?:#?(\d+)|"([^"]+)"|'([^']+)'|“([^”]+)”)\s*(?:[:,·>-]\s*)?(.*)$/i.exec(t)
+  if (sectionForm) {
+    const title = sectionForm[2] ?? sectionForm[3] ?? sectionForm[4]
+    const scope = title !== undefined
+      ? sectionByTitle(blocks, title)
+      : sectionByNumber(blocks, parseInt(sectionForm[1], 10))
+    if (!scope) return null
+    const rest = sectionForm[5].trim()
+    if (!rest) return scope[0] ?? null
+    return descriptorInBlocks(scope, rest) ?? textMatchIn(scope, rest)
+  }
+
+  // bare descriptor: the section the user is reading first, then the document
+  const here = sectionOf(blocks, blocks[currentBlock] ?? null)
+  const inSection = descriptorInBlocks(here, t)
+  if (inSection) return inSection
+  const anywhere = descriptorInBlocks(blocks, t)
+  if (anywhere) return anywhere
+
+  try {
+    const bySelector = article.querySelector<HTMLElement>(t)
+    if (bySelector) return bySelector
+  } catch { /* not a selector — fall through to text */ }
+
+  return textMatchIn(here, t) ?? textMatchIn(blocks, t)
+}
+
+const DOC_HEADING = 'h2.dia-sec, h3.dia-sec, h4.dia-sec, h5.dia-sec'
+
+/** the blocks of the Nth top-level section (h2), heading first */
+function sectionByNumber(blocks: HTMLElement[], n: number): HTMLElement[] | null {
+  if (!Number.isFinite(n) || n < 1) return null
+  let seen = 0
+  for (const el of blocks) {
+    if (el.matches('h2.dia-sec') && ++seen === n) return sectionOf(blocks, el)
+  }
+  return null
+}
+
+/** the section whose heading text matches (exact, then prefix, folded) */
+function sectionByTitle(blocks: HTMLElement[], title: string): HTMLElement[] | null {
+  const want = fold(title)
+  let prefix: HTMLElement | null = null
+  for (const el of blocks) {
+    if (!el.matches(DOC_HEADING)) continue
+    const own = fold(el.textContent ?? '')
+    if (own === want) return sectionOf(blocks, el)
+    if (!prefix && own.startsWith(want)) prefix = el
+  }
+  return prefix ? sectionOf(blocks, prefix) : null
+}
+
+/** the section containing a block: its heading through the block before the
+ * next heading at the same or a higher level */
+function sectionOf(blocks: HTMLElement[], block: HTMLElement | null): HTMLElement[] {
+  const at = block ? blocks.indexOf(block) : -1
+  let head = -1
+  for (let i = at >= 0 ? at : 0; i >= 0; i--) {
+    if (blocks[i].matches(DOC_HEADING)) { head = i; break }
+  }
+  // front matter (no heading above it) ends at the first heading of any level
+  const level = head >= 0 ? Number(blocks[head].tagName[1]) : Number.MAX_SAFE_INTEGER
+  let end = blocks.length
+  for (let i = head + 1; i < blocks.length; i++) {
+    if (blocks[i].matches(DOC_HEADING) && Number(blocks[i].tagName[1]) <= level) { end = i; break }
+  }
+  return blocks.slice(head >= 0 ? head : 0, end)
+}
+
+/** "<role-or-tag>[ <ordinal>]" over a list of blocks: each block itself, then
+ * its descendants, in flow order */
+function descriptorInBlocks(scope: HTMLElement[], desc: string): HTMLElement | null {
+  const m = /^([a-z-]+)\s*#?(\d+)?$/i.exec(desc.trim())
+  if (!m) return null
+  const word = m[1].toLowerCase()
+  const nth = m[2] ? parseInt(m[2], 10) - 1 : 0
+  const selector =
+    DOC_ROLE_ALIASES[word] ??
+    (word.startsWith('dia-') ? `.${word}` : /^(p|h[1-6]|ul|ol|li|dl|dt|dd|img|svg|table|tr|td|blockquote|pre|figure|figcaption|section|div|span|a|code|em|strong)$/.test(word) ? word : null)
+  if (!selector) return null
+  const hits: HTMLElement[] = []
+  try {
+    for (const block of scope) {
+      if (block.matches(selector)) hits.push(block)
+      hits.push(...block.querySelectorAll<HTMLElement>(selector))
+    }
+  } catch { return null }
+  return hits[nth] ?? null
+}
+
+/** innermost element whose normalized text equals (then starts with) the
+ * needle, searched over blocks and their descendants */
+function textMatchIn(scope: HTMLElement[], needle: string): HTMLElement | null {
+  const text = needle.replace(/^["'“”]+|["'“”]+$/g, '').replace(/\s+/g, ' ').trim()
+  if (text.length < 3) return null
+  let exact: HTMLElement | null = null
+  let prefix: HTMLElement | null = null
+  for (const block of scope) {
+    for (const el of [block, ...block.querySelectorAll<HTMLElement>('*')]) {
+      if (el instanceof SVGElement) continue
+      const own = (el.textContent ?? '').replace(/\s+/g, ' ').trim()
+      if (!own) continue
+      if (own === text && (!exact || exact.contains(el))) exact = el
+      else if (!exact && own.startsWith(text) && (!prefix || prefix.contains(el))) prefix = el
+    }
+  }
+  return exact ?? prefix
+}
+
+function fold(s: string): string {
+  return s.replace(/\s+/g, ' ').trim().toLowerCase()
 }
 
 /* ---------- lookup helpers ---------- */

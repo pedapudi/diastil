@@ -2,6 +2,7 @@
  * Owned by integration — module agents consume, do not edit. */
 
 import type { Altitude, Deck, EditorEvent, Op, OpLogEntry, Selection, SlideEl } from './types'
+import type { Doc } from './model/doc'
 import { OpLog } from './model/oplog'
 
 type Listener = (e: EditorEvent) => void
@@ -14,11 +15,19 @@ export class Bus {
 
 export class EditorState {
   deck: Deck | null = null
+  /** the loaded LaTeX-backed document; a session holds a deck OR a doc,
+   * never both (the loading surface nulls the other) */
+  doc: Doc | null = null
   bus = new Bus()
   log = new OpLog()
   private _sel: Selection = { kind: 'none' }
   private _altitude: Altitude = 'table'
   private _current = 0
+  private _currentBlock = 0
+
+  get mode(): 'deck' | 'doc' | 'none' {
+    return this.deck ? 'deck' : this.doc ? 'doc' : 'none'
+  }
 
   get selection(): Selection { return this._sel }
   set selection(sel: Selection) { this._sel = sel; this.bus.emit({ type: 'selection', sel }) }
@@ -39,9 +48,24 @@ export class EditorState {
     this.bus.emit({ type: 'current-slide', index: clamped })
   }
 
+  get currentBlock(): number { return this._currentBlock }
+  setCurrentBlock(i: number): void {
+    const n = this.blocks().length
+    const clamped = Math.max(0, Math.min(i, n - 1))
+    if (clamped === this._currentBlock) return
+    this._currentBlock = clamped
+    this.bus.emit({ type: 'current-block', index: clamped })
+  }
+
   slides(): SlideEl[] {
     if (!this.deck) return []
     return [...this.deck.root.querySelectorAll<HTMLElement>('section.dia-slide')]
+  }
+
+  /** a document's top-level blocks, in flow order */
+  blocks(): HTMLElement[] {
+    if (!this.doc) return []
+    return [...this.doc.article.children] as HTMLElement[]
   }
 
   /** drop all op history — a newly loaded document's ops are meaningless

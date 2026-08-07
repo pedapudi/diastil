@@ -217,3 +217,45 @@ a plugin: `/plugin marketplace add pedapudi/diastil`.
 def deck_html(title: str) -> str:
     safe = title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     return DECK_TEMPLATE.format(title=safe)
+
+
+DOC_TEMPLATE = r"""\documentclass{article}
+
+\title{__TITLE__}
+\author{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+One paragraph on what this document establishes and why it matters.
+\end{abstract}
+
+\section{Introduction}\label{sec:intro}
+
+Start writing. Inline math works anywhere: $e^{i\pi} + 1 = 0$.
+
+\section{Method}
+
+Display math numbers itself and can be referenced from prose:
+\begin{equation}\label{eq:main}
+f(x) = \int_{-\infty}^{\infty} \hat f(\xi)\, e^{2\pi i \xi x}\, d\xi
+\end{equation}
+
+As Equation~\ref{eq:main} shows, Section~\ref{sec:intro} promised nothing
+it could not deliver.
+
+\begin{itemize}
+\item lists,
+\item and \textbf{inline styling},
+\item and \texttt{code} all map to the editor's native view.
+\end{itemize}
+
+\end{document}
+"""
+
+
+def doc_tex(title: str) -> str:
+    """A LaTeX document starter — plain article class, no package baggage,
+    so it compiles anywhere and every construct maps to the native view."""
+    return DOC_TEMPLATE.replace("__TITLE__", title or "Untitled")

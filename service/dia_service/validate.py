@@ -328,3 +328,159 @@ def _finite(v: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+# ---- LaTeX-backed document profile (profile/DOC-PROFILE.md) ----
+
+DOC_ATTRS = {
+    "data-dia-doc-version",
+    "data-dia-float",  # figure|table — a float's kind
+    "data-dia-label",  # \label key, on floats/sections/math (and dia-label spans)
+    "data-dia-env",  # source environment name, on math blocks and wrappers
+    "data-dia-ref", "data-dia-ref-cmd",  # \ref target key + command variant
+    "data-dia-cite", "data-dia-cite-opt", "data-dia-cite-pre", "data-dia-cite-cmd",  # \cite keys + post/pre notes + command variant
+    "data-dia-graphic-path",  # pdf/eps graphic slot path (browsers cannot <img> those)
+    "data-dia-graphic-opts",  # \includegraphics options, carried verbatim
+    "data-dia-colspec",  # tabular column spec, carried verbatim
+    "data-dia-expand",  # display-only expansion of a text-macro island (CSS ::after)
+}
+DOC_FLOATS = {"figure", "table"}
+THREAD_STATUSES = {"open", "resolved", "orphaned"}
+
+
+def validate_doc_html(html: str) -> dict:
+    """Mirror of validateDocHtml(): {ok, findings[], slideCount, version}."""
+    import json
+
+    root = _parse(html)
+    findings: list[dict] = []
+
+    def add(level: str, rule: str, locator: str, message: str) -> None:
+        findings.append({"level": level, "rule": rule, "locator": locator, "message": message})
+
+    html_el = _first(root, "html")
+    version = html_el.attrs.get("data-dia-doc-version") if html_el else None
+    if version is None:
+        add("error", "doc/version", "", "missing data-dia-doc-version on <html>")
+    if html_el is not None and "data-dia-version" in html_el.attrs:
+        add("error", "doc/version-exclusive", "",
+            "a file is a deck or a document, never both — data-dia-version "
+            "and data-dia-doc-version are mutually exclusive")
+
+    themes = [el for el in root.find_all("style") if el.attrs.get("id") == "dia-theme"]
+    if len(themes) != 1:
+        add("error", "frame/theme",
+            "", "missing <style id=\"dia-theme\">" if not themes
+            else f"{len(themes)} theme blocks — exactly one expected")
+
+    articles = [el for el in root.find_all("article") if "dia-doc" in el.classes()]
+    if len(articles) != 1:
+        add("error", "doc/root",
+            "", "no <article class=\"dia-doc\"> found" if not articles
+            else f"{len(articles)} document roots — exactly one expected")
+
+    body = _first(root, "body")
+    for child in (body.children if body else []):
+        is_article = child.tag == "article" and "dia-doc" in child.classes()
+        is_runtime = child.tag == "script" and child.attrs.get("id") == "dia-doc-runtime"
+        if not is_article and not is_runtime and child.tag != "style":
+            add("error", "doc/stray-content", child.path(), f"unexpected <{child.tag}> at body top level")
+
+    sources = [el for el in root.find_all("script") if el.attrs.get("id") == "dia-source"]
+    if len(sources) != 1:
+        add("error", "doc/source",
+            "", "missing <script id=\"dia-source\"> — the LaTeX truth" if not sources
+            else f"{len(sources)} source blocks — exactly one expected")
+    else:
+        if sources[0].attrs.get("type") != "application/json":
+            add("error", "doc/source", "", 'script#dia-source must have type="application/json"')
+        try:
+            j = json.loads(sources[0].text)
+            tex = j.get("tex")
+            if not isinstance(tex, str) or not tex:
+                add("error", "doc/source", "", "#dia-source carries no LaTeX text")
+            if j.get("version") != 1:
+                add("error", "doc/source", "", f"#dia-source version {j.get('version')} — expected 1")
+        except (ValueError, AttributeError):
+            add("error", "doc/source", "", "#dia-source is not valid JSON")
+
+    comments = [el for el in root.find_all("script") if el.attrs.get("id") == "dia-comments"]
+    if len(comments) > 1:
+        add("error", "doc/comments", "", f"{len(comments)} comments blocks — at most one expected")
+    elif len(comments) == 1:
+        try:
+            j = json.loads(comments[0].text)
+            threads = j.get("threads")
+            if not isinstance(threads, list):
+                add("error", "doc/comments", "", "#dia-comments has no threads array")
+            else:
+                for i, t in enumerate(threads):
+                    where = f"threads[{i}]"
+                    if not isinstance(t, dict):
+                        add("error", "doc/comments", where, "thread is not an object")
+                        continue
+                    if not isinstance(t.get("id"), str) or not t.get("id"):
+                        add("error", "doc/comments", where, "thread has no id")
+                    if t.get("status") not in THREAD_STATUSES:
+                        add("error", "doc/comments", where,
+                            f"status {json.dumps(t.get('status'))} is not open · resolved · orphaned")
+                    anchor = t.get("anchor")
+                    if not isinstance(anchor, dict):
+                        add("error", "doc/comments", where, "thread has no anchor")
+                    elif not isinstance(anchor.get("quote"), str) or not anchor.get("quote"):
+                        add("error", "doc/comments", where,
+                            "anchor carries no quote — nothing to re-anchor to")
+                    if not isinstance(t.get("notes"), list):
+                        add("error", "doc/comments", where, "thread has no notes array")
+        except (ValueError, AttributeError):
+            add("error", "doc/comments", "", "#dia-comments is not valid JSON")
+
+    article = articles[0] if articles else None
+    if article is not None:
+        labels = {
+            el.attrs.get("data-dia-label", "")
+            for el in article.walk() if "data-dia-label" in el.attrs
+        }
+        for el in article.walk():
+            if el is not article and el.in_island(article):
+                continue
+
+            if el.tag == "script":
+                add("error", "content/script", el.path(),
+                    "script in a dialect region — behavior must be data-dia-* attributes")
+            if el.tag in ("iframe", "object", "embed"):
+                add("error", "content/embed", el.path(), f"<{el.tag}> outside an island")
+
+            for name in el.attrs:
+                if re.match(r"^on[a-z]", name):
+                    add("error", "content/event-handler", el.path(), f"inline handler {name}")
+                elif name in EDITOR_ONLY_ATTRS or name == "contenteditable":
+                    add("error", "content/editor-artifact", el.path(),
+                        f"editor session attribute {name} leaked into the document")
+                elif name.startswith("data-dia-") and name not in DIA_ATTRS and name not in DOC_ATTRS:
+                    add("error", "content/unknown-dia-attr", el.path(), f"unknown dialect attribute {name}")
+
+            float_kind = el.attrs.get("data-dia-float")
+            if float_kind is not None and float_kind not in DOC_FLOATS:
+                add("error", "doc/float", el.path(), f'data-dia-float="{float_kind}" is not figure · table')
+
+            ref = el.attrs.get("data-dia-ref")
+            if ref is not None and ref not in labels:
+                add("advisory", "doc/ref-known", el.path(), f"\\ref{{{ref}}} has no matching label in the document")
+
+            style = el.attrs.get("style")
+            if style and COLOR_LITERAL.search(style):
+                add("advisory", "content/inline-color", el.path(),
+                    "inline literal color — prefer var(--dia-…) tokens")
+
+    return {
+        "ok": not any(f["level"] == "error" for f in findings),
+        "findings": findings,
+        "slideCount": 0,
+        "version": version,
+    }
+
+
+def looks_like_doc_html(html: str) -> bool:
+    """Cheap routing probe: is this artifact a LaTeX-backed document?"""
+    return "data-dia-doc-version" in html or 'class="dia-doc"' in html

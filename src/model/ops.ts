@@ -2,9 +2,54 @@
  * Each returns an Op with apply/invert; route through state.apply(op). */
 
 import type { NodeGeom, Op } from '../types'
+import type { Doc } from './doc'
 import { routeAll, routeEdge, setNodeGeom, getNodeGeom } from '../scene/route'
+import { emitBlockTex } from '../latex/emit'
+import { applySourceText } from '../doc/reconcile'
 
 const author = (a?: 'you' | 'copilot') => a ?? 'you'
+
+/** Put a re-emitted block back in the whitespace its span already had.
+ *
+ * A span owns the blank lines and newlines that SEPARATE its block from the
+ * neighbours; an unedited block emits them back verbatim, but every
+ * reconstruction path in emit.ts produces the block alone. Patched in raw,
+ * an edited paragraph would swallow the newline after the `\section{…}`
+ * above it and glue the two into one line of LaTeX — source the engine
+ * still compiles, into a document that is not the one on screen.
+ *
+ * Both cases pass through here: the unedited emission already carries the
+ * separators, so stripping and re-adding them is the identity. */
+function reseated(doc: Doc, span: { start: number; end: number }, emitted: string): string {
+  const slice = doc.source.text.slice(span.start, span.end)
+  const lead = /^\s*/.exec(slice)?.[0] ?? ''
+  const tail = /\s*$/.exec(slice.slice(lead.length))?.[0] ?? ''
+  return lead + emitted.replace(/^\s+/, '').replace(/\s+$/, '') + tail
+}
+
+/** DOM mutation + LaTeX source patch as ONE op — the document mode's only
+ * legal write shape (the applyTex pattern generalized). The source patch is
+ * DERIVED at apply time: run the DOM ops, re-emit the containing top-level
+ * block, replace its span. Undo applies the inverse DOM ops and re-emits —
+ * a block restored to its pristine DOM re-emits its memoized source slice,
+ * so undo restores the source BYTE-EXACTLY by construction. */
+export function syncedBlockOp(doc: Doc, blockEl: HTMLElement, domOps: Op[], label: string, by?: 'you' | 'copilot'): Op {
+  return {
+    label,
+    author: author(by),
+    apply() {
+      for (const o of domOps) o.apply()
+      const id = blockEl.getAttribute('data-dia-id')
+      const span = id ? doc.source.spanOf(id) : null
+      if (span) doc.source.patch(span.start, span.end, reseated(doc, span, emitBlockTex(blockEl)))
+      else console.error('dia-doc: edited block has no bound source span — source not updated')
+    },
+    invert() {
+      const inverses = [...domOps].reverse().map((o) => o.invert())
+      return syncedBlockOp(doc, blockEl, inverses, `un-${label}`, author(by))
+    },
+  }
+}
 
 /** replace an element's text content (role text editing).
  * The inverse restores the exact previous child nodes, not just the flattened
@@ -95,15 +140,29 @@ export function insertEl(parent: Element, index: number, el: Element, label?: st
   }
 }
 
-/** remove an element (remembers its position) */
+/** remove an element (remembers its position). The anchor is the following
+ * SIBLING NODE, not a child index: prose blocks are mixed content, and an
+ * element restored to the wrong side of a text node would come back with
+ * different bytes than it left with. */
 export function removeEl(el: Element, label?: string, by?: 'you' | 'copilot'): Op {
   const parent = el.parentElement ?? (el.parentNode as Element)
-  const index = [...(parent?.children ?? [])].indexOf(el)
+  const next = el.nextSibling
   return {
     label: label ?? `Delete ${describe(el)}`,
     author: author(by),
     apply() { el.remove() },
-    invert() { return insertEl(parent, index, el, undefined, author(by)) },
+    invert() { return insertBeforeNode(parent, el, next, undefined, author(by)) },
+  }
+}
+
+/** insert an element before a specific sibling node (null, or a node that
+ * has since moved away, appends) */
+function insertBeforeNode(parent: Element, el: Element, ref: Node | null, label?: string, by?: 'you' | 'copilot'): Op {
+  return {
+    label: label ?? `Insert ${describe(el)}`,
+    author: author(by),
+    apply() { parent.insertBefore(el, ref && ref.parentNode === parent ? ref : null) },
+    invert() { return removeEl(el, label && `un-${label}`, author(by)) },
   }
 }
 
@@ -148,6 +207,34 @@ export function setEdgeVia(scene: SVGSVGElement, edge: SVGGElement, via: string 
       routeEdge(scene, edge)
     },
     invert() { return setEdgeVia(scene, edge, prev, author(by)) },
+  }
+}
+
+/** whole-source replacement from the raw LaTeX editor — coarse but
+ * truthful undo: one op per source-view session, restoring the exact
+ * previous text, DOM children, and span bindings */
+export function setDocSource(doc: Doc, newText: string, by?: 'you' | 'copilot'): Op {
+  const prevText = doc.source.text
+  const prevChildren = [...doc.article.children]
+  const prevSpans = doc.source.snapshotBindings()
+  const label = 'Edit source'
+  return {
+    label,
+    author: author(by),
+    apply() { applySourceText(doc, newText) },
+    invert() {
+      const redo = () => setDocSource(doc, newText, author(by))
+      return {
+        label: `un-${label}`,
+        author: author(by),
+        apply() {
+          doc.source.text = prevText
+          doc.source.restoreBindings(prevSpans)
+          doc.article.replaceChildren(...prevChildren)
+        },
+        invert: redo,
+      }
+    },
   }
 }
 

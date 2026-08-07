@@ -52,6 +52,7 @@ dia deck.html            # open the editor on the file; ⌘S writes back;
 dia ingest foreign.html  # open the editor straight into import review
 dia present deck.html    # open a saved deck in the browser (it presents itself)
 dia validate deck.html…  # profile-validate saved decks; exit 1 on errors
+dia compile paper.tex    # LaTeX → PDF with a real engine; exit 1 on errors
 dia serve                # the inference service alone
 dia eval [--skill s]     # run skill evals; scores → evals/results.json
 ```
@@ -109,6 +110,81 @@ itself never lives in config.
 - `POST /export/pptx` → the deck rendered to a native `.pptx` download
   (text boxes, shapes + connectors, vector charts and tables — stays
   editable in PowerPoint / Keynote / Google Slides).
+- `POST /compile` → `{jobId}`; then `GET /compile/{id}/events` (SSE:
+  `phase` / `log` / `done`), `GET /compile/{id}/pdf`,
+  `GET /compile/{id}/synctex` → `{pages, lines: [{line, page, x, y, w}],
+  xSemantics, ySemantics}`, `DELETE /compile/{id}` to cancel.
+- `GET /compile/{id}/pages` → `{available, tool, count, pages: [{n, wPt,
+  hPt}], ySemantics}` and `GET /compile/{id}/page/{n}.png?dpi=130` → that
+  page rasterized by poppler, for previewing a compiled figure inline.
+- `POST /tex/install` → SSE progress for the managed tectonic download;
+  `POST /tex/refresh` → re-probe the engine ladder.
+
+## LaTeX documents
+
+`GET /health` carries a `tex` block describing what the daemon can compile
+with: `{engine, path, version, synctex, downloadable, managed, pageRender}`.
+`pageRender` is a separate axis from the rest — it says poppler's `pdftoppm`
+is on `PATH`, so a compiled page can be shown as an image — and a machine
+can perfectly well have one without the other. Engines
+are found in this order — a tectonic the daemon installed itself, tectonic
+on `PATH`, `latexmk`, `xelatex`, `pdflatex` — and `[tex] engine` in
+`config.toml` pins one. **A pinned engine that is not installed is reported
+as missing rather than quietly replaced.**
+
+Nothing installed is a supported state: `engine` is `null`, `downloadable`
+says whether we have a pinned tectonic build for this platform, and the
+editor offers a one-click install. That download is ~14MB into
+`~/.cache/diastil` (`XDG_CACHE_HOME` honored), needs no root, changes no
+`PATH`, and is verified against a sha256 compiled into `texdl.py`. There is
+deliberately no way to install from a URL of your choosing.
+
+Compiles run in a temp directory — your own directory is never written to.
+When the file was opened through the CLI, `TEXINPUTS` is pointed at its
+folder so relative `\includegraphics` resolves read-only. Tectonic's first
+compile downloads the packages the document asks for, which is why the
+default `[tex] timeout_s` is 180.
+
+```sh
+dia compile paper.tex                  # → paper.pdf, errors as file:line
+dia compile paper.tex --engine xelatex --pdf /tmp/out.pdf
+dia export paper.html --pdf out.pdf    # the LaTeX inside a dialect document
+```
+
+`GET /compile/{id}/synctex` maps source lines to positions:
+`{pages, lines: [{line, page, x, y, w?}], xSemantics, ySemantics}`.
+
+Both axes are **points from the top-left of the paper**, `y` growing
+downward and `x` rightward — verified against real compiles rather than
+assumed, and reported on the wire as `ySemantics: "topDownPt"` and
+`xSemantics: "leftPt"` so no client has to guess an origin. In particular
+`x` is measured from the paper's edge, not from TeX's 1in reference point.
+
+`x` is what makes a two-column paper croppable: on a 500pt page with 25pt
+margins the left column's records report `x: 25` and the right column's
+`x: 255`, so **clustering a block's records on `x` identifies its column**.
+`w` is the width of the box the line typeset — the column width for body
+text. Treat `w` as a hint and `x` as the signal: a line whose innermost box
+is an inline formula or an `\item` label reports that box, so `w` may be a
+few points, while `x` is always inside the line's own column.
+
+One record is kept per (line, page): the first box the line opened that
+opened no box of its own. A source line owns every box that was still open
+when it was current, so the line a page break falls on also owns the page
+box (at `x: 72.27`) and the full-width text block (at `x: 25`) — reporting
+either would put that line in the wrong column. A line that typeset nothing
+on a page keeps its first record and has no `w`.
+
+## Tests
+
+```sh
+.venv/bin/pip install -e '.[dev]'
+.venv/bin/python -m pytest
+```
+
+The compile suite drives a fake engine, so it needs no TeX installation
+and no model — it gives the same answer on a bare machine as on a full
+TeX Live one.
 
 ## Privacy
 

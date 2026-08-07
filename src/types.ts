@@ -25,6 +25,8 @@ export type Selection =
   | { kind: 'none' }
   | { kind: 'slide'; slide: SlideEl }
   | { kind: 'element'; el: HTMLElement; slide: SlideEl }
+  /** document mode: a top-level article block (docs have no slides) */
+  | { kind: 'block'; block: HTMLElement }
   | { kind: 'scene-node'; node: SVGGElement; scene: SVGSVGElement; slide: SlideEl }
   | { kind: 'scene-edge'; edge: SVGGElement; scene: SVGSVGElement; slide: SlideEl }
   /** any other svg graphics content — imported art, drawings; coarse editing */
@@ -54,6 +56,11 @@ export type EditorEvent =
   | { type: 'deck-loaded' }
   | { type: 'slides-changed' }
   | { type: 'studio-selection' }
+  /* LaTeX-backed documents (model/doc.ts) */
+  | { type: 'doc-loaded' }
+  | { type: 'current-block'; index: number }
+  | { type: 'blocks-changed' }
+  | { type: 'comments-changed' }
 
 export type Altitude = 'table' | 'stage'
 
@@ -119,6 +126,19 @@ export interface ChatContext {
   /** tool-measured mismatch regions vs the imported original — the same
    * thing a careful human would shade, computed automatically */
   autoHighlights?: Array<{ x: number; y: number; w: number; h: number }>
+  /* ---------- LaTeX-backed documents (mode 'doc') ----------
+   * the slide fields keep their wire names so the service is unchanged:
+   * slideIndex carries the current BLOCK, slideImage the section render. */
+  /** this turn is about a document, not a deck */
+  docMode?: boolean
+  /** rendered markup of the current section (heading + its blocks), capped */
+  sectionHtml?: string | null
+  /** the LaTeX slice behind those blocks — the model reasons in tex */
+  sourceExcerpt?: string | null
+  /** open comment threads anchored inside the section: the user's requests */
+  comments?: Array<{ id: string; quote: string; note: string }>
+  /** findings from the last compile — "fix the error" needs no round trip */
+  compileErrors?: Array<{ line: number | null; message: string }>
 }
 
 export type ChatEvent =
@@ -135,6 +155,8 @@ export interface ProposedOp {
   action:
     | 'set-text' | 'set-inline-html' | 'set-token' | 'set-style' | 'set-attr'
     | 'insert-html' | 'remove' | 'move-el' | 'add-slide'
+    /** documents: replace the LaTeX of a math block or a verbatim island */
+    | 'set-tex'
     | 'insert-node' | 'remove-node' | 'set-node-label' | 'set-shape'
     | 'move-node' | 'insert-edge' | 'remove-edge' | 'retarget-edge' | 'set-edge-label'
   target: string

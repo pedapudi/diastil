@@ -8,6 +8,7 @@ import type { Deck } from '../types'
 import { state } from '../state'
 import { loadDeck } from '../model/parse'
 import { serializeDeck } from '../model/serialize'
+import { loadDoc, loadDocFromTex, serializeDoc, exportTex, type Doc } from '../model/doc'
 import { clearPreview } from '../copilot/preview'
 import { closeStudio } from '../studio/studio'
 import { closeSlideFocus } from '../studio/focus'
@@ -36,16 +37,24 @@ async function readPicked(f: File, handle: DEFileHandle | null): Promise<PickedF
   return { text: await f.text(), bytes: null, name: f.name, handle }
 }
 
+/** Is this a LaTeX source file? Extension decides; content sniff catches a
+ * .txt-renamed paper. */
+export function looksLikeTex(text: string, name: string): boolean {
+  if (/\.tex$/i.test(name)) return true
+  return /\\documentclass\s*[[{]/.test(text.slice(0, 4000))
+}
+
 async function pickHtmlFile(): Promise<PickedFile | null> {
   const w = window as PickerWindow
   if (typeof w.showOpenFilePicker === 'function') {
     try {
       const [handle] = await w.showOpenFilePicker({
         types: [{
-          description: 'Deck (HTML or PowerPoint)',
+          description: 'Deck (HTML or PowerPoint) or document (LaTeX)',
           accept: {
             'text/html': ['.html', '.htm'],
             'application/vnd.openxmlformats-officedocument.presentationml.presentation': ['.pptx'],
+            'text/x-tex': ['.tex'],
           },
         }],
       })
@@ -58,7 +67,7 @@ async function pickHtmlFile(): Promise<PickedFile | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input')
     input.type = 'file'
-    input.accept = '.html,.htm,.pptx,text/html'
+    input.accept = '.html,.htm,.pptx,.tex,text/html'
     input.addEventListener('change', () => {
       const f = input.files?.[0]
       if (!f) { resolve(null); return }
@@ -78,16 +87,34 @@ async function pickHtmlFile(): Promise<PickedFile | null> {
 
 let servicePath: string | null = null
 let serviceMtime = 0
+
+/** the file this session was opened from through the CLI, if any. The compile
+ * path sends it so the daemon can grant read-only TEXINPUTS access to its
+ * directory — that is what makes a relative \includegraphics resolve. */
+export function servicePathOf(): string | null { return servicePath }
 /** disk content as of the last load/save — the clean-state reference */
 let lastSyncedHtml = ''
 let watchTimer = 0
 
+/** why the last readServiceFile returned null — shown to the user at boot,
+ * where "silently load the demo deck instead" read as data loss */
+let lastReadError = ''
+
 async function readServiceFile(path: string): Promise<{ html: string; b64?: string; mtime: number } | null> {
   try {
     const r = await fetch(`${SERVICE_BASE}/file?path=${encodeURIComponent(path)}`)
-    if (!r.ok) return null
+    if (!r.ok) {
+      let detail = `${r.status}`
+      try {
+        const body = await r.json() as { detail?: string }
+        if (body.detail) detail = body.detail
+      } catch { /* body was not json */ }
+      lastReadError = detail
+      return null
+    }
     return await r.json() as { html: string; b64?: string; mtime: number }
   } catch {
+    lastReadError = 'the dia service is not reachable'
     return null
   }
 }
@@ -109,6 +136,7 @@ export async function bootFromCli(canvasHost: HTMLElement): Promise<boolean> {
   const file = await readServiceFile(path)
   if (!file) {
     console.warn(`dia: could not read ${path} through the service — falling back to the demo deck`)
+    alert(`could not open ${path}: ${lastReadError}.\n\nThe daemon only serves files it was started with — run:\n  dia edit ${path}`)
     return false
   }
   const name = path.split('/').pop() ?? 'deck.html'
@@ -123,19 +151,34 @@ export async function bootFromCli(canvasHost: HTMLElement): Promise<boolean> {
     }
     return true
   }
+  // `dia edit paper.tex` — the document editor, straight from source
+  if (editPath && looksLikeTex(file.html, name)) {
+    servicePath = path
+    serviceMtime = file.mtime
+    lastSyncedHtml = file.html
+    loadDocument('tex', file.html, canvasHost, name)
+    startWatch(canvasHost)
+    return true
+  }
   // ?import= forces conversion; ?file= auto-detects — a foreign file opened
   // with `dia edit` converts instead of loading as a broken dialect deck
-  if (!editPath || !isDialectHtml(file.html)) {
+  const kind = editPath ? dialectKind(file.html) : null
+  if (!kind) {
     void startImport(file.html, name)
     return true
   }
   servicePath = path
   serviceMtime = file.mtime
   lastSyncedHtml = file.html
-  setImportReport(null)
-  const deck = loadDeck(file.html, canvasHost, name)
-  state.deck = deck
-  state.bus.emit({ type: 'deck-loaded' })
+  if (kind === 'doc') {
+    loadDocument('html', file.html, canvasHost, name)
+  } else {
+    setImportReport(null)
+    const deck = loadDeck(file.html, canvasHost, name)
+    state.doc = null
+    state.deck = deck
+    state.bus.emit({ type: 'deck-loaded' })
+  }
   startWatch(canvasHost)
   return true
 }
@@ -146,21 +189,35 @@ function startWatch(canvasHost: HTMLElement): void {
 }
 
 async function pollDisk(canvasHost: HTMLElement): Promise<void> {
-  if (!servicePath || !state.deck) return
+  if (!servicePath || state.mode === 'none') return
   const file = await readServiceFile(servicePath)
   if (!file || file.mtime <= serviceMtime || file.html === lastSyncedHtml) return
   // external change on disk: reload only when the editor is clean —
   // byte-stable serialization makes "clean" checkable exactly
-  if (serializeClean(state.deck) !== lastSyncedHtml) {
+  if (serializeCurrent() !== lastSyncedHtml) {
     console.warn('dia: file changed on disk but the editor has unsaved edits — keeping them (save overwrites)')
     serviceMtime = file.mtime
     return
   }
   serviceMtime = file.mtime
   lastSyncedHtml = file.html
-  const deck = loadDeck(file.html, canvasHost, state.deck.fileName)
+  if (state.doc) {
+    const isTex = /\.tex$/i.test(servicePath)
+    loadDocument(isTex ? 'tex' : 'html', file.html, canvasHost, isTex ? state.doc.texName : state.doc.fileName)
+    return
+  }
+  const deck = loadDeck(file.html, canvasHost, state.deck!.fileName)
   state.deck = deck
   state.bus.emit({ type: 'deck-loaded' })
+}
+
+/** the on-disk representation of the current editor content — what a save
+ * would write to servicePath (tex for .tex sessions, html otherwise) */
+function serializeCurrent(): string {
+  if (state.doc) {
+    return servicePath && /\.tex$/i.test(servicePath) ? exportTex(state.doc) : serializeDoc(state.doc)
+  }
+  return state.deck ? serializeClean(state.deck) : ''
 }
 
 /* ---------- open (one door for dialect AND foreign files) ---------- */
@@ -169,9 +226,39 @@ async function pollDisk(canvasHost: HTMLElement): Promise<void> {
  * version stamp or actual dialect slides decide, so a foreign deck that
  * merely mentions "dia-slide" in prose still converts. */
 export function isDialectHtml(html: string): boolean {
+  return dialectKind(html) !== null
+}
+
+/** Which dialect kind is this HTML — a deck, a LaTeX-backed document, or
+ * foreign (null)? */
+export function dialectKind(html: string): 'deck' | 'doc' | null {
   const doc = new DOMParser().parseFromString(html, 'text/html')
-  return doc.documentElement.hasAttribute('data-dia-version') ||
-    doc.querySelector('section.dia-slide') !== null
+  if (doc.documentElement.hasAttribute('data-dia-doc-version') ||
+    doc.querySelector('article.dia-doc') !== null) return 'doc'
+  if (doc.documentElement.hasAttribute('data-dia-version') ||
+    doc.querySelector('section.dia-slide') !== null) return 'deck'
+  return null
+}
+
+/** dev/e2e hook body: open document text (either form) into the editor */
+export function openDocumentText(text: string, name: string): void {
+  const host = document.getElementById('deck-host')
+  if (!host) return
+  servicePath = null
+  window.clearInterval(watchTimer)
+  fileHandle = null
+  loadDocument(looksLikeTex(text, name) ? 'tex' : 'html', text, host, name)
+}
+
+/** load a document (from artifact html or bare .tex) into the editor */
+function loadDocument(kind: 'html' | 'tex', text: string, canvasHost: HTMLElement, name: string): void {
+  setImportReport(null)
+  const doc = kind === 'tex'
+    ? loadDocFromTex(text, canvasHost, name)
+    : loadDoc(text, canvasHost, name)
+  state.deck = null
+  state.doc = doc
+  state.bus.emit({ type: 'doc-loaded' })
 }
 
 /** Open: dialect files load directly; anything foreign hands off to the
@@ -191,10 +278,20 @@ export async function openDeck(canvasHost: HTMLElement): Promise<void> {
     }
     return
   }
-  if (isDialectHtml(picked.text)) {
+  if (looksLikeTex(picked.text, picked.name)) {
+    fileHandle = picked.handle
+    loadDocument('tex', picked.text, canvasHost, picked.name)
+    return
+  }
+  const kind = dialectKind(picked.text)
+  if (kind === 'doc') {
+    fileHandle = picked.handle
+    loadDocument('html', picked.text, canvasHost, picked.name)
+  } else if (kind === 'deck') {
     fileHandle = picked.handle
     setImportReport(null)
     const deck = loadDeck(picked.text, canvasHost, picked.name)
+    state.doc = null
     state.deck = deck
     state.bus.emit({ type: 'deck-loaded' })
   } else {
@@ -262,6 +359,69 @@ export async function saveDeck(deck: Deck): Promise<void> {
   const a = document.createElement('a')
   a.href = url
   a.download = deck.fileName || 'deck.html'
+  document.body.append(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 4000)
+}
+
+/* ---------- document save / export ---------- */
+
+/** Save the document: back to its .tex when the session opened one through
+ * the CLI (comments ride the trailer), else the self-contained artifact —
+ * same three tiers as decks (service bridge → FS handle → download). */
+export async function saveDoc(doc: Doc): Promise<void> {
+  const isTexSession = servicePath !== null && /\.tex$/i.test(servicePath)
+  const payload = isTexSession ? exportTex(doc) : serializeDoc(doc)
+  if (servicePath) {
+    try {
+      const r = await fetch(`${SERVICE_BASE}/file`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ path: servicePath, html: payload }),
+      })
+      if (r.ok) {
+        const j = await r.json() as { mtime: number }
+        serviceMtime = j.mtime
+        lastSyncedHtml = payload
+        return
+      }
+    } catch {
+      /* service gone — fall back to download below */
+    }
+  }
+  if (fileHandle) {
+    try {
+      const w = await fileHandle.createWritable()
+      await w.write(payload)
+      await w.close()
+      return
+    } catch {
+      /* permission lost — fall back to download */
+    }
+  }
+  downloadBlob(payload, isTexSession ? doc.texName : doc.fileName, isTexSession ? 'text/x-tex' : 'text/html')
+}
+
+/** export the LaTeX source (with the comments trailer) as a download */
+export function exportTexAction(): void {
+  if (!state.doc) return
+  downloadBlob(exportTex(state.doc), state.doc.texName || 'document.tex', 'text/x-tex')
+}
+
+/** open the readable artifact in a new tab — a document "presents" as
+ * itself */
+export function presentDoc(doc: Doc): void {
+  const url = URL.createObjectURL(new Blob([serializeDoc(doc)], { type: 'text/html' }))
+  window.open(url, '_blank')
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
+}
+
+function downloadBlob(content: string, name: string, type: string): void {
+  const url = URL.createObjectURL(new Blob([content], { type }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
   document.body.append(a)
   a.click()
   a.remove()

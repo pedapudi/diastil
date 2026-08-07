@@ -1,0 +1,1208 @@
+"""LaTeX compile jobs: run a real engine, stream its log, return a PDF.
+
+A compile is slow (seconds; tectonic's first run is a package download), so
+it is a *job*, not a request/response: POST /compile hands back an id, the
+client watches SSE frames, and fetches the PDF when the job says ok. This
+module is loop-free on purpose — `CompileJob.run()` is an ordinary blocking
+call, so `dia compile` uses it directly and the HTTP layer runs it in a
+thread. One place implements the compile; two surfaces drive it.
+
+Everything the engine sees is written into a fresh temp directory: the
+source as `main.tex` plus whatever assets the client sent. The user's own
+directory is never written to — only *read*, and only via TEXINPUTS when
+the file came in through the CLI allowlist, so `\\includegraphics{fig/a}`
+resolves without scattering .aux files next to someone's paper.
+
+Untrusted input handling, in one place so it can be audited in one place:
+asset paths are rejected unless they are relative, `..`-free, and land
+inside the workdir; the engine is exec'd as an argv list, never through a
+shell; and the engine name is looked up from the discovery ladder, never
+taken from the request as a path.
+"""
+
+from __future__ import annotations
+
+import base64
+import gzip
+import re
+import shutil
+import subprocess
+import tempfile
+import threading
+import time
+import uuid
+from collections import OrderedDict
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any, Callable
+
+from . import tex
+
+# How many finished jobs stay fetchable. The PDF lives in the job's temp
+# directory, so "keep the last N" is also "keep N temp directories" —
+# small on purpose; eviction deletes the directory.
+MAX_JOBS = 4
+
+
+class CompileError(RuntimeError):
+    """A compile could not be started (bad request, no engine)."""
+
+
+# ---------------------------------------------------------------------------
+# structured log parsing
+# ---------------------------------------------------------------------------
+
+@dataclass
+class TexError:
+    level: str  # "error" | "warning"
+    file: str | None
+    line: int | None
+    message: str
+
+    def as_dict(self) -> dict:
+        return asdict(self)
+
+
+# `./main.tex:12: Undefined control sequence.` — what -file-line-error buys
+# us, and the only form that carries both a file and a line reliably.
+_FILE_LINE = re.compile(r"^(?P<file>[^\s:][^:]*):(?P<line>\d+):\s*(?P<msg>.*)$")
+# `! LaTeX Error: File `foo.sty' not found.` — engines that ignore
+# -file-line-error, and tectonic, still emit this.
+_BANG = re.compile(r"^!\s*(?P<msg>.*)$")
+# `l.12 \badcommand` — the line reference that follows a bare `!` error.
+_LNN = re.compile(r"^l\.(?P<line>\d+)\s?(?P<rest>.*)$")
+_WARNING = re.compile(
+    r"^(?P<kind>LaTeX Font|LaTeX|Package\s+\S+|Class\s+\S+|Module\s+\S+)"
+    r"\s+Warning:\s*(?P<msg>.*)$"
+)
+_ON_INPUT_LINE = re.compile(r"on input line (\d+)")
+# `(Font)   using ... instead` — TeX's continuation gutter for a multi-line
+# warning. The `/`-free tag is what separates it from `(./main.aux`, the
+# other thing in a log that starts with a paren.
+_GUTTER = re.compile(r"^\((?P<tag>[A-Za-z][\w .-]*)\)\s+(?P<rest>.*)$")
+# Boxes are typography noise, not problems the author asked about. They
+# outnumber real findings by an order of magnitude in any real document.
+_BOX = re.compile(r"^(Over|Under)full \\[hv]box")
+
+
+def _clean(message: str) -> str:
+    return re.sub(r"\s+", " ", message).strip()
+
+
+def parse_log(text: str) -> list[TexError]:
+    """TeX log → structured findings, newest engines and oldest alike.
+
+    Three shapes are recognised: `-file-line-error` lines (file + line +
+    message), bare `! …` errors whose line arrives later as `l.NN`, and
+    `… Warning:` blocks that may continue across lines and end with
+    `on input line NN`. Over/underfull boxes are dropped.
+
+    Deliberately lenient: an unrecognised line is skipped, never guessed at.
+    A missed warning costs the user nothing; a hallucinated file:line sends
+    them to the wrong place in their document.
+    """
+    findings: list[TexError] = []
+
+    # bare `!` errors still waiting for a line number. A group, not a single
+    # error: `! LaTeX Error: File not found.` and the `! Emergency stop.` it
+    # provokes share the one `l.NN` that follows, and both are true of it.
+    pending: list[TexError] = []
+    # a warning still collecting continuation lines
+    warning: TexError | None = None
+    parts: list[str] = []
+
+    def flush_warning() -> None:
+        nonlocal warning, parts
+        if warning is None:
+            return
+        body = _clean(" ".join(parts))
+        m = _ON_INPUT_LINE.search(body)
+        if m:
+            warning.line = int(m.group(1))
+        warning.message = body
+        findings.append(warning)
+        warning = None
+        parts = []
+
+    def open_warning(message: str) -> None:
+        nonlocal warning, parts
+        flush_warning()
+        warning = TexError(level="warning", file=None, line=None, message="")
+        parts = [message]
+        if _ON_INPUT_LINE.search(message) or message.rstrip().endswith("."):
+            flush_warning()
+
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        stripped = line.strip()
+
+        if warning is not None:
+            gutter = _GUTTER.match(stripped)
+            if gutter is not None:
+                parts.append(gutter.group("rest"))
+            elif stripped and raw[:1].isspace():
+                parts.append(stripped)
+            else:
+                flush_warning()
+            if warning is not None:
+                if _ON_INPUT_LINE.search(parts[-1]) or parts[-1].endswith("."):
+                    flush_warning()
+                continue
+
+        if not stripped or _BOX.match(stripped):
+            continue
+
+        m = _WARNING.match(stripped)
+        if m:
+            open_warning(m.group("msg"))
+            continue
+
+        m = _FILE_LINE.match(line)
+        if m and not line.startswith("!"):
+            # -file-line-error sometimes still prefixes the message with `!`
+            msg = _clean(_BANG.sub(lambda mm: mm.group("msg"), m.group("msg")))
+            if msg:
+                pending = []
+                findings.append(TexError(
+                    level="error",
+                    file=m.group("file"),
+                    line=int(m.group("line")),
+                    message=msg,
+                ))
+            continue
+
+        m = _BANG.match(line)
+        if m:
+            msg = _clean(m.group("msg"))
+            if not msg or set(msg) <= {"=", "-"}:
+                continue
+            error = TexError(level="error", file=None, line=None, message=msg)
+            pending.append(error)
+            findings.append(error)
+            continue
+
+        m = _LNN.match(stripped)
+        if m and pending:
+            for error in pending:
+                error.line = int(m.group("line"))
+            pending = []
+            continue
+
+    flush_warning()
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# synctex
+# ---------------------------------------------------------------------------
+
+# `(1,23:4736286,42000000` — type, tag, line, x, y (+ optional w,h,d)
+_SYNCTEX_REC = re.compile(
+    r"^[\[\(hvxkg\$]"
+    r"(?P<tag>\d+),(?P<line>\d+)"
+    r":(?P<x>-?\d+),(?P<y>-?\d+)"
+    r"(?::(?P<w>-?\d+),(?P<h>-?\d+),(?P<d>-?\d+))?"
+)
+_SP_PER_PT = 65536.0
+
+# What `y` in parse_synctex's `lines` means, verified against a real tectonic
+# compile (see the docstring below). Shipped in /compile/{id}/pages so the
+# client never has to guess an axis direction — guessing it wrong flips every
+# scroll target to the mirror-image position on the page.
+SYNCTEX_Y_SEMANTICS = "topDownPt"
+# …and the same for `x`, verified the same way. Shipped in
+# /compile/{id}/synctex so a client cropping a column never has to guess
+# whether x is measured from the paper edge or from TeX's 1in origin.
+SYNCTEX_X_SEMANTICS = "leftPt"
+
+
+def parse_synctex(path: str | Path) -> dict[str, Any]:
+    """Coarse source-line → page/position map from a `.synctex[.gz]` file.
+
+    `{pages: [{n, w, h}], lines: [{line, page, x, y, w?}], xSemantics,
+    ySemantics}`, positions in points from the top-left. Coarse is the
+    point: v1 only needs "which page, how far down, and which column", and
+    the full synctex box tree is a lot of machinery for a scroll target.
+
+    Y AXIS — verified empirically, not inferred (see tests/test_pages.py,
+    `test_synctex_y_is_top_down_points`). A 200x400pt document was compiled
+    with the managed tectonic, one line at the top of the text block and one
+    pushed to the bottom with `\\vfill`:
+
+        top line     y = 2031617 sp  ->  31.00 pt
+        bottom line  y = 24903681 sp  ->  380.00 pt   (page is 398.51 pt tall)
+
+    so **y grows downward from the top edge of the page**, it is measured
+    per page (page 2's top line reports 31.00 pt again, not a running
+    total), and the value in the file is scaled points — 65536 per point,
+    times the file's `Unit:` field. `to_pt()` below applies exactly that, so
+    the numbers this function returns are already top-down points and need
+    NO conversion by the caller. The wire format says so out loud:
+    /compile/{id}/pages reports `ySemantics: "topDownPt"`.
+
+    X AXIS — also verified against a real compile, and for the same reason:
+    a client that crops a compiled block out of the page needs to know
+    which COLUMN it is in, and getting the origin wrong crops the wrong
+    half of a two-column paper. `x` is points rightward from the LEFT PAPER
+    EDGE — the probe above reported 20.00 pt for its top line, which is the
+    document's 20pt left margin, and a `\\documentclass[twocolumn]` probe on
+    500pt paper with 25pt margins reported 25.00 pt in column one and
+    255.00 pt in column two (25 + 220pt column + 10pt gutter). It is NOT
+    measured from TeX's 1in reference point, though boxes that ARE anchored
+    there do exist and show up at 72.27 pt — see the selection rule below,
+    which is what keeps them out of the result. The wire format says the
+    origin out loud too: /compile/{id}/synctex reports
+    `xSemantics: "leftPt"`.
+
+    WHICH RECORD — one per (line, page), and *which* one is what decides
+    whether x means anything. A source line owns every box that was still
+    open when the line was current, so the line a page break lands on owns
+    the page box, the text block, the running head and both column boxes as
+    well as its own type. On the two-column probe such a line's FIRST
+    record is the page box at x=72.27 (TeX's 1in origin) and its
+    SMALLEST-x record is the full-width text block at x=25 — both answer
+    "column one" about type that is in column two. No rule based on
+    position survives a page break; the eight-page probe put one such line
+    on every page.
+
+    What separates a line's own type from the containers it merely closed
+    is CONTAINMENT: a container has boxes inside it, and a line of type has
+    none. So we keep, per (line, page), **the first box the line opened
+    that opened no box of its own** — the innermost, earliest box it owns.
+    Two exclusions make it hold: a box needs a positive width, which drops
+    the 1in origin marker (`x=72.27, w=0`), and a positive height+depth,
+    which drops the empty running head (`w=450, h+d=0`) — both are
+    innermost boxes and would otherwise win outright.
+
+    Void boxes (`h`, `v`) do NOT count as contents, and that is not a
+    detail: the paragraph-indent box sits inside a paragraph's FIRST line,
+    so counting it would disqualify that line and report every paragraph
+    one baseline too low. It cost two records their column on the probe as
+    well. Counting only real boxes keeps `y` on the first line of the type.
+
+    That rule fixes `y` too, which is why it replaced "first record": a
+    line ending a page used to report the page box's y (405.00 pt on a
+    400 pt page) rather than its own type's, sending a scroll target off
+    the bottom of the page it was pointing at.
+
+    `w` is that same box's width — the column width for body text, so a
+    client can crop a block to its column instead of the full page width.
+    A line whose innermost box is an inner one (an inline formula, an
+    `\\item` label) reports that box, so `w` can be a few points; `x` is
+    still inside the line's column, since a box cannot start outside the
+    box that holds it. Clustering on `x` is what identifies a column;
+    trusting a single `w` to be the column width is not.
+
+    A line that typeset nothing on the page (the break fell between its
+    paragraphs; 2 records in 77 on the probe, a third of them on a 39-page
+    paper) keeps its first record, as this function always did, and omits
+    `w` unless that record carries a positive one — a zero width is a
+    marker, and a caller would take it literally and crop nothing.
+
+    y is NOT clamped to the paper. The box that closes a page — attributed
+    to whatever source line ended it, `\\newpage` or `\\end{document}` —
+    reported 410.00 pt on a 398.51 pt page in the two-page probe. A client
+    turning y into a fraction of the page height must clamp it; the records
+    that matter (typeset text) are inside the paper.
+
+    Every engine in ENGINES writes `X Offset:0`, `Y Offset:0` and
+    `Magnification:1000`, so those preamble fields are ignored rather than
+    applied — a transform we cannot test against a real engine that emits it
+    is a guess, and a wrong guess here silently shifts every scroll target.
+
+    `w`/`h` are the largest typeset box on the page — the text block, NOT
+    the paper size, which synctex simply does not record. Paper size comes
+    from the PDF instead: /compile/{id}/pages reports `wPt`/`hPt` per page,
+    and a PDF panel wanting fractional positions must divide by those.
+    Using `w`/`h` for that would put every target slightly too far down.
+
+    A missing or unparseable file yields empty lists rather than raising:
+    SyncTeX is an enhancement, and a compile that produced a PDF is a
+    success whatever its synctex looks like.
+    """
+    empty = {"pages": [], "lines": [],
+             "xSemantics": SYNCTEX_X_SEMANTICS, "ySemantics": SYNCTEX_Y_SEMANTICS}
+    p = Path(path)
+    try:
+        raw = p.read_bytes()
+    except OSError:
+        return dict(empty)
+    if raw[:2] == b"\x1f\x8b":
+        try:
+            raw = gzip.decompress(raw)
+        except OSError:
+            return dict(empty)
+    text = raw.decode("utf-8", "replace")
+
+    # SyncTeX tags every record with the input FILE it came from; a .bbl or
+    # an \input'd chapter reuses the same line numbers as main.tex, and
+    # merging tags attributed the BIBLIOGRAPHY's boxes to body paragraphs
+    # (measured: 10k of 54k records in a real paper were the .bbl). Only
+    # main.tex's tag speaks for the document the editor is mapping.
+    main_tag: str | None = None
+    for m in re.finditer(r"^Input:(\d+):(.*)$", text, re.M):
+        if m.group(2).strip().endswith("main.tex"):
+            main_tag = m.group(1)
+            break
+
+    unit = 1.0
+    m = re.search(r"^Unit:([0-9.]+)", text, re.M)
+    if m:
+        try:
+            unit = float(m.group(1)) or 1.0
+        except ValueError:
+            unit = 1.0
+
+    def to_pt(value: int) -> float:
+        return round(value * unit / _SP_PER_PT, 2)
+
+    page: int | None = None
+    extents: dict[int, tuple[float, float]] = {}
+    order: list[int] = []
+    # (line, page) -> (rank, record). rank (0, seq) is a box the line
+    # actually typeset, (1, seq) is any other record; either way the
+    # earliest wins, so a line reports the top-left of its own material and
+    # falls back to its first record when it typeset nothing on this page.
+    best: dict[tuple[int, int], tuple[tuple[int, int], dict[str, Any]]] = {}
+    seq = 0
+    # one entry per box still open, and a count of every box opened so far:
+    # a box that opened none while it was open holds no other box, which is
+    # what makes it the line's own type — see WHICH RECORD above
+    boxes = 0
+    stack: list[tuple[int, int, int, dict[str, Any] | None]] = []
+
+    def keep(key: tuple[int, int], rank: tuple[int, int], found: dict[str, Any]) -> None:
+        held = best.get(key)
+        if held is None or rank < held[0]:
+            best[key] = (rank, found)
+
+    for line in text.splitlines():
+        if not line:
+            continue
+        if line[0] == "{" and line[1:].strip().isdigit():
+            page = int(line[1:].strip())
+            if page not in extents:
+                extents[page] = (0.0, 0.0)
+                order.append(page)
+            stack.clear()  # a truncated page must not leak into the next
+            continue
+        if line[0] == "}":
+            page = None
+            stack.clear()
+            continue
+        if page is None:
+            continue
+        if line[0] in ")]":
+            if stack:
+                src, opened, nested, found = stack.pop()
+                if found is not None and boxes == nested:
+                    keep((src, page), (0, opened), found)
+            continue
+        rec = _SYNCTEX_REC.match(line)
+        if rec is None or (main_tag is not None and rec.group("tag") != main_tag):
+            if line[0] in "([":
+                # a box from another input file (or unreadable) still needs
+                # its `)` counted, or the stack credits it to another line
+                boxes += 1
+                stack.append((0, seq, boxes, None))
+            continue
+        w = h = None
+        if rec.group("w") is not None:
+            w = to_pt(int(rec.group("w")))
+            h = to_pt(int(rec.group("h")) + int(rec.group("d")))
+            pw, ph = extents[page]
+            extents[page] = (max(pw, w), max(ph, h))
+        src_line = int(rec.group("line"))
+        seq += 1
+        found = None
+        if src_line:
+            found = {
+                "line": src_line, "page": page,
+                "x": to_pt(int(rec.group("x"))), "y": to_pt(int(rec.group("y"))),
+            }
+            if w:
+                found["w"] = w
+            keep((src_line, page), (1, seq), found)
+        if line[0] in "([":
+            boxes += 1
+            # a box with no extent holds no type — the 1in origin marker,
+            # the empty running head — so it is not a candidate even when it
+            # is innermost
+            material = w is not None and w > 0 and h > 0
+            stack.append((src_line, seq, boxes, found if material else None))
+
+    lines = [found for _, found in best.values()]
+    lines.sort(key=lambda r: (r["line"], r["page"]))
+    return {
+        "pages": [{"n": n, "w": extents[n][0], "h": extents[n][1]} for n in order],
+        "lines": lines,
+        "xSemantics": SYNCTEX_X_SEMANTICS,
+        "ySemantics": SYNCTEX_Y_SEMANTICS,
+    }
+
+
+# ---------------------------------------------------------------------------
+# assets
+# ---------------------------------------------------------------------------
+
+class AssetError(ValueError):
+    """An asset path or payload the daemon refuses to write."""
+
+
+def _safe_asset_path(workdir: Path, name: str) -> Path:
+    """Resolve an asset name inside the workdir or refuse.
+
+    Three separate checks because each catches something the others miss:
+    the textual `..` check catches the obvious traversal, `is_absolute`
+    catches `/etc/cron.d/x`, and the final containment check catches what
+    the platform decides a path means (drive letters, `\\` separators,
+    symlinked temp roots)."""
+    if not name or name.strip() != name:
+        raise AssetError(f"asset name is empty or padded: {name!r}")
+    candidate = Path(name)
+    if candidate.is_absolute() or name.startswith(("/", "\\")) or ":" in name[:3]:
+        raise AssetError(f"asset path must be relative: {name!r}")
+    if ".." in candidate.parts:
+        raise AssetError(f"asset path may not contain '..': {name!r}")
+    if any(part in {"", "."} for part in candidate.parts):
+        raise AssetError(f"asset path is malformed: {name!r}")
+    target = (workdir / candidate).resolve()
+    root = workdir.resolve()
+    if root != target and root not in target.parents:
+        raise AssetError(f"asset path escapes the work directory: {name!r}")
+    if target.name in {"main.tex"}:
+        raise AssetError("asset may not overwrite main.tex")
+    return target
+
+
+def _adapt_source_for_engine(tex_source: str, engine: str) -> str:
+    """Neutralize `\\pdfoutput=1` for XeTeX-based engines, in the WORKDIR
+    copy only — the user's file is never touched.
+
+    That line is arXiv boilerplate ("tell arXiv to use pdfLaTeX"). Under
+    XeTeX the LaTeX kernel now aliases \\pdfoutput for compatibility, so
+    setting it makes hyperref's driver detection load the pdfLaTeX driver,
+    which dies inside hpdftex.def. Output is a PDF under XeTeX regardless,
+    so commenting the assignment changes nothing the author asked for."""
+    if engine not in {"tectonic", "xelatex"}:
+        return tex_source
+    return re.sub(
+        r"^([ \t]*)\\pdfoutput[ \t]*=[ \t]*1[ \t]*$",
+        r"\1% \\pdfoutput=1  (arXiv pdfLaTeX hint — inert under XeTeX; dia)",
+        tex_source,
+        count=1,
+        flags=re.M,
+    )
+
+
+def _link_support_files(workdir: Path, source_dir: Path) -> None:
+    """Symlink the opened document's sibling files (styles, classes,
+    figures…) into the workdir. TEXINPUTS alone is not enough: tectonic has
+    no kpathsea and resolves relative inputs against the CURRENT directory
+    only, so the support files must appear to live beside main.tex. Links
+    are read-only by construction — the engine writes its outputs into the
+    workdir, and a symlinked source file is never an output target. Existing
+    workdir entries (main.tex, client-sent assets) always win."""
+    try:
+        entries = list(source_dir.iterdir())
+    except OSError:
+        return
+    for entry in entries:
+        target = workdir / entry.name
+        if target.exists() or target.is_symlink():
+            continue
+        try:
+            target.symlink_to(entry.resolve())
+        except OSError:
+            # filesystems without symlinks: copy small files, skip dirs
+            if entry.is_file():
+                try:
+                    shutil.copy2(entry, target)
+                except OSError:
+                    pass
+    _adopt_precompiled_bbl(workdir, entries)
+
+
+def _adopt_precompiled_bbl(workdir: Path, entries: list[Path]) -> None:
+    """arXiv bundles ship the references as a precompiled .bbl named after
+    the ORIGINAL main file; our job is always main.tex, so LaTeX reads
+    main.bbl and renders an empty References section. When no main.bbl and
+    no .bib exists to regenerate one, adopt the sibling .bbl and rewrite
+    main.tex's \\bibliography{…} to \\input it directly — tectonic reruns
+    bibtex regardless, and with the .bib missing that overwrites main.bbl
+    with an EMPTY one (measured on cot.tex), so the adopted copy lives
+    under a name bibtex never touches and the \\bibliography command that
+    would trigger the rerun is gone."""
+    if (workdir / "main.bbl").exists():
+        return
+    if any(e.suffix == ".bib" for e in entries if e.is_file()):
+        return
+    bbls = sorted(e for e in entries if e.is_file() and e.suffix == ".bbl")
+    if not bbls:
+        return
+    main = workdir / "main.tex"
+    try:
+        source = main.read_text(encoding="utf-8")
+    except OSError:
+        return
+    if not re.search(r"\\bibliography\{[^}]*\}", source):
+        return
+    stem_match = [b for b in bbls if (b.parent / f"{b.stem}.tex").exists()]
+    pick = stem_match[0] if stem_match else bbls[0]
+    try:
+        shutil.copy2(pick, workdir / "diarefs.bbl")
+    except OSError:
+        return
+    main.write_text(
+        re.sub(r"\\bibliography\{[^}]*\}", r"\\input{diarefs.bbl}", source, count=1),
+        encoding="utf-8")
+
+
+def write_assets(workdir: Path, assets: dict[str, str]) -> list[str]:
+    """Write client-supplied assets into the workdir. Values are either a
+    `data:…;base64,…` URI (images) or plain text (.bib, .cls, .sty).
+    Returns the names written; raises AssetError on the first bad path."""
+    written: list[str] = []
+    for name, value in (assets or {}).items():
+        target = _safe_asset_path(workdir, str(name))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(value, str) and value.startswith("data:"):
+            head, sep, payload = value.partition(",")
+            if not sep or ";base64" not in head:
+                raise AssetError(f"asset {name!r}: data URI must be base64")
+            try:
+                target.write_bytes(base64.b64decode(payload, validate=True))
+            except Exception as exc:  # noqa: BLE001 — one message, no traceback
+                raise AssetError(f"asset {name!r}: undecodable base64") from exc
+        else:
+            target.write_text(str(value), encoding="utf-8")
+        written.append(str(Path(name).as_posix()))
+    return written
+
+
+# ---------------------------------------------------------------------------
+# engine argv
+# ---------------------------------------------------------------------------
+
+def engine_argv(engine: str, path: str, source: str = "main.tex") -> list[str]:
+    """The argv for one run of `engine`. SyncTeX on, never interactive:
+    -interaction=nonstopmode means a broken document produces a log and an
+    exit code instead of a prompt at a stdin nobody is attached to."""
+    if engine == "tectonic":
+        # -X selects the v2 CLI; --keep-logs is what makes parse_log possible
+        # (tectonic otherwise discards main.log on success).
+        return [path, "-X", "compile", "--synctex", "--keep-logs",
+                "--outdir", ".", source]
+    if engine == "latexmk":
+        return [path, "-pdf", "-synctex=1", "-interaction=nonstopmode",
+                "-file-line-error", "-output-directory=.", source]
+    if engine in {"xelatex", "pdflatex"}:
+        return [path, "-synctex=1", "-interaction=nonstopmode",
+                "-file-line-error", source]
+    raise CompileError(f"unknown engine: {engine}")
+
+
+def engine_passes(engine: str) -> int:
+    """Raw engines need a second pass for refs/toc to settle; tectonic and
+    latexmk decide for themselves."""
+    return 2 if engine in {"xelatex", "pdflatex"} else 1
+
+
+# ---------------------------------------------------------------------------
+# the job
+# ---------------------------------------------------------------------------
+
+EventCb = Callable[[dict], None]
+
+
+@dataclass
+class CompileJob:
+    """One compile, from temp directory to PDF (or to a list of errors)."""
+
+    id: str
+    doc_id: str
+    engine: str
+    engine_path: str
+    workdir: Path
+    timeout: float = 180.0
+    texinputs_dir: Path | None = None
+
+    status: str = "queued"  # queued | running | ok | error | cancelled | timeout
+    events: list[dict] = field(default_factory=list)
+    errors: list[TexError] = field(default_factory=list)
+    log: str = ""
+    pages: int | None = None
+    duration: float = 0.0
+    detail: str | None = None
+    finished: bool = False
+
+    _proc: subprocess.Popen | None = field(default=None, repr=False)
+    _cancelled: bool = field(default=False, repr=False)
+    # page rasterization state: one poppler run at a time per job, and the
+    # page geometry computed once (see page_geometry)
+    _render_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    _geometry: dict | None = field(default=None, repr=False)
+    _cond: threading.Condition = field(default_factory=threading.Condition, repr=False)
+    # held across "am I cancelled?" + Popen, so a DELETE that lands in that
+    # window cannot miss the process it is trying to kill
+    _spawn: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    # -- event plumbing ----------------------------------------------------
+
+    def emit(self, event: dict) -> None:
+        with self._cond:
+            self.events.append(event)
+            self._cond.notify_all()
+
+    def events_since(self, index: int, timeout: float = 30.0) -> list[dict]:
+        """Block until there is an event after `index` (or the job ends).
+        Called from a worker thread by the SSE endpoint; the timeout lets
+        the stream send a keepalive rather than hold a thread forever."""
+        with self._cond:
+            if index >= len(self.events) and not self.finished:
+                self._cond.wait(timeout)
+            return self.events[index:]
+
+    # -- paths -------------------------------------------------------------
+
+    @property
+    def pdf_path(self) -> Path:
+        return self.workdir / "main.pdf"
+
+    @property
+    def synctex_path(self) -> Path | None:
+        for name in ("main.synctex.gz", "main.synctex"):
+            p = self.workdir / name
+            if p.is_file():
+                return p
+        return None
+
+    def status_dict(self) -> dict[str, Any]:
+        return {
+            "jobId": self.id,
+            "docId": self.doc_id,
+            "status": self.status,
+            "engine": self.engine,
+            "pages": self.pages,
+            "durationMs": round(self.duration * 1000),
+            "errors": [e.as_dict() for e in self.errors],
+            "detail": self.detail,
+        }
+
+    # -- execution ---------------------------------------------------------
+
+    def _env(self) -> dict[str, str] | None:
+        """TEXINPUTS pointing at the opened document's directory, so
+        relative \\includegraphics and \\input resolve. Read-only by
+        construction: the engine's *output* directory is the temp workdir,
+        so nothing lands beside the user's file."""
+        import os
+
+        if self.texinputs_dir is None:
+            return None
+        env = dict(os.environ)
+        prior = env.get("TEXINPUTS", "")
+        # trailing empty entry = "and the default search path too"
+        env["TEXINPUTS"] = f".:{self.texinputs_dir}:{prior}" if prior else f".:{self.texinputs_dir}:"
+        return env
+
+    def cancel(self) -> None:
+        """Stop the run. Safe to call before it starts, during, or after.
+
+        A job is registered before its thread has spawned anything, so the
+        common case — the editor superseding a compile it fired a moment
+        ago — is precisely the race: either this sets the flag before the
+        worker reads it, or the worker has published `_proc` for us to kill.
+        The lock makes those the only two outcomes."""
+        with self._spawn:
+            self._cancelled = True
+            proc = self._proc
+        if proc is not None and proc.poll() is None:
+            proc.kill()
+
+    def run(self) -> "CompileJob":
+        """Compile, blocking, streaming log lines as events. Never raises for
+        a *document* problem — a failing document is a normal outcome with
+        `status: "error"` and parsed errors."""
+        started = time.monotonic()
+        self.status = "running"
+        self.emit({"type": "phase", "phase": "start", "engine": self.engine,
+                   "jobId": self.id})
+        chunks: list[str] = []
+        try:
+            passes = engine_passes(self.engine)
+            for i in range(passes):
+                if self._cancelled:
+                    break
+                if passes > 1:
+                    self.emit({"type": "phase", "phase": "pass", "pass": i + 1,
+                               "of": passes})
+                code = self._run_once(chunks, remaining=self.timeout - (time.monotonic() - started))
+                if code is None:  # timed out or cancelled
+                    break
+        except FileNotFoundError:
+            self.status = "error"
+            self.detail = f"engine not found: {self.engine_path}"
+        except OSError as exc:
+            self.status = "error"
+            self.detail = f"engine failed to start: {exc}"
+
+        self.duration = time.monotonic() - started
+        self.log = "".join(chunks)
+        # The log on disk is richer than the console stream (tectonic prints
+        # a summary but writes the full TeX log to main.log), so prefer it.
+        disk_log = self.workdir / "main.log"
+        if disk_log.is_file():
+            try:
+                self.log = disk_log.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                pass
+        self.errors = parse_log(self.log)
+
+        if self._cancelled:
+            self.status = "cancelled"
+        elif self.status == "running":
+            if self.pdf_path.is_file() and self.pdf_path.stat().st_size > 0:
+                self.status = "ok"
+                self.pages = _page_count(self.log, self.pdf_path)
+            else:
+                self.status = "error"
+                if not self.errors and not self.detail:
+                    self.detail = "the engine produced no PDF and no parseable error"
+
+        self.emit({"type": "done", **self.status_dict()})
+        with self._cond:
+            self.finished = True
+            self._cond.notify_all()
+        return self
+
+    def _run_once(self, chunks: list[str], remaining: float) -> int | None:
+        """One engine invocation. Returns the exit code, or None if it was
+        killed (timeout/cancel). Output is streamed line-by-line so a slow
+        first tectonic run visibly downloads instead of looking hung."""
+        if remaining <= 0:
+            self.status = "timeout"
+            self.detail = f"compile exceeded {self.timeout:g}s"
+            return None
+        argv = engine_argv(self.engine, self.engine_path)
+        with self._spawn:
+            if self._cancelled:
+                return None
+            self._proc = subprocess.Popen(  # noqa: S603 — argv list, never a shell
+                argv,
+                cwd=str(self.workdir),
+                env=self._env(),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                errors="replace",
+                bufsize=1,
+            )
+            proc = self._proc
+
+        def pump() -> None:
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                chunks.append(line)
+                self.emit({"type": "log", "line": line.rstrip("\n")})
+
+        reader = threading.Thread(target=pump, daemon=True)
+        reader.start()
+        try:
+            code = proc.wait(timeout=remaining)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            reader.join(timeout=2)
+            self.status = "timeout"
+            self.detail = f"compile exceeded {self.timeout:g}s — killed"
+            self.emit({"type": "phase", "phase": "timeout"})
+            return None
+        reader.join(timeout=5)
+        if self._cancelled:
+            return None
+        return code
+
+    def cleanup(self) -> None:
+        shutil.rmtree(self.workdir, ignore_errors=True)
+
+
+# `Output written on main.pdf (12 pages, 240981 bytes).` — every engine we
+# drive writes this, including tectonic (about its intermediate main.xdv).
+_OUTPUT_WRITTEN = re.compile(r"^Output written on \S+ \((\d+) pages?,", re.M)
+
+
+def _page_count(log: str, pdf: Path) -> int | None:
+    """Pages, from the log if it says so and from the PDF bytes otherwise.
+
+    The log is the better source: a modern PDF keeps its page objects in
+    compressed object streams, so scanning for `/Type /Page` finds nothing
+    at all in tectonic's output. The byte scan stays as the fallback for a
+    log we could not read. A missing count is cosmetic — it dims one label
+    on a status chip — so neither path is allowed to fail loudly."""
+    m = _OUTPUT_WRITTEN.search(log)
+    if m:
+        return int(m.group(1))
+    try:
+        data = pdf.read_bytes()
+    except OSError:
+        return None
+    return len(re.findall(rb"/Type\s*/Page[^s]", data)) or None
+
+
+# ---------------------------------------------------------------------------
+# page rasterization (poppler)
+# ---------------------------------------------------------------------------
+#
+# The editor shows a compiled figure *inside* the document view — an "island
+# preview" — which means it needs the PDF as pixels, not as a PDF. Poppler
+# does that; we invoke `pdftoppm` as an argv list, exactly like the engine.
+#
+# Two facts the client needs and cannot compute: how many pages there are and
+# how big each one is in PDF points. `pdfinfo` answers both exactly; without
+# it we render and measure the pixels, which is the same answer to within
+# half a pixel. Either way the client gets points, so it can place a synctex
+# `y` (also points, top-down) as a fraction of the page.
+
+PAGE_DPI_DEFAULT = 130
+# 36 is a legible thumbnail; 300 is print resolution and already a ~2500px
+# image for a letter page. Out-of-range values are clamped, not refused: a
+# preview at the wrong zoom beats a broken image in the document view.
+PAGE_DPI_MIN = 36
+PAGE_DPI_MAX = 300
+# poppler is doing bounded work on a local file; this only catches a wedge.
+PAGE_TOOL_TIMEOUT_S = 30.0
+# `pdfinfo -f 1 -l N` prints two lines per page. A document long enough to
+# hit this is not one anybody previews page-by-page.
+PAGE_INFO_MAX = 10000
+
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+# `Page    1 size:  199.25 x 398.51 pts`
+_PDFINFO_SIZE = re.compile(
+    r"^Page\s+(?P<n>\d+)\s+size:\s+(?P<w>[\d.]+)\s+x\s+(?P<h>[\d.]+)\s+pts", re.M)
+# `Page    1 rot:   90` — a rotated page renders transposed, so the size
+# poppler reports is not the size of the image it will hand us.
+_PDFINFO_ROT = re.compile(r"^Page\s+(?P<n>\d+)\s+rot:\s+(?P<rot>-?\d+)", re.M)
+_PDFINFO_COUNT = re.compile(r"^Pages:\s+(\d+)", re.M)
+
+
+def clamp_dpi(value: Any, default: int = PAGE_DPI_DEFAULT) -> int:
+    """A usable dpi from whatever the query string said."""
+    try:
+        dpi = int(float(value))
+    except (TypeError, ValueError):
+        return default
+    return max(PAGE_DPI_MIN, min(PAGE_DPI_MAX, dpi))
+
+
+def _capture(argv: list[str]) -> str | None:
+    """Run a poppler tool and return its stdout, or None if it failed.
+
+    Nothing here is fatal: every caller has a fallback or a 404, and a
+    missing preview must never take down a compile that succeeded."""
+    try:
+        proc = subprocess.run(  # noqa: S603 — argv list, never a shell
+            argv,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            stdin=subprocess.DEVNULL,
+            timeout=PAGE_TOOL_TIMEOUT_S,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return proc.stdout if proc.returncode == 0 else None
+
+
+def _png_size(path: Path) -> tuple[int, int] | None:
+    """(width, height) in pixels from a PNG's IHDR — 24 bytes, no decoder.
+
+    Pillow would do this too, and would be a hard dependency on a C build
+    for the sake of reading two big-endian integers at a fixed offset."""
+    try:
+        with path.open("rb") as fh:
+            head = fh.read(24)
+    except OSError:
+        return None
+    if len(head) < 24 or head[:8] != _PNG_MAGIC:
+        return None
+    import struct
+
+    w, h = struct.unpack(">II", head[16:24])
+    return (w, h) if w and h else None
+
+
+def _px_to_pt(px: int, dpi: int) -> float:
+    return round(px / dpi * 72.0, 2)
+
+
+def _pdfinfo_pages(pdf: Path, expected: int | None) -> tuple[int, list[dict]] | None:
+    """(count, [{n, wPt, hPt}]) from pdfinfo, or None if it is not usable.
+
+    `-l` needs a page number, and the count is what we are asking for — so
+    ask for what the log claimed (the usual case: one process, exactly the
+    right range) and re-ask only if the PDF turns out to have more pages
+    than that."""
+    tool = tex.tool_path("pdfinfo")
+    if tool is None:
+        return None
+    wanted = expected if expected and expected > 0 else 1
+
+    for _ in range(2):
+        out = _capture([tool, "-f", "1", "-l", str(min(wanted, PAGE_INFO_MAX)), str(pdf)])
+        if out is None:
+            return None
+        m = _PDFINFO_COUNT.search(out)
+        count = int(m.group(1)) if m else 0
+        rot = {int(r.group("n")): int(r.group("rot"))
+               for r in _PDFINFO_ROT.finditer(out)}
+        pages = []
+        for size in _PDFINFO_SIZE.finditer(out):
+            n = int(size.group("n"))
+            w, h = float(size.group("w")), float(size.group("h"))
+            # /Rotate 90 means poppler hands us a transposed image; report
+            # the page as it will be rendered, or every overlay on a
+            # landscape page lands on the wrong axis
+            if rot.get(n, 0) % 180 == 90:
+                w, h = h, w
+            pages.append({"n": n, "wPt": round(w, 2), "hPt": round(h, 2)})
+        if not pages:
+            return None
+        if count <= len(pages) or wanted >= PAGE_INFO_MAX:
+            return (count or len(pages), pages)
+        wanted = count  # the document is longer than the log said — ask again
+    return None
+
+
+def page_geometry(job: "CompileJob") -> dict[str, Any]:
+    """The /compile/{id}/pages payload: what can be rendered, and how big.
+
+    Always includes `ySemantics` — it describes parse_synctex's output, not
+    poppler's, so it is true even on a machine with no poppler at all."""
+    base: dict[str, Any] = {
+        "available": False, "tool": None, "count": 0, "pages": [],
+        "ySemantics": SYNCTEX_Y_SEMANTICS,
+    }
+    if job._geometry is not None:
+        return dict(job._geometry)
+
+    tool = tex.page_render_tool()
+    if tool is None:
+        return {**base, "reason": "pdftoppm not found on PATH (install poppler)"}
+    if job.status != "ok":
+        return {**base, "reason": f"job status is {job.status!r}, not 'ok'"}
+    if not job.pdf_path.is_file():
+        return {**base, "reason": "the job produced no pdf"}
+
+    with job._render_lock:
+        if job._geometry is None:
+            job._geometry = _measure(job, tool)
+    return dict(job._geometry) if job._geometry else {
+        **base, "tool": tool, "reason": "could not determine the page geometry"}
+
+
+def _measure(job: "CompileJob", tool: str) -> dict[str, Any] | None:
+    """pdfinfo if we have it, rendered pixels if we do not. Caller holds the
+    job's render lock."""
+    found = _pdfinfo_pages(job.pdf_path, job.pages)
+    if found is not None:
+        count, pages = found
+    else:
+        # No pdfinfo: measure the images themselves. The renders are cached
+        # under the same key the client will ask for, so this costs one pass
+        # that the preview was about to pay for anyway.
+        count = job.pages or 0
+        if count <= 0:
+            return None
+        pages = []
+        for n in range(1, min(count, PAGE_INFO_MAX) + 1):
+            png = _render(job, n, PAGE_DPI_DEFAULT)
+            size = _png_size(png) if png is not None else None
+            if size is None:
+                return None
+            pages.append({
+                "n": n,
+                "wPt": _px_to_pt(size[0], PAGE_DPI_DEFAULT),
+                "hPt": _px_to_pt(size[1], PAGE_DPI_DEFAULT),
+            })
+    if not pages:
+        return None
+    return {
+        "available": True, "tool": tool, "count": count, "pages": pages,
+        "ySemantics": SYNCTEX_Y_SEMANTICS,
+    }
+
+
+def render_page(job: "CompileJob", n: int, dpi: int = PAGE_DPI_DEFAULT) -> Path | None:
+    """One page of the job's PDF as a PNG on disk, or None.
+
+    Cached per (page, dpi) in the job's workdir — the same directory the
+    eviction path already deletes, so a rendered preview never outlives the
+    job that produced it. A repeat request is a stat(), not a render."""
+    if job.status != "ok" or not job.pdf_path.is_file():
+        return None
+    if n < 1 or tex.page_render_tool() is None:
+        return None
+    with job._render_lock:
+        return _render(job, n, clamp_dpi(dpi))
+
+
+def _render(job: "CompileJob", n: int, dpi: int) -> Path | None:
+    """The uncached-path render. Caller holds the job's render lock, so two
+    tabs asking for the same page do not fork two pdftoppm processes."""
+    tool = tex.tool_path("pdftoppm")
+    if tool is None:
+        return None
+    target = job.workdir / f"page-{n}-r{dpi}.png"
+    try:
+        if target.is_file() and target.stat().st_size > 0:
+            return target
+    except OSError:
+        pass
+    # -singlefile writes exactly <prefix>.png; without it poppler picks its
+    # own zero-padding from the page count and we would have to guess the name
+    argv = [
+        tool, "-png", "-r", str(dpi), "-f", str(n), "-l", str(n), "-singlefile",
+        str(job.pdf_path), str(job.workdir / target.stem),
+    ]
+    if _capture(argv) is None:
+        return None
+    try:
+        return target if target.stat().st_size > 0 else None
+    except OSError:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# registry
+# ---------------------------------------------------------------------------
+
+_jobs: "OrderedDict[str, CompileJob]" = OrderedDict()
+_active: dict[str, str] = {}  # docId -> jobId
+_lock = threading.Lock()
+
+
+def get(job_id: str) -> CompileJob | None:
+    with _lock:
+        return _jobs.get(job_id)
+
+
+def create(
+    tex_source: str,
+    doc_id: str,
+    assets: dict[str, str] | None = None,
+    engine: str | None = None,
+    texinputs_dir: Path | None = None,
+    config: dict | None = None,
+) -> CompileJob:
+    """Prepare a job: pick the engine, lay out the workdir, register it.
+    Does not run it — `run()` blocks, and the HTTP path wants the id first.
+
+    Raises CompileError when no engine can serve the request and AssetError
+    for a rejected asset path; both are 4xx-shaped, not crashes.
+    """
+    cap = tex.discover(config=config)
+    if cap.engine is None or cap.path is None:
+        raise CompileError(cap.detail or "no TeX engine available")
+    chosen, chosen_path = cap.engine, cap.path
+    if engine and engine != cap.engine:
+        # An explicit engine is honored only if it is actually installed —
+        # we never silently compile with something else than was asked for.
+        import shutil as _shutil
+
+        if engine not in tex.ENGINES:
+            raise CompileError(f"unknown engine: {engine}")
+        found = _shutil.which(engine)
+        if not found:
+            raise CompileError(f"engine not installed: {engine}")
+        chosen, chosen_path = engine, found
+
+    workdir = Path(tempfile.mkdtemp(prefix="dia-tex-"))
+    (workdir / "main.tex").write_text(
+        _adapt_source_for_engine(tex_source, chosen), encoding="utf-8")
+    try:
+        write_assets(workdir, assets or {})
+    except AssetError:
+        shutil.rmtree(workdir, ignore_errors=True)
+        raise
+    if texinputs_dir is not None:
+        _link_support_files(workdir, texinputs_dir)
+
+    job = CompileJob(
+        id=uuid.uuid4().hex[:12],
+        doc_id=doc_id or "doc",
+        engine=chosen,
+        engine_path=chosen_path,
+        workdir=workdir,
+        timeout=tex.timeout_s(config),
+        texinputs_dir=texinputs_dir,
+    )
+
+    with _lock:
+        # One compile per document: a second POST means the first result is
+        # already stale, and two engines in two temp dirs racing to answer
+        # the same chip is how you get flickering, out-of-order status.
+        previous = _active.get(job.doc_id)
+        prev_job = _jobs.get(previous) if previous else None
+        _active[job.doc_id] = job.id
+        _jobs[job.id] = job
+        evictions = []
+        while len(_jobs) > MAX_JOBS:
+            _, evicted = _jobs.popitem(last=False)
+            if evicted.doc_id in _active and _active[evicted.doc_id] == evicted.id:
+                del _active[evicted.doc_id]
+            evictions.append(evicted)
+    if prev_job is not None and not prev_job.finished:
+        prev_job.cancel()
+    for evicted in evictions:
+        evicted.cancel()
+        evicted.cleanup()
+    return job
+
+
+def submit(**kwargs: Any) -> CompileJob:
+    """create() + run it on a background thread. The HTTP entry point."""
+    job = create(**kwargs)
+    threading.Thread(target=job.run, name=f"dia-tex-{job.id}", daemon=True).start()
+    return job
+
+
+def compile_sync(
+    tex_source: str,
+    doc_id: str = "cli",
+    assets: dict[str, str] | None = None,
+    engine: str | None = None,
+    texinputs_dir: Path | None = None,
+    config: dict | None = None,
+    on_log: EventCb | None = None,
+) -> CompileJob:
+    """Blocking compile for the CLI. Same code path, no threads, no SSE."""
+    job = create(
+        tex_source=tex_source, doc_id=doc_id, assets=assets, engine=engine,
+        texinputs_dir=texinputs_dir, config=config,
+    )
+    if on_log is not None:
+        job.emit = _tee(job, on_log)  # type: ignore[method-assign]
+    return job.run()
+
+
+def _tee(job: CompileJob, cb: EventCb) -> EventCb:
+    original = CompileJob.emit.__get__(job, CompileJob)
+
+    def emit(event: dict) -> None:
+        original(event)
+        cb(event)
+
+    return emit
+
+
+def reset() -> None:
+    """Drop every job and its temp directory (tests, shutdown)."""
+    with _lock:
+        jobs = list(_jobs.values())
+        _jobs.clear()
+        _active.clear()
+    for job in jobs:
+        job.cancel()
+        job.cleanup()

@@ -15,4 +15,9 @@ if (import.meta.env.DEV) {
       (html: string, name: string) => startImport(html, name)
   })
   void import('./ingest/corpus').then(({ installCorpusCapture }) => installCorpusCapture())
+  // …and the document editor (LaTeX or saved artifact), likewise
+  void import('./editor/slides').then(({ openDocumentText }) => {
+    ;(window as unknown as Record<string, unknown>).__diaDoc =
+      (text: string, name: string) => openDocumentText(text, name)
+  })
 }

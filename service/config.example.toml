@@ -36,3 +36,18 @@ api_key_env = "DIA_API_KEY"
 
 # [skills.copilot]
 # model = "openai/qwen2.5-coder:14b"
+
+# ---- LaTeX compiling (document mode) ---------------------------------
+# Unset, the daemon picks the best engine it can find, in this order:
+# a tectonic it installed itself, tectonic on PATH, latexmk, xelatex,
+# pdflatex. Nothing installed is a supported state — the editor just
+# offers to download tectonic (~14MB, into ~/.cache/diastil, no root).
+
+# [tex]
+# Pin the engine. A pinned engine that is not installed is reported as
+# missing rather than quietly replaced with another one.
+# engine = "xelatex"
+#
+# Seconds before a compile is killed. The default is generous because
+# tectonic's FIRST run downloads the packages the document asks for.
+# timeout_s = 180

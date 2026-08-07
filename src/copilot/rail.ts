@@ -16,7 +16,12 @@ import {
   stampHighlights, type HighlightRegion,
 } from '../editor/highlights'
 import { focusedSlide, slidesInLogicalOrder } from '../studio/focus'
-import { compileOps, resolveTarget } from './compile'
+import { scrollToBlock } from '../editor/docview'
+import { compileState, onCompileState } from '../editor/doccompile'
+import { topBlockOf } from '../doc/sync'
+import { parseThreads } from '../doc/comments'
+import { buildDocContext, describeDocContext } from './doccontext'
+import { compileOps, resolveDocTarget, resolveTarget } from './compile'
 import { clearPreview, previewIsActive, startPreview } from './preview'
 import { renderMarkdown } from './markdown'
 
@@ -279,8 +284,12 @@ export function mountCopilot(host: HTMLElement): void {
     online = h.ok
     model.textContent = h.ok ? (h.model ?? '') : 'offline'
     model.classList.toggle('is-off', !h.ok)
-    // let the shell react (e.g. enable the copilot maximize tab)
-    window.dispatchEvent(new CustomEvent('dia-service-status', { detail: { online } }))
+    // let the shell react (e.g. enable the copilot maximize tab). `tex` rides
+    // along so the compile surfaces gate on this one poll rather than adding
+    // a second — engine discovery is memoized daemon-side, not free.
+    window.dispatchEvent(new CustomEvent('dia-service-status', {
+      detail: { online, tex: h.tex ?? null },
+    }))
     setComposerEnabled(!busy)
     if (!h.ok) {
       if (!offlineLine) {
@@ -312,6 +321,7 @@ export function mountCopilot(host: HTMLElement): void {
 
   function renderContext(): void {
     context.replaceChildren()
+    if (state.mode === 'doc') { renderDocContext(); return }
     const label = document.createElement('span')
     label.textContent = 'sees slides '
     context.appendChild(label)
@@ -346,14 +356,37 @@ export function mountCopilot(host: HTMLElement): void {
     hlBtn.addEventListener('click', toggleHlMode)
     context.appendChild(hlBtn)
   }
+
+  /** documents have no slide chips: the context is the SECTION the reader is
+   * in, and the line names it the way the model will be told about it */
+  function renderDocContext(): void {
+    const doc = state.doc
+    const line = document.createElement('span')
+    const threads = openThreadCount(doc)
+    const errors = compileState().status === 'failed' ? compileState().errors.length : 0
+    const extras = [
+      'its LaTeX',
+      'a render',
+      threads > 0 ? `${threads} open comment${threads > 1 ? 's' : ''}` : null,
+      errors > 0 ? `${errors} compile error${errors > 1 ? 's' : ''}` : null,
+    ].filter((s): s is string => s !== null)
+    line.textContent = `sees ${describeDocContext()} + ${extras.join(' + ')}`
+    context.appendChild(line)
+  }
+
   renderContext()
   onContextChange(renderContext)
+  // the doc line names the compile errors it carries — keep it truthful as
+  // compiles come and go
+  onCompileState(() => { if (state.mode === 'doc') renderContext() })
 
   state.bus.on((e) => {
     if (e.type === 'selection' || e.type === 'altitude' || e.type === 'current-slide' || e.type === 'slides-changed') {
       renderContext()
       if (e.type === 'current-slide' || e.type === 'slides-changed') syncHlLayers()
-    } else if (e.type === 'deck-loaded') {
+    } else if (e.type === 'current-block' || e.type === 'blocks-changed' || e.type === 'comments-changed') {
+      renderContext()
+    } else if (e.type === 'deck-loaded' || e.type === 'doc-loaded') {
       sessionId = newSessionId()
       renderContext()
     }
@@ -466,17 +499,35 @@ export function mountCopilot(host: HTMLElement): void {
     // one machine correction round, only for turns whose proposals were
     // ENTIRELY unusable — partial results stay in the user's hands
     if (troubles.length > 0 && !auto) {
+      const grammar = state.mode === 'doc'
+        ? 'the document targeting grammar (data-dia-id, "section N", "section N <role> [ordinal]", `section "Title"`, "block N", a css selector, or exact text) against the section in context'
+        : 'the targeting grammar (data-dia-id, "slide N", "slide N <role> [ordinal]", a css selector, or exact text) against the slides in context'
       const correction =
         'correction: none of your proposed ops could be applied. ' +
         troubles.join(' · ') +
-        ' Re-check the targeting grammar (data-dia-id, "slide N", "slide N <role> [ordinal]", a css selector, or exact text) ' +
-        'against the slides in context, and re-propose corrected ops via propose_ops.'
+        ` Re-check ${grammar}, and re-propose corrected ops via propose_ops.`
       await runChatTurn(correction, true)
     }
   }
 
   async function buildContext(): Promise<ChatContext> {
     const deck = state.deck
+    if (state.mode === 'doc') {
+      const base: ChatContext = {
+        altitude: state.altitude,
+        // the wire is the deck's: the current BLOCK rides in slideIndex and
+        // the section render in slideImage, so the service is unchanged
+        slideIndex: state.currentBlock,
+        selectionHtml: null,
+        tokensCss: state.doc?.themeStyle.textContent ?? '',
+      }
+      try {
+        return { ...base, ...(await buildDocContext()) }
+      } catch (err) {
+        console.warn('[copilot] document context assembly failed — sending the basics', err)
+        return { ...base, docMode: true }
+      }
+    }
     // the exact slide set the context chips display: neighbors + pins,
     // size-capped, in logical order — what you see is what it sees
     const slides = slidesInLogicalOrder()
@@ -579,8 +630,21 @@ export function mountCopilot(host: HTMLElement): void {
     return { body, box, raw: '' }
   }
 
-  /** the slide a proposal lands on — for the preview badge and scroll */
-  function affectedSlide(ops: ProposedOp[]): HTMLElement | null {
+  /** the region a proposal lands on — a slide in a deck, a top-level block
+   * in a document; the preview badge mounts there and the surface scrolls
+   * to it */
+  function affectedRegion(ops: ProposedOp[]): HTMLElement | null {
+    const doc = state.doc
+    if (doc) {
+      for (const p of ops) {
+        try {
+          const el = resolveDocTarget(p.target, doc.article, state.currentBlock)
+          const block = el && topBlockOf(doc, el)
+          if (block) return block
+        } catch { /* keep looking */ }
+      }
+      return null
+    }
     const deck = state.deck
     if (!deck) return null
     for (const p of ops) {
@@ -656,16 +720,22 @@ export function mountCopilot(host: HTMLElement): void {
     let staged = dry.ops
     const preview = (compiled: typeof staged) => {
       staged = compiled
-      const slide = affectedSlide(ops)
-      startPreview(compiled, slide, (reason) => {
+      const region = affectedRegion(ops)
+      startPreview(compiled, region, (reason) => {
         if (settled) return
         status.textContent = `preview cleared — ${reason} · press preview to stage it again`
         previewBtn.hidden = false
       })
-      const idx = slide ? state.slides().indexOf(slide) : -1
-      if (idx >= 0) scrollToSlide(idx)
+      let where = ''
+      if (state.mode === 'doc') {
+        const idx = region ? state.blocks().indexOf(region) : -1
+        if (region && idx >= 0) { scrollToBlock(region); where = ` on block ${idx + 1}` }
+      } else {
+        const idx = region ? state.slides().indexOf(region) : -1
+        if (idx >= 0) { scrollToSlide(idx); where = ` on slide ${idx + 1}` }
+      }
       status.textContent =
-        `● previewing${idx >= 0 ? ` on slide ${idx + 1}` : ''} — the dashed frame shows the proposal; apply keeps it, reject restores`
+        `● previewing${where} — the dashed frame shows the proposal; apply keeps it, reject restores`
       previewBtn.hidden = true
     }
     preview(dry.ops)
@@ -721,8 +791,19 @@ function div(cls: string): HTMLElement {
   return d
 }
 
+/** open threads in the loaded document — read from the artifact's JSON, so
+ * the count is right whether or not the comment rail is mounted */
+function openThreadCount(doc: { commentsJson: string } | null): number {
+  if (!doc) return 0
+  try {
+    return parseThreads(doc.commentsJson).filter((t) => t.status === 'open').length
+  } catch {
+    return 0
+  }
+}
+
 function newSessionId(): string {
-  const base = state.deck?.fileName ?? 'deck'
+  const base = state.deck?.fileName ?? state.doc?.fileName ?? 'deck'
   const rand = typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID().slice(0, 8)
     : Math.random().toString(36).slice(2, 10)
@@ -733,6 +814,10 @@ function describeSelection(sel: Selection): string | null {
   switch (sel.kind) {
     case 'none': return null
     case 'slide': return 'whole slide'
+    case 'block': {
+      const role = [...sel.block.classList].find((c) => c.startsWith('dia-'))
+      return role ?? sel.block.tagName.toLowerCase()
+    }
     case 'element': {
       const role = [...sel.el.classList].find((c) => c.startsWith('dia-'))
       return role ?? sel.el.tagName.toLowerCase()
@@ -747,6 +832,7 @@ function selectionHtml(sel: Selection): string | null {
   switch (sel.kind) {
     case 'none': return null
     case 'slide': return sel.slide.outerHTML
+    case 'block': return sel.block.outerHTML
     case 'element': return sel.el.outerHTML
     case 'scene-node': return sel.node.outerHTML
     case 'scene-edge': return sel.edge.outerHTML

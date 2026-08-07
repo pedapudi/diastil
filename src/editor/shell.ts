@@ -20,7 +20,7 @@ import { miscIcon, swatch, type MiscIcon } from '../scene/icons'
 import { assignFreshIds } from './slides'
 import { mountThemePicker, mountTypePicker } from '../chrome/pickers'
 import { mountCopilot } from '../copilot/rail'
-import { mountTable, scrollToSlide } from './table'
+import { activateTable, deactivateTable, mountTable, scrollToSlide } from './table'
 import { mountMinimap } from './minimap'
 import { installHistory } from './history'
 import { installElementDragging } from './elemdrag'
@@ -32,10 +32,23 @@ import { focusedSlide, openSlideFocus, slidesInLogicalOrder } from '../studio/fo
 import { buildSlideTree } from './tree'
 import { openCompare } from './compare'
 import {
-  bootFromCli, exportPptxAction, openDeck, pptxExportAvailable,
-  PPTX_EXPORT_HINT, PPTX_EXPORT_OFFLINE_HINT, presentDeck, saveDeck,
+  bootFromCli, exportPptxAction, exportTexAction, openDeck, pptxExportAvailable,
+  PPTX_EXPORT_HINT, PPTX_EXPORT_OFFLINE_HINT, presentDeck, presentDoc, saveDeck, saveDoc,
 } from './slides'
-import { openMenu } from './menu'
+import { mountDocView, activateDoc, deactivateDoc, scrollToBlock } from './docview'
+import { activatePages, deactivatePages, mountPagesView } from './pagesview'
+import { installBlockMirror, mirrorOn, setMirrorOn } from '../doc/blockmirror'
+import { mountOutline, showOutline } from './outline'
+import { mountComments } from '../doc/commentrail'
+import { activateSource, deactivateSource, jumpToLine, mountSourceView } from './source'
+import { openMenu, SEP } from './menu'
+import {
+  autoCompileOn, compileNow, compileState, exportPdfAction, installAutoCompile, installTectonic,
+  onCompileState, previewPdfAction, setAutoCompile, texAvailable, texDownloadable, texHint,
+  PDF_PREVIEW_HINT, TEX_INSTALL_ACTION, TEX_NO_ENGINE_HINT, TEX_OFFLINE_HINT,
+  type CompileState,
+} from './doccompile'
+import { mountProblems, problemsCount, toggleProblems } from './problems'
 import { canStudio, openStudio } from '../studio/studio'
 import { newDrawingOnSlide } from '../studio/svgimport'
 import { applyTex, mathOf, renderTex } from './math'
@@ -158,9 +171,41 @@ export function mountEditor(host: HTMLElement): void {
     const z = ZOOMS.find(([n]) => n === saved) ?? ZOOMS[1]
     setZoom(z[0], z[1])
   }
-  const segPresent = segButton('present', () => { if (state.deck) presentDeck(state.deck) })
+  const segPresent = segButton('present', () => {
+    if (state.doc) presentDoc(state.doc)
+    else if (state.deck) presentDeck(state.deck)
+  })
   segPresent.title = 'open the saved deck in a new tab, self-running'
   seg.append(segPresent)
+
+  // doc mode's view toggle: the native dialect surface, the compiled pages,
+  // or the raw LaTeX. Leaving source commits ONE Edit-source op (nothing
+  // happens when clean).
+  const viewSeg = h('div', 'dn-seg')
+  viewSeg.hidden = true
+  const segNative = segButton('native', () => setView('native'))
+  segNative.classList.add('dn-on')
+  segNative.title = 'the rendered document — edit prose in place'
+  const segPages = segButton('pages', () => setView('pages'))
+  segPages.title = 'the compiled PDF, page by page — double-click a spot to edit it'
+  const segSource = segButton('source', () => setView('source'))
+  segSource.title = 'the raw LaTeX — the truth this document is compiled from'
+  viewSeg.append(segNative, segPages, segSource)
+
+  type DocView = 'native' | 'pages' | 'source'
+  function setView(view: DocView): void {
+    if (!state.doc) return
+    segNative.classList.toggle('dn-on', view === 'native')
+    segPages.classList.toggle('dn-on', view === 'pages')
+    segSource.classList.toggle('dn-on', view === 'source')
+    deactivateSource() // commits when dirty; harmless when already closed
+    deactivateDoc()
+    deactivatePages()
+    if (view === 'native') activateDoc()
+    else if (view === 'pages') activatePages()
+    else activateSource()
+  }
+  function setSourceMode(on: boolean): void { setView(on ? 'source' : 'native') }
 
   const btnOpen = dnButton('open', () => { void openDeck(canvasHost) })
   btnOpen.title = 'open any HTML deck — diastil files load directly; foreign decks convert through review'
@@ -171,6 +216,32 @@ export function mountEditor(host: HTMLElement): void {
   btnSave.title = `write the deck back as self-contained HTML (${/Mac|iP(hone|ad|od)/.test(navigator.platform) ? '⌘S' : 'Ctrl+S'})`
   const btnSaveMore = segButton('▾', () => {
     const r = btnSaveMore.getBoundingClientRect()
+    if (state.doc) {
+      const canCompile = texAvailable()
+      const why = texHint()
+      openMenu(r.right - 196, r.bottom + 4, [
+        { label: 'save', run: () => { void doSave() } },
+        {
+          label: 'export .tex',
+          run: () => exportTexAction(),
+          hint: 'the LaTeX source, comments carried as a % trailer — compiles anywhere',
+        },
+        SEP,
+        {
+          label: 'export .pdf (compile)',
+          run: () => exportPdfAction(),
+          disabled: !canCompile,
+          hint: why,
+        },
+        {
+          label: 'preview PDF',
+          run: () => previewPdfAction(),
+          disabled: !canCompile,
+          hint: canCompile ? PDF_PREVIEW_HINT : why,
+        },
+      ])
+      return
+    }
     const online = pptxExportAvailable()
     openMenu(r.right - 196, r.bottom + 4, [
       { label: 'save', run: () => { void doSave() } },
@@ -193,7 +264,106 @@ export function mountEditor(host: HTMLElement): void {
   const statusWord = h('span', '', 'valid · v1')
   status.append(h('span', 'de-sdot'), statusWord)
 
-  topbar.append(brand, respreview, crumbs, h('div', 'de-spacer'), seg, btnOpen, saveSplit, pickerSlot, status)
+  /* the tex chip — document mode only. Split the way the save button is:
+   * the label acts (compile, or the one offer of a managed tectonic), the
+   * caret opens the problems drawer, and it only appears when there are
+   * problems to open it for. */
+  const texChip = h('span', 'de-texchip')
+  texChip.hidden = true
+  const texMain = h('button', 'de-texchip-main')
+  texMain.type = 'button'
+  const texLabel = h('span', 'de-texlabel', 'tex')
+  texMain.append(h('span', 'de-texdot'), texLabel)
+  const texMore = h('button', 'de-texchip-more', '▾')
+  texMore.type = 'button'
+  texMore.title = 'the engine’s report, and how the native view uses it'
+  texMore.addEventListener('click', () => {
+    const r = texMore.getBoundingClientRect()
+    const problems = problemsCount(compileState())
+    openMenu(r.right - 210, r.bottom + 4, [
+      {
+        label: problems === 0 ? 'problems' : `problems (${problems})`,
+        run: () => toggleProblems(),
+        disabled: problems === 0,
+        hint: problems === 0 ? 'the engine reported nothing to show' : 'what the engine said',
+      },
+      SEP,
+      {
+        label: `auto-compile ${autoCompileOn() ? '✓' : '—'}`,
+        run: () => setAutoCompile(!autoCompileOn()),
+        hint: 'recompile a moment after every edit, so the native view keeps showing the real render',
+      },
+      {
+        label: `show html ${mirrorOn() ? '—' : '✓'}`,
+        run: () => setMirrorOn(!mirrorOn()),
+        hint: 'show the dialect’s own rendering instead of the compiled crops, for this session',
+      },
+    ])
+  })
+  texChip.append(texMain, texMore)
+
+  let installingTex = false
+  texMain.addEventListener('click', () => {
+    if (!state.doc) return
+    if (texDownloadable()) {
+      if (installingTex) return
+      installingTex = true
+      void installTectonic()
+        .catch((e: unknown) =>
+          alert('The TeX install failed.\n\n' + (e instanceof Error ? e.message : String(e))))
+        .finally(() => { installingTex = false })
+      return
+    }
+    if (!texAvailable()) return
+    void compileNow(state.doc)
+  })
+
+  function renderTexChip(s: CompileState): void {
+    texChip.classList.remove('is-ok', 'is-bad', 'is-off', 'is-busy')
+    if (s.installing !== null || installingTex) {
+      const pct = s.installing === null ? null : Math.round(s.installing * 100)
+      texLabel.textContent = pct === null ? `tex ↓ ${s.installNote || 'installing…'}` : `tex ↓ ${pct}%`
+      texChip.classList.add('is-busy')
+      texMain.title = 'downloading a managed tectonic'
+      return
+    }
+    switch (s.status) {
+      case 'offline':
+        texLabel.textContent = 'tex offline'
+        texChip.classList.add('is-off')
+        texMain.title = TEX_OFFLINE_HINT
+        break
+      case 'no-engine':
+        texLabel.textContent = s.downloadable ? 'tex — install…' : 'tex — no engine'
+        texChip.classList.add('is-off')
+        texMain.title = s.downloadable ? TEX_INSTALL_ACTION : TEX_NO_ENGINE_HINT
+        break
+      case 'compiling':
+        texLabel.textContent = 'tex compiling…'
+        texChip.classList.add('is-busy')
+        texMain.title = 'a TeX engine is running'
+        break
+      case 'ok':
+        texLabel.textContent =
+          `tex ✓${s.pages === null ? '' : ` ${s.pages} pp ·`} ${(s.ms / 1000).toFixed(1)}s`
+        texChip.classList.add('is-ok')
+        texMain.title = 'compiled — click to compile again'
+        break
+      case 'failed':
+        texLabel.textContent = s.errors.length > 0
+          ? `tex ✗ ${s.errors.length} error${s.errors.length === 1 ? '' : 's'}`
+          : 'tex ✗ failed'
+        texChip.classList.add('is-bad')
+        texMain.title = s.detail ?? 'the compile failed — click to try again'
+        break
+      default:
+        texLabel.textContent = 'tex — compile'
+        texMain.title = `compile this document with ${s.engine ?? 'the local TeX engine'}`
+    }
+  }
+  onCompileState(renderTexChip)
+
+  topbar.append(brand, respreview, crumbs, h('div', 'de-spacer'), viewSeg, seg, btnOpen, saveSplit, pickerSlot, texChip, status)
 
   /* ---------- layout ---------- */
 
@@ -217,6 +387,7 @@ export function mountEditor(host: HTMLElement): void {
   const tabsBar = h('div', 'de-tabs')
   const inspectPane = h('div', 'de-pane de-on')
   const tokensPane = h('div', 'de-pane')
+  const commentsPane = h('div', 'de-pane')
   const copilotFullPane = h('div', 'de-pane')
   const copilotPane = h('div', 'de-cop-dock') // the chat element
   copilotFullPane.append(copilotPane)
@@ -226,7 +397,8 @@ export function mountEditor(host: HTMLElement): void {
   tokensPane.append(tokensBody)
   const tabs: Array<{ btn: HTMLButtonElement; pane: HTMLElement }> = []
   for (const [label, pane] of [
-    ['inspect', inspectPane], ['tokens', tokensPane], ['copilot', copilotFullPane],
+    ['inspect', inspectPane], ['tokens', tokensPane], ['comments', commentsPane],
+    ['copilot', copilotFullPane],
   ] as const) {
     const btn = h('button', label === 'inspect' ? 'de-on' : '', label)
     btn.type = 'button'
@@ -240,6 +412,9 @@ export function mountEditor(host: HTMLElement): void {
     tabsBar.append(btn)
     tabs.push({ btn, pane })
   }
+  // commenting is a document act — the tab is not offered over a deck
+  const commentsTab = tabs[2]
+  commentsTab.btn.hidden = true
   const railHide = h('button', 'de-rail-hide', '⇥')
   railHide.type = 'button'
   railHide.title = 'hide the rail (\\)'
@@ -247,7 +422,7 @@ export function mountEditor(host: HTMLElement): void {
   tabsBar.append(railHide)
 
   const railTop = h('div', 'de-rail-top')
-  railTop.append(tabsBar, inspectPane, tokensPane, copilotFullPane)
+  railTop.append(tabsBar, inspectPane, tokensPane, commentsPane, copilotFullPane)
 
   // rail width: drag the left edge (persisted)
   const widthGrip = h('div', 'de-rail-wgrip')
@@ -316,6 +491,7 @@ export function mountEditor(host: HTMLElement): void {
           renderAllCharts(deck.root)
           fillAutoPages()
         }
+        setDocMode(false)
         state.resetLog() // old ops reference the previous document's elements
         tick = 0
         savedTick = 0
@@ -325,6 +501,22 @@ export function mountEditor(host: HTMLElement): void {
         updateCrumbs()
         renderInspect()
         renderTokens()
+        break
+      }
+      case 'doc-loaded': {
+        setDocMode(true)
+        state.resetLog()
+        tick = 0
+        savedTick = 0
+        state.selection = { kind: 'none' }
+        state.setCurrentBlock(0)
+        updateStatus()
+        updateCrumbs()
+        renderInspect()
+        break
+      }
+      case 'current-block': {
+        updateCrumbs()
         break
       }
       case 'undo':
@@ -372,14 +564,33 @@ export function mountEditor(host: HTMLElement): void {
   /* ---------- mount submodules ---------- */
 
   mountTable(main, canvasHost)
+  mountDocView(main, canvasHost)
+  mountPagesView(main, (block) => {
+    setView('native')
+    scrollToBlock(block)
+  })
+  mountSourceView(main)
+  mountProblems(main)
+
+  // "edit LaTeX here" requests (island dblclick, error rows in source
+  // mode) arrive as events so their modules need no shell handle
+  window.addEventListener('dia-open-source', (ev) => {
+    const line = (ev as CustomEvent<{ line?: number }>).detail?.line
+    setSourceMode(true)
+    if (typeof line === 'number') jumpToLine(line)
+  })
   mountMinimap(minimapEl)
+  mountOutline(minimapEl)
   installTextEditing(canvasHost)
   installElementDragging()
   installHistory(canvasHost)
   installContextMenu(canvasHost)
+  installBlockMirror()
+  installAutoCompile()
   mountThemePicker(pickerSlot)
   mountTypePicker(pickerSlot)
   mountCopilot(copilotPane)
+  mountComments(commentsPane, () => commentsTab.btn.click())
 
   /* ---------- global keyboard ---------- */
 
@@ -412,6 +623,13 @@ export function mountEditor(host: HTMLElement): void {
       e.preventDefault()
       if (e.shiftKey) state.redo()
       else state.undo()
+      return
+    }
+    if (state.doc) {
+      // document mode: step blocks; everything else is read-only in v1
+      if (e.key === 'ArrowDown' || e.key === 'j') { e.preventDefault(); stepSlide(1) }
+      else if (e.key === 'ArrowUp' || e.key === 'k') { e.preventDefault(); stepSlide(-1) }
+      else if (e.key === 'Escape') { state.selection = { kind: 'none' } }
       return
     }
     if (!state.deck) return
@@ -447,12 +665,62 @@ export function mountEditor(host: HTMLElement): void {
 
   /* ================= shell internals ================= */
 
+  /** swap the working surface between the slide table and the document
+   * view; the minimap column shows the filmstrip or the outline to match */
+  function setDocMode(on: boolean): void {
+    layout.classList.toggle('de-doc-mode', on)
+    // compile is a document act: the chip and its drawer leave with the mode
+    texChip.hidden = !on
+    viewSeg.hidden = !on
+    // so is commenting: hide the tab over a deck, and step off it if it was
+    // the one showing
+    commentsTab.btn.hidden = !on
+    if (!on && commentsTab.pane.classList.contains('de-on')) tabs[0].btn.click()
+    if (!on) toggleProblems(false)
+    if (on) {
+      deactivateTable()
+      // a fresh doc always opens in the native view
+      segNative.classList.add('dn-on')
+      segPages.classList.remove('dn-on')
+      segSource.classList.remove('dn-on')
+      deactivateSource()
+      deactivatePages()
+      activateDoc()
+    } else {
+      deactivateSource()
+      deactivatePages()
+      deactivateDoc()
+      activateTable(state.currentSlide)
+    }
+    for (const child of [...minimapEl.children]) {
+      if (!(child instanceof HTMLElement)) continue
+      if (!child.classList.contains('de-outline')) child.hidden = on
+    }
+    showOutline(on)
+    segPresent.textContent = on ? 'reader' : 'present'
+    segPresent.title = on
+      ? 'open the saved document in a new tab — it reads as plain HTML'
+      : 'open the saved deck in a new tab, self-running'
+  }
+
   function stepSlide(d: number): void {
+    if (state.doc) {
+      state.setCurrentBlock(state.currentBlock + d)
+      const b = state.blocks()[state.currentBlock]
+      if (b) scrollToBlock(b)
+      return
+    }
     state.setCurrentSlide(state.currentSlide + d)
     scrollToSlide(state.currentSlide, 'smooth')
   }
 
   async function doSave(): Promise<void> {
+    if (state.doc) {
+      await saveDoc(state.doc)
+      savedTick = tick
+      updateCrumbs()
+      return
+    }
     if (!state.deck) return
     await saveDeck(state.deck)
     savedTick = tick
@@ -462,6 +730,18 @@ export function mountEditor(host: HTMLElement): void {
   /* ----- crumbs + status ----- */
 
   function updateCrumbs(): void {
+    if (state.doc) {
+      const doc = state.doc
+      const dirty = tick !== savedTick
+      const stateWord = dirty ? h('span', 'de-unsaved', 'unsaved') : document.createTextNode('saved')
+      const n = state.blocks().length
+      crumbs.replaceChildren(
+        h('b', '', doc.texName),
+        document.createTextNode(` · block ${state.currentBlock + 1}/${n} · `),
+        stateWord,
+      )
+      return
+    }
     const d = state.deck
     if (!d) {
       crumbs.textContent = 'no deck'
@@ -483,6 +763,7 @@ export function mountEditor(host: HTMLElement): void {
     switch (sel.kind) {
       case 'element': return primaryRole(sel.el)
       case 'slide': return 'slide'
+      case 'block': return docBlockRole(sel.block)
       case 'scene-node': return 'scene node'
       case 'scene-edge': return 'scene edge'
       case 'scene-free': return `svg <${sel.el.tagName.toLowerCase()}>`
@@ -490,7 +771,61 @@ export function mountEditor(host: HTMLElement): void {
     }
   }
 
+  /** a document block's human name — what the crumbs and inspect call it */
+  function docBlockRole(block: HTMLElement): string {
+    if (block.matches('.dia-sec')) return 'section heading'
+    if (block.matches('p')) return 'paragraph'
+    if (block.matches('.dia-abstract')) return 'abstract'
+    if (block.matches('.dia-math')) return 'math'
+    if (block.matches('figure')) return block.getAttribute('data-dia-float') === 'table' ? 'table float' : 'figure'
+    if (block.matches('table')) return 'table'
+    if (block.matches('ul, ol, dl')) return 'list'
+    if (block.matches('pre.dia-verbatim')) return 'verbatim'
+    if (block.matches('.dia-tex-island')) return 'latex island'
+    if (block.matches('.dia-wrap')) return `${block.getAttribute('data-dia-env') ?? 'wrapper'} block`
+    if (block.matches('.dia-doc-header')) return 'title header'
+    return block.tagName.toLowerCase()
+  }
+
+  /** doc-mode inspect: what this block IS and the LaTeX behind it — the
+   * source is the truth, so the inspector shows it */
+  function renderDocInspect(doc: NonNullable<typeof state.doc>, sel: typeof state.selection): void {
+    if (sel.kind !== 'block') {
+      inspectBody.append(h('div', 'de-hint',
+        'click a block to inspect it · double-click text to edit · $…$ becomes math'))
+      return
+    }
+    const block = sel.block
+    inspectBody.append(kv('role', docBlockRole(block)))
+    const idx = state.blocks().indexOf(block)
+    if (idx >= 0) inspectBody.append(kv('block', `${idx + 1} / ${state.blocks().length}`))
+
+    const id = block.getAttribute('data-dia-id')
+    const span = id ? doc.source.spanOf(id) : null
+    if (span) {
+      const from = doc.source.lineOf(span.start)
+      const to = doc.source.lineOf(Math.max(span.start, span.end - 1))
+      inspectBody.append(kv('source', from === to ? `line ${from}` : `lines ${from}–${to}`))
+      const slice = doc.source.text.slice(span.start, span.end)
+      const preview = h('pre', 'de-doc-src-preview')
+      preview.textContent = slice.length > 1200 ? slice.slice(0, 1200) + '\n…' : slice
+      inspectBody.append(preview)
+      const jump = dnButton('edit latex here', () => {
+        window.dispatchEvent(new CustomEvent('dia-open-source', { detail: { line: from } }))
+      })
+      jump.title = 'open the raw source view at this block'
+      inspectBody.append(jump)
+    } else {
+      inspectBody.append(h('div', 'de-hint',
+        'derived from the preamble — edit it in the source view'))
+    }
+  }
+
   function updateStatus(): void {
+    if (state.doc) {
+      statusWord.textContent = `doc · v${state.doc.docVersion}`
+      return
+    }
     const d = state.deck
     statusWord.textContent = d ? `valid · v${d.version}` : 'no deck'
   }
@@ -504,7 +839,7 @@ export function mountEditor(host: HTMLElement): void {
     const focused = focusedSlide()
     if (focused) return focused
     const sel = state.selection
-    if (sel.kind !== 'none') return sel.slide
+    if (sel.kind !== 'none' && sel.kind !== 'block') return sel.slide
     return state.slides()[state.currentSlide] ?? null
   }
 
@@ -530,6 +865,10 @@ export function mountEditor(host: HTMLElement): void {
     const d = state.deck
     const sel = state.selection
     inspectBody.replaceChildren()
+    if (state.doc) {
+      renderDocInspect(state.doc, sel)
+      return
+    }
     if (!d || sel.kind === 'none') {
       inspectBody.append(h('div', 'de-hint', 'click an element in a slide to inspect it'))
       appendTree()
@@ -550,6 +889,7 @@ export function mountEditor(host: HTMLElement): void {
       appendTree()
       return
     }
+    if (sel.kind === 'block') return // doc-only kind; handled above
     const el = sel.kind === 'element' ? sel.el : sel.slide
     const slide = sel.slide
     const role = sel.kind === 'element' ? primaryRole(el) : 'dia-slide'

@@ -16,9 +16,24 @@ dependencies = [
     "python-pptx",
 ]
 
+[project.optional-dependencies]
+# Test-only. The compile suite needs no TeX installation and no model.
+dev = ["pytest"]
+
 [project.scripts]
 dia = "dia_service.cli:main"
 dia-serve = "dia_service.main:run"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# conftest.py holds the fixtures AND the log-fixture path the tests import
+pythonpath = ["tests"]
+markers = [
+    # needs a real TeX engine (the managed tectonic) or real poppler; skips
+    # itself when they are absent, so `-m "not integration"` is an
+    # optimization, not a requirement
+    "integration: exercises a real external binary rather than a stand-in",
+]
 
 [tool.setuptools.packages.find]
 include = ["dia_service*"]

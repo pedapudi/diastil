@@ -12,6 +12,19 @@ export interface SkillResult {
 
 export const SERVICE_PORT = 8317
 
+/** What the daemon can do about LaTeX right now (service/dia_service/tex.py).
+ * `engine: null` means no TeX was found; `downloadable` says the daemon has a
+ * pinned tectonic for this platform, so the offer to install one is real. */
+export interface TexCapability {
+  engine: string | null
+  path: string | null
+  version: string | null
+  synctex: boolean
+  downloadable: boolean
+  managed: boolean
+  detail: string | null
+}
+
 /* Whether service calls are same-origin is DECLARED by the server, never
  * guessed from port numbers. The service injects
  * `window.__diaServiceSameOrigin` into the editor pages it hosts
@@ -36,12 +49,14 @@ export class ServiceClient {
   base: string
   constructor(base: string = SERVICE_BASE) { this.base = base }
 
-  async health(): Promise<{ ok: boolean; model?: string }> {
+  /** tex rides along because compiling needs no model: a machine with
+   * tectonic and no adk still reports a usable engine (main.py health) */
+  async health(): Promise<{ ok: boolean; model?: string; tex?: TexCapability }> {
     try {
       const r = await fetch(`${this.base}/health`, { signal: AbortSignal.timeout(1200) })
       if (!r.ok) return { ok: false }
       const j = await r.json()
-      return { ok: true, model: j.model }
+      return { ok: true, model: j.model, tex: j.tex }
     } catch {
       return { ok: false }
     }

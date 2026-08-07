@@ -1,3 +1,4 @@
+// @vitest-environment node
 /* The SSE parser is spec-faithful: CRLF, LF, and bare CR all frame events,
  * chunk boundaries can fall anywhere (including inside a CRLF pair), and
  * multi-line data joins with newlines. */

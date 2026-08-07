@@ -1,0 +1,184 @@
+/* The prime directive of emission: never rewrite bytes the user did not
+ * touch. Unedited blocks re-emit their exact source slice; edited ones
+ * reconstruct surgically and re-parse to an equivalent tree. */
+
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
+import { describe, expect, it } from 'vitest'
+import { parseLatex } from './parse'
+import { renderDoc } from './render'
+import { emitBlockTex, emitInlines, escapeTex, replaceCommandGroup, partitionEnv } from './emit'
+import { refreshDerived } from '../doc/derived'
+
+const here = dirname(fileURLToPath(import.meta.url))
+const repo = join(here, '..', '..')
+
+/** render a source and return the top-level (el, slice) pairs */
+function renderPairs(src: string) {
+  const doc = parseLatex(src)
+  const rendered = renderDoc(doc)
+  refreshDerived(rendered.article)
+  return rendered.blocks.map((b) => ({ el: b.el, slice: src.slice(b.span.start, b.span.end) }))
+}
+
+describe('unedited blocks emit exact bytes', () => {
+  it('every top-level block of a real paper', () => {
+    const src = readFileSync(join(repo, 'corpus', 'tex', 'llama', 'llama.tex'), 'utf-8')
+    for (const { el, slice } of renderPairs(src)) {
+      expect(emitBlockTex(el)).toBe(slice)
+    }
+  })
+
+  it('…including after the derived-ref pass rewrote link texts', () => {
+    const src = '\\section{One}\\label{sec:one}\n\nSee \\ref{sec:one} here.\n'
+    const pairs = renderPairs(src)
+    // the ref now shows "1", not the key — bytes must still be exact
+    expect(pairs[1].el.textContent).toContain('See 1 here.')
+    expect(emitBlockTex(pairs[1].el)).toBe(pairs[1].slice)
+  })
+})
+
+describe('edited blocks reconstruct', () => {
+  it('paragraph text edit emits parseable LaTeX with styles intact', () => {
+    const src = 'Some \\textbf{bold} text with \\cite[p.~9]{knuth84} and $x^2$.\n'
+    const [{ el }] = renderPairs(src)
+    el.querySelector('strong')!.textContent = 'heavy'
+    const out = emitBlockTex(el)
+    expect(out).toContain('\\textbf{heavy}')
+    expect(out).toContain('\\cite[p.~9]{knuth84}')
+    expect(out).toContain('$x^2$')
+  })
+
+  it('citep survives re-emission via data-dia-cite-cmd', () => {
+    const src = 'As shown \\citep{smith20}.\n'
+    const [{ el }] = renderPairs(src)
+    el.append(' more')
+    expect(emitBlockTex(el)).toContain('\\citep{smith20}')
+  })
+
+  it('two-bracket cites re-emit both notes', () => {
+    const src = 'See \\citep[][\\textit{inter alia}]{a,b}.'
+    const [{ el }] = renderPairs(src)
+    el.append(' x')
+    expect(emitBlockTex(el)).toContain('\\citep[][\\textit{inter alia}]{a,b}')
+  })
+
+  it('pdf graphics render as slots and re-emit their includegraphics', () => {
+    const src = '\\begin{figure}\\includegraphics[width=1em]{plot.pdf}\\end{figure}'
+    const [{ el }] = renderPairs(src)
+    expect(el.querySelector('.dia-graphic-slot')).toBeTruthy()
+    expect(el.querySelector('img')).toBeNull()
+    // untouched: exact bytes; and full reconstruction keeps the graphic
+    expect(emitBlockTex(el)).toBe(src)
+  })
+
+  it('section edit is surgical: star, short title, and label bytes survive', () => {
+    const src = '\\section*[Short]{Long Title}\\label{sec:x}\n'
+    const [{ el }] = renderPairs(src)
+    el.prepend('New ')
+    const out = emitBlockTex(el)
+    expect(out).toBe('\\section*[Short]{New Long Title}\\label{sec:x}')
+  })
+
+  it('verbatim body edit keeps the option line', () => {
+    const src = '\\begin{lstlisting}[language=C]\nint x;\n\\end{lstlisting}\n'
+    const [{ el }] = renderPairs(src)
+    el.textContent = 'int y;'
+    expect(emitBlockTex(el)).toBe('\\begin{lstlisting}[language=C]\nint y;\n\\end{lstlisting}')
+  })
+
+  it('float caption edit leaves placement and graphics bytes alone', () => {
+    const src = '\\begin{figure}[htbp]\n\\centering\n\\includegraphics[width=.5\\linewidth]{plot.pdf}\n\\caption{Old caption}\n\\label{fig:p}\n\\end{figure}\n'
+    const [{ el }] = renderPairs(src)
+    el.querySelector('figcaption')!.textContent = 'New caption'
+    expect(emitBlockTex(el)).toBe(src.trim().replace('Old caption', 'New caption'))
+  })
+
+  it('wrapper interior edit keeps the frame; untouched siblings keep bytes', () => {
+    const src = '\\begin{multicols}{2}\nFirst  paragraph   with\nodd spacing.\n\nSecond.\n\\end{multicols}\n'
+    const [{ el }] = renderPairs(src)
+    const paras = el.querySelectorAll('p')
+    paras[1].textContent = 'Second, edited.'
+    const out = emitBlockTex(el)
+    expect(out.startsWith('\\begin{multicols}{2}')).toBe(true)
+    expect(out.endsWith('\\end{multicols}')).toBe(true)
+    // the untouched first paragraph keeps its odd spacing byte-for-byte
+    expect(out).toContain('First  paragraph   with\nodd spacing.')
+    expect(out).toContain('Second, edited.')
+  })
+
+  it('math block edit emits env + label from attributes', () => {
+    const src = '\\begin{equation}\\label{eq:z}\nz^2\n\\end{equation}\n'
+    const [{ el }] = renderPairs(src)
+    el.setAttribute('data-dia-tex', 'z^3')
+    expect(emitBlockTex(el)).toBe('\\begin{equation}\\label{eq:z}\nz^3\n\\end{equation}')
+  })
+
+  it('list edit reconstructs items; edited output re-parses equivalent', () => {
+    const src = '\\begin{itemize}\n\\item alpha\n\\item beta\n\\end{itemize}\n'
+    const [{ el }] = renderPairs(src)
+    el.querySelectorAll('li')[1].textContent = 'gamma'
+    const out = emitBlockTex(el)
+    const reparsed = parseLatex(out)
+    expect(reparsed.blocks[0].kind).toBe('list')
+    expect(out).toContain('\\item gamma')
+  })
+
+  it('island text IS the latex — emitted verbatim', () => {
+    const src = '\\begin{tikzpicture}\\draw (0,0);\\end{tikzpicture}\n'
+    const [{ el }] = renderPairs(src)
+    el.querySelector('pre')!.textContent = '\\begin{tikzpicture}\\draw (1,1);\\end{tikzpicture}'
+    expect(emitBlockTex(el)).toBe('\\begin{tikzpicture}\\draw (1,1);\\end{tikzpicture}')
+  })
+})
+
+describe('inline emission', () => {
+  it('escapes special characters and round-trips through the parser', () => {
+    const p = document.createElement('p')
+    p.textContent = '50% of $5 & #1 _always_ {sure} \\path ~home ^up'
+    const out = emitInlines(p.childNodes)
+    const doc = parseLatex(out)
+    expect(doc.blocks).toHaveLength(1)
+    const para = doc.blocks[0] as Extract<typeof doc.blocks[0], { kind: 'para' }>
+    const text = para.inline
+      .filter((n) => n.kind === 'text')
+      .map((n) => (n as { text: string }).text).join('')
+    expect(text).toContain('50% of $5 & #1 _always_ {sure}')
+  })
+
+  it('escapeTex keeps ordinary prose untouched', () => {
+    expect(escapeTex('plain words, punctuation. (parens) [brackets]')).toBe(
+      'plain words, punctuation. (parens) [brackets]')
+  })
+
+  it('inline math spans emit their tex source', () => {
+    const src = 'value $x^2$ here'
+    const [{ el }] = renderPairs(src)
+    el.append('!')
+    expect(emitBlockTex(el)).toBe('value $x^2$ here!')
+  })
+
+  it('verb picks a safe delimiter', () => {
+    const code = document.createElement('code')
+    code.className = 'dia-verb'
+    code.textContent = 'a|b'
+    const p = document.createElement('p')
+    p.append(code)
+    expect(emitInlines(p.childNodes)).toBe('\\verb!a|b!')
+  })
+})
+
+describe('surgical helpers', () => {
+  it('replaceCommandGroup respects nesting and escapes', () => {
+    expect(replaceCommandGroup('\\caption{a {b} c}', 'caption', 'X')).toBe('\\caption{X}')
+    expect(replaceCommandGroup('\\caption{a \\} b}', 'caption', 'X')).toBe('\\caption{X}')
+    expect(replaceCommandGroup('no caption here', 'caption', 'X')).toBeNull()
+  })
+
+  it('partitionEnv keeps argument groups in the head', () => {
+    const part = partitionEnv('\\begin{multicols}{2}\nbody\n\\end{multicols}', 'multicols')!
+    expect(part.head).toBe('\\begin{multicols}{2}')
+    expect(part.tail).toBe('\\end{multicols}')
+  })
+})
