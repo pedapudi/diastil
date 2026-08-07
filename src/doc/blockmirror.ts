@@ -128,8 +128,11 @@ const LOOKBACK = 400
 /* below the last record only descenders and rules remain */
 const LOOKAHEAD = 90
 /* an ink-vs-paper channel-sum threshold: anti-aliased grey counts as ink,
- * paper texture and JPEG-ish noise do not */
-const INK = 24
+ * paper texture and JPEG-ish noise do not. Exported (not just internal) so
+ * scripts/capture-mirror-fixture.mjs — which decodes PNGs outside the DOM,
+ * so it cannot import pageInkOf itself — can say out loud that its own ink
+ * scan is this same threshold, not a guess that might drift from it. */
+export const INK = 24
 /* points of paper kept around the trimmed ink */
 const TRIM_PAD = 6
 /* blank points that separate one thing from another, measured DOWN a
@@ -1081,7 +1084,7 @@ interface Part { url: string; widthPt: number }
 export interface Claim { xMin: number; xMax: number; yMin?: number; yMax: number }
 
 /** what every cut of one pass shares */
-interface Pass {
+export interface Pass {
   jobId: string
   dpi: number
   ySemantics: string
@@ -1091,6 +1094,9 @@ interface Pass {
   measure: number
   /** what earlier cuts have already shown, per page, in top-down points */
   claims: Map<number, Claim[]>
+  /** how a page's ink is resolved and a placed crop turned into pixels —
+   * real bitmaps in the browser, captured ink in a fixture replay */
+  pages: PageSource
   /** is this still the pass the document is waiting for? */
   live: () => boolean
 }
@@ -1099,45 +1105,65 @@ interface Pass {
  * twice — a table's cell groups, a paragraph whose inner boxes straggled */
 const MERGE_SHARE = 0.3
 
-/** rebuild every crop from a finished job's artifacts */
-export async function refreshMirrors(jobId: string): Promise<void> {
-  const doc = state.doc
-  if (!doc || !enabled) return
-  const mine = ++pass
+/** true for a record whose SOURCE line sets no type of its own — blank or a
+ * comment — so its box is always some real line's left open, never this
+ * one's own. One after a display truncated the paragraph above it (a false
+ * "below"); one before a paragraph hid its first line (a false "above").
+ * Filtered before anything else reads the records (see refreshMirrors). */
+export function isPhantomRecord(r: SynctexRecord, sourceLines: string[]): boolean {
+  const line = sourceLines[r.line - 1]
+  if (line === undefined) return false
+  const t = line.trim()
+  return t === '' || t.startsWith('%')
+}
 
-  // a blank or comment-only source line sets no type, ever — its record is
-  // always the box some real line left open, standing wherever that box
-  // stands. One after a display truncated the paragraph above it (a false
-  // "below"); one before a paragraph hid its first line (a false "above").
-  const srcLines = doc.source.text.split('\n')
-  const phantom = (r: SynctexRecord): boolean => {
-    const line = srcLines[r.line - 1]
-    if (line === undefined) return false
-    const t = line.trim()
-    return t === '' || t.startsWith('%')
-  }
-  const records = withoutWrappers((await fetchSynctex(jobId)).filter((r) => !phantom(r)))
-  if (records.length === 0 || mine !== pass || state.doc !== doc) return
-  const info = await pagesInfo(jobId)
-  if (mine !== pass || state.doc !== doc) return
-  shownJob = jobId
-
+/** group records by the page they landed on, in first-seen order — the
+ * per-document map every cut's placement is bracketed against */
+export function groupByPage(records: SynctexRecord[]): Map<number, SynctexRecord[]> {
   const byPage = new Map<number, SynctexRecord[]>()
   for (const r of records) {
     const held = byPage.get(r.page)
     if (held) held.push(r)
     else byPage.set(r.page, [r])
   }
+  return byPage
+}
+
+/** rebuild every crop from a finished job's artifacts */
+export async function refreshMirrors(jobId: string): Promise<void> {
+  const doc = state.doc
+  if (!doc || !enabled) return
+  const mine = ++pass
+
+  const srcLines = doc.source.text.split('\n')
+  const records = withoutWrappers((await fetchSynctex(jobId)).filter((r) => !isPhantomRecord(r, srcLines)))
+  if (records.length === 0 || mine !== pass || state.doc !== doc) return
+  const info = await pagesInfo(jobId)
+  if (mine !== pass || state.doc !== doc) return
+  shownJob = jobId
+
+  const dpi = mirrorDpi()
   const run: Pass = {
     jobId,
-    dpi: mirrorDpi(),
+    dpi,
     ySemantics: info?.ySemantics ?? Y_TOP_DOWN,
-    byPage,
+    byPage: groupByPage(records),
     measure: 0,
     claims: new Map(),
+    pages: makeLivePageSource(jobId, dpi),
     live: () => mine === pass && state.doc === doc,
   }
+  await cutDocument(doc, records, run)
+}
 
+/** Cut every block's crops for one pass, given records and a page source
+ * that is already resolved — no daemon fetch, no compile job, nothing
+ * browser-only left in it but the DOM the crops attach to (which happy-dom
+ * renders fine; it just cannot decode an `<img>`'s pixels). Exported so a
+ * fixture replay can drive the exact placement/band/grow/snap/trim pipeline
+ * against captured synctex+ink instead of a live compile — see
+ * blockmirror.fixture.test.ts. */
+export async function cutDocument(doc: Doc, records: SynctexRecord[], run: Pass): Promise<void> {
   // WHICH pages a block landed on is pure and cheap; WHERE on them it
   // stands is not knowable until the page is decoded. So the segments are
   // worked out for the whole document first and the pass then walks them in
@@ -1333,9 +1359,48 @@ function clearAside(block: HTMLElement): void {
   aside.delete(block)
 }
 
-/** Cut one block's crops, a page at a time: decode the page, read its ink,
- * place the block's segments in it, rasterize each one. Null means the pass
- * was overtaken while awaiting — whatever it had made is already released. */
+/** Where cutBlock gets a page's ink, and turns a placed crop into pixels.
+ *
+ * `ink` resolves once per page — the browser decodes a bitmap and reads its
+ * ink, a fixture replay hands back ink captured earlier (see
+ * blockmirror.fixture.test.ts) — and carries the page's own wPt/hPt, so
+ * nothing downstream needs the bitmap at all except to draw it. `rasterize`
+ * is the ONLY step that ever touches real pixels; null propagates exactly as
+ * a blank cropBand always did — no part, no claim, the classifier decides
+ * what the block shows instead. A fixture replay skips rasterizing (there
+ * are no pixels to draw) and returns a crop for every shape the coarse ink
+ * says is non-blank, which is what lets it pin the placement/band/grow/snap/
+ * trim math without ever exercising cropBand's own pixel-level trim (that
+ * one needs a real canvas, which happy-dom does not have either — see the
+ * early-return guards in the `cropBand` tests below). */
+export interface PageSource {
+  ink(page: number): Promise<{ ink: PageInk | null; wPt: number; hPt: number } | null>
+  rasterize(page: number, shape: MirrorRegion, claimed?: { yMin: number; yMax: number }): Promise<string | null>
+}
+
+/** the browser's PageSource: a daemon-rendered bitmap per page, decoded once
+ * into ink (cached two pages deep — see inkCache) and cropped again at
+ * rasterize time, which is always a cache hit against the same bitmap. */
+function makeLivePageSource(jobId: string, dpi: number): PageSource {
+  return {
+    async ink(page) {
+      const bitmap = await getPageBitmap(jobId, page, { dpi })
+      if (!bitmap) return null
+      return { ink: inkFor(jobId, dpi, page, bitmap), wPt: bitmap.wPt, hPt: bitmap.hPt }
+    },
+    async rasterize(page, shape, claimed) {
+      const bitmap = await getPageBitmap(jobId, page, { dpi })
+      if (!bitmap) return null
+      const canvas = cropBand(bitmap, shape, claimed)
+      if (!canvas) return null
+      return canvasUrl(canvas)
+    },
+  }
+}
+
+/** Cut one block's crops, a page at a time: resolve the page's ink, place
+ * the block's segments in it, rasterize each one. Null means the pass was
+ * overtaken while awaiting — whatever it had made is already released. */
 async function cutBlock(run: Pass, cut: Cut): Promise<Part[] | null> {
   const parts: Part[] = []
   const abort = (): null => { revokeAll(parts); return null }
@@ -1344,10 +1409,10 @@ async function cutBlock(run: Pass, cut: Cut): Promise<Part[] | null> {
   // first page starts below the last line of the block before it
   if (cut.fullPages) {
     for (const page of cut.fullPages) {
-      const bitmap = await getPageBitmap(run.jobId, page, { dpi: run.dpi })
+      const src = await run.pages.ink(page)
       if (!run.live()) return abort()
-      if (!bitmap) continue
-      const ink = inkFor(run, page, bitmap)
+      if (!src) continue
+      const { ink, wPt, hPt } = src
       if (!ink?.extent) continue
       run.measure = Math.max(run.measure, ink.extent.xMax - ink.extent.xMin)
       const before = (run.byPage.get(page) ?? [])
@@ -1361,19 +1426,18 @@ async function cutBlock(run: Pass, cut: Cut): Promise<Part[] | null> {
       const region = toTopDown({
         page,
         yMin: before.length ? Math.max(...before) + 6 : 0,
-        yMax: after.length ? Math.max(0, Math.min(...after) - 6) : bitmap.hPt,
+        yMax: after.length ? Math.max(0, Math.min(...after) - 6) : hPt,
         anchors: [],
-      }, bitmap.hPt, run.ySemantics)
+      }, hPt, run.ySemantics)
       const shape: MirrorRegion = dropFolio(ink, {
         ...region,
         xMin: Math.max(0, ink.extent.xMin - 6),
-        xMax: Math.min(bitmap.wPt, ink.extent.xMax + 6),
+        xMax: Math.min(wPt, ink.extent.xMax + 6),
       })
       if (!hasInk(ink, shape)) continue
-      const canvas = cropBand(bitmap, shape)
-      if (!canvas) continue
-      const url = await canvasUrl(canvas)
-      if (!run.live()) { revoke(url); return abort() }
+      const url = await run.pages.rasterize(page, shape)
+      if (!run.live()) { if (url) revoke(url); return abort() }
+      if (url === null) continue
       parts.push({ url, widthPt: (shape.xMax ?? 0) - (shape.xMin ?? 0) })
     }
     return parts
@@ -1386,18 +1450,18 @@ async function cutBlock(run: Pass, cut: Cut): Promise<Part[] | null> {
 
   for (const page of [...new Set(cut.segments.map((s) => s.page))]) {
     if (sated) break
-    const bitmap = await getPageBitmap(run.jobId, page, { dpi: run.dpi })
+    const src = await run.pages.ink(page)
     if (!run.live()) return abort()
-    if (!bitmap) continue
-    const ink = inkFor(run, page, bitmap)
+    if (!src) continue
+    const { ink, wPt, hPt } = src
     if (ink?.extent) run.measure = Math.max(run.measure, ink.extent.xMax - ink.extent.xMin)
     const onPage = run.byPage.get(page) ?? []
     const segs = cut.segments.filter((s) => s.page === page)
 
     for (const placed of placeSegments(ink, onPage, segs, cut.range, run.ySemantics)) {
-      const band = bandFor(ink, onPage, placed, cut.range, { ...opts, shownLines, hPt: bitmap.hPt })
+      const band = bandFor(ink, onPage, placed, cut.range, { ...opts, shownLines, hPt })
       if (!band) continue
-      const top = toTopDown(band.region, bitmap.hPt, run.ySemantics)
+      const top = toTopDown(band.region, hPt, run.ySemantics)
       let shape = ink ? snapEdges(ink, top) : top
       // A prose crop opens one ascent above its first RECORD — and the
       // typeset line above that may still be the block's own: a paragraph
@@ -1420,10 +1484,9 @@ async function cutBlock(run: Pass, cut: Cut): Promise<Part[] | null> {
       // and the reader saw them as gaps where a heading should be.
       if (ink && !hasInk(ink, shape)) continue
       const claimed = { yMin: shape.yMin, yMax: shape.yMax }
-      const canvas = cropBand(bitmap, shape, claimed)
-      if (!canvas) continue
-      const url = await canvasUrl(canvas)
-      if (!run.live()) { revoke(url); return abort() }
+      const url = await run.pages.rasterize(page, shape, claimed)
+      if (!run.live()) { if (url) revoke(url); return abort() }
+      if (url === null) continue
       parts.push({ url, widthPt: placed.window ? placed.window.xMax - placed.window.xMin : 0 })
       if (typeof shape.xMin === 'number' && typeof shape.xMax === 'number') {
         const claim = { xMin: shape.xMin, xMax: shape.xMax, yMin: claimed.yMin, yMax: claimed.yMax, page }
@@ -1443,6 +1506,14 @@ async function cutBlock(run: Pass, cut: Cut): Promise<Part[] | null> {
   }
   heldClaims.set(cut.block, myClaims)
   return parts
+}
+
+/** a mirrored block's claimed rows from the last cut — page plus rectangle
+ * in top-down points, after grow/snap/trim. Exported so a fixture replay can
+ * assert crop rectangles against pinned goldens without reaching into the
+ * module's own cache. */
+export function claimsFor(block: HTMLElement): Array<Claim & { page: number }> | undefined {
+  return heldClaims.get(block)
 }
 
 /** each mirrored block's claims, kept so a cache hit — the crop is already
@@ -1863,8 +1934,8 @@ function markOf(records: SynctexRecord[]): string {
  * that spans a page break asks for the one before it again */
 const inkCache: Array<{ key: string; ink: PageInk | null }> = []
 
-function inkFor(run: Pass, page: number, bitmap: PageBitmap): PageInk | null {
-  const key = `${run.jobId} ${page} ${run.dpi}`
+function inkFor(jobId: string, dpi: number, page: number, bitmap: PageBitmap): PageInk | null {
+  const key = `${jobId} ${page} ${dpi}`
   const hit = inkCache.find((e) => e.key === key)
   if (hit) return hit.ink
   const ink = pageInkOf(bitmap)
