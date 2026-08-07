@@ -1,6 +1,9 @@
 node_modules/
 dist/
 *.log
+# …except the engine logs the parser tests are built from: they are fixtures,
+# not output, and without them a fresh clone cannot run the service suite
+!service/tests/logs/*.log
 .DS_Store
 service/.venv/
 __pycache__/

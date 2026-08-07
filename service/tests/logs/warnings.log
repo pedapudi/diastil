@@ -1,0 +1,31 @@
+This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023) (preloaded format=pdflatex)
+entering extended mode
+(./main.tex
+LaTeX2e <2023-11-01> patch level 1
+(/usr/share/texlive/texmf-dist/tex/latex/base/article.cls
+Document Class: article 2023/05/17 v1.4n Standard LaTeX document class)
+(/usr/share/texlive/texmf-dist/tex/latex/hyperref/hyperref.sty)
+(./main.aux)
+
+LaTeX Font Warning: Font shape `OT1/cmr/bx/sc' undefined
+(Font)              using `OT1/cmr/bx/n' instead on input line 21.
+
+Overfull \hbox (12.34pt too wide) in paragraph at lines 30--32
+[]\OT1/cmr/m/n/10 This line is far too wide for the measure and TeX complains
+ []
+
+Underfull \vbox (badness 10000) has occurred while \output is active [1]
+
+LaTeX Warning: Reference `sec:method' on page 1 undefined on input line 34.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `\textbf' on input line 40.
+
+[1] [2] (./main.aux)
+
+LaTeX Warning: There were undefined references.
+
+)
+Output written on main.pdf (2 pages, 28104 bytes).
+Transcript written on main.log.

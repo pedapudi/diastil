@@ -1,0 +1,28 @@
+This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023) (preloaded format=pdflatex)
+ restricted \write18 enabled.
+entering extended mode
+(./main.tex
+LaTeX2e <2023-11-01> patch level 1
+L3 programming layer <2024-01-22>
+(/usr/share/texlive/texmf-dist/tex/latex/base/article.cls
+Document Class: article 2023/05/17 v1.4n Standard LaTeX document class
+(/usr/share/texlive/texmf-dist/tex/latex/base/size10.clo))
+(/usr/share/texlive/texmf-dist/tex/latex/l3backend/l3backend-pdftex.def)
+No file main.aux.
+(/usr/share/texlive/texmf-dist/tex/latex/base/omscmr.fd)
+./main.tex:8: Undefined control sequence.
+l.8 The gradient \gradiant
+                          {f} vanishes on the interior.
+?
+./main.tex:12: Undefined control sequence.
+l.12 \nonexistentmacro
+
+?
+Overfull \hbox (18.44pt too wide) in paragraph at lines 14--16
+[]\OT1/cmr/m/n/10 A line that runs past the measure and makes TeX grumble
+ []
+
+[1{/usr/share/texmf/fonts/map/pdftex/updmap/pdftex.map}] (./main.aux) )
+(see the transcript file for additional information)
+Output written on main.pdf (1 page, 14812 bytes).
+Transcript written on main.log.
