@@ -47,7 +47,9 @@ dia agents-md            # print an AGENTS.md-ready section teaching any
 dia mcp                  # MCP server over stdio: dia_new/dia_validate/
                          #   dia_manual run in-process; dia_translate_slide/
                          #   dia_repair_slide/dia_lift_diagram proxy to a
-                         #   running `dia serve`
+                         #   running `dia serve`. dia_open_editor renders the
+                         #   editor inline as an MCP App (needs `npm run
+                         #   standalone`; host must support the Apps extension)
 dia serve                # inference service alone on 127.0.0.1:8317
 dia eval [--skill NAME] [--strict]
                          # run golden skill evals against the configured
