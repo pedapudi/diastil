@@ -1,4 +1,4 @@
-"""`dia mcp` — a Model Context Protocol server over stdio, stdlib-only.
+"""`dia mcp` — a Model Context Protocol server, stdlib-only.
 
 The MCP surface exists for agents WITHOUT shell access (or with it
 disabled): everything here is reachable through the CLI too, and both
@@ -12,8 +12,11 @@ visual editor inline in hosts that support the Apps extension (it serves the
 built single-file editor as a ui:// resource); on other hosts it is just a
 tool that returns the deck.
 
-Protocol: JSON-RPC 2.0, newline-delimited — initialize / tools-list /
-tools-call, plus resources-list / resources-read for the MCP App resource.
+Protocol: JSON-RPC 2.0 — initialize / tools-list / tools-call, plus
+resources-list / resources-read for the MCP App resource. The dispatch
+is a pure function (`handle_request`) so any transport can host it: the
+stdio loop below (`serve()`) drives it from newline-delimited stdin, and
+`POST /mcp` on the FastAPI service exposes the same dispatch over HTTP.
 """
 
 from __future__ import annotations
@@ -265,19 +268,101 @@ def call_tool(name: str, args: dict[str, Any]) -> tuple[str, bool]:
 
 
 # ---------------------------------------------------------------------------
-# JSON-RPC over stdio
+# JSON-RPC dispatch — pure function, transport-agnostic
 # ---------------------------------------------------------------------------
 
-def _reply(msg_id: Any, result: dict[str, Any]) -> None:
-    sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": msg_id, "result": result}) + "\n")
-    sys.stdout.flush()
+def _ok(msg_id: Any, result: dict[str, Any]) -> dict[str, Any]:
+    return {"jsonrpc": "2.0", "id": msg_id, "result": result}
 
 
-def _reply_error(msg_id: Any, code: int, message: str) -> None:
-    sys.stdout.write(json.dumps(
-        {"jsonrpc": "2.0", "id": msg_id, "error": {"code": code, "message": message}}) + "\n")
-    sys.stdout.flush()
+def _err(msg_id: Any, code: int, message: str) -> dict[str, Any]:
+    return {"jsonrpc": "2.0", "id": msg_id, "error": {"code": code, "message": message}}
 
+
+def handle_request(msg: dict[str, Any]) -> dict[str, Any] | None:
+    """Dispatch a single parsed JSON-RPC message.
+
+    Returns the JSON-RPC response object, or None for notifications (no
+    `id` field, per JSON-RPC 2.0). Callers own the transport — the stdio
+    loop below and the HTTP endpoint in main.py both call this.
+    """
+    method = msg.get("method", "")
+    msg_id = msg.get("id")
+    if msg_id is None:
+        return None  # notifications need no response
+    if method == "initialize":
+        return _ok(msg_id, {
+            "protocolVersion": PROTOCOL_VERSION,
+            # resources + the MCP Apps extension so `dia_open_editor` can serve
+            # its ui:// editor resource; tools as before.
+            "capabilities": {
+                "tools": {},
+                "resources": {},
+                "extensions": {UI_EXTENSION_ID: {"mimeTypes": [UI_MIME_TYPE]}},
+            },
+            "serverInfo": {"name": "dia", "version": "0.1.0"},
+        })
+    if method == "ping":
+        return _ok(msg_id, {})
+    if method == "resources/list":
+        return _ok(msg_id, {"resources": [{
+            "uri": EDITOR_RESOURCE_URI,
+            "name": "diastil editor",
+            "description": "The diastil visual deck editor, as an interactive MCP App.",
+            "mimeType": UI_MIME_TYPE,
+        }]})
+    if method == "resources/read":
+        uri = str((msg.get("params") or {}).get("uri", ""))
+        if uri != EDITOR_RESOURCE_URI:
+            return _err(msg_id, -32002, f"resource not found: {uri}")
+        path = _find_standalone_html()
+        if path is None:
+            return _err(
+                msg_id, -32002,
+                "editor bundle not built — run `npm run standalone` in the "
+                "diastil repo (or set DIA_MCP_APP_HTML to dist/diastil.html)")
+        return _ok(msg_id, {"contents": [{
+            "uri": EDITOR_RESOURCE_URI,
+            "mimeType": UI_MIME_TYPE,
+            "text": path.read_text(encoding="utf-8"),
+        }]})
+    if method == "tools/list":
+        return _ok(msg_id, {"tools": TOOLS})
+    if method == "tools/call":
+        params = msg.get("params") or {}
+        name = str(params.get("name", ""))
+        args = params.get("arguments") or {}
+        if name == "dia_open_editor":
+            # The app reads the deck from the tool result: structuredContent is
+            # UI-facing (not model context), content is the model-facing note.
+            try:
+                deck, deck_name, err = _open_editor_deck(args)
+            except Exception as exc:  # noqa: BLE001
+                deck, deck_name, err = None, "", f"could not open deck: {exc}"
+            if err is not None:
+                return _ok(msg_id, {"content": [{"type": "text", "text": err}], "isError": True})
+            structured: dict[str, Any] = {"name": deck_name}
+            if deck is not None:
+                structured["deckHtml"] = deck
+            return _ok(msg_id, {
+                "content": [{"type": "text", "text": "Opened the diastil editor."}],
+                "structuredContent": structured,
+                "isError": False,
+            })
+        try:
+            text, is_error = call_tool(name, args)
+        except Exception as exc:  # noqa: BLE001 — a tool crash must not kill the server
+            text, is_error = f"tool failed: {exc}", True
+        return _ok(msg_id, {
+            "content": [{"type": "text", "text": text}],
+            "isError": is_error,
+        })
+    return _err(msg_id, -32601, f"method not found: {method}")
+
+
+# ---------------------------------------------------------------------------
+# JSON-RPC over stdio (transport)
+# ---------------------------------------------------------------------------
 
 def serve() -> int:
     for line in sys.stdin:
@@ -288,81 +373,9 @@ def serve() -> int:
             msg = json.loads(line)
         except json.JSONDecodeError:
             continue
-        method = msg.get("method", "")
-        msg_id = msg.get("id")
-        if msg_id is None:
-            continue  # notifications need no response
-        if method == "initialize":
-            _reply(msg_id, {
-                "protocolVersion": PROTOCOL_VERSION,
-                # resources + the MCP Apps extension so `dia_open_editor` can serve
-                # its ui:// editor resource; tools as before.
-                "capabilities": {
-                    "tools": {},
-                    "resources": {},
-                    "extensions": {UI_EXTENSION_ID: {"mimeTypes": [UI_MIME_TYPE]}},
-                },
-                "serverInfo": {"name": "dia", "version": "0.1.0"},
-            })
-        elif method == "ping":
-            _reply(msg_id, {})
-        elif method == "resources/list":
-            _reply(msg_id, {"resources": [{
-                "uri": EDITOR_RESOURCE_URI,
-                "name": "diastil editor",
-                "description": "The diastil visual deck editor, as an interactive MCP App.",
-                "mimeType": UI_MIME_TYPE,
-            }]})
-        elif method == "resources/read":
-            uri = str((msg.get("params") or {}).get("uri", ""))
-            if uri != EDITOR_RESOURCE_URI:
-                _reply_error(msg_id, -32002, f"resource not found: {uri}")
-            else:
-                path = _find_standalone_html()
-                if path is None:
-                    _reply_error(
-                        msg_id, -32002,
-                        "editor bundle not built — run `npm run standalone` in the "
-                        "diastil repo (or set DIA_MCP_APP_HTML to dist/diastil.html)")
-                else:
-                    _reply(msg_id, {"contents": [{
-                        "uri": EDITOR_RESOURCE_URI,
-                        "mimeType": UI_MIME_TYPE,
-                        "text": path.read_text(encoding="utf-8"),
-                    }]})
-        elif method == "tools/list":
-            _reply(msg_id, {"tools": TOOLS})
-        elif method == "tools/call":
-            params = msg.get("params") or {}
-            name = str(params.get("name", ""))
-            args = params.get("arguments") or {}
-            if name == "dia_open_editor":
-                # The app reads the deck from the tool result: structuredContent is
-                # UI-facing (not model context), content is the model-facing note.
-                try:
-                    deck, deck_name, err = _open_editor_deck(args)
-                except Exception as exc:  # noqa: BLE001
-                    deck, deck_name, err = None, "", f"could not open deck: {exc}"
-                if err is not None:
-                    _reply(msg_id, {"content": [{"type": "text", "text": err}], "isError": True})
-                else:
-                    structured: dict[str, Any] = {"name": deck_name}
-                    if deck is not None:
-                        structured["deckHtml"] = deck
-                    _reply(msg_id, {
-                        "content": [{"type": "text", "text": "Opened the diastil editor."}],
-                        "structuredContent": structured,
-                        "isError": False,
-                    })
-            else:
-                try:
-                    text, is_error = call_tool(name, args)
-                except Exception as exc:  # noqa: BLE001 — a tool crash must not kill the server
-                    text, is_error = f"tool failed: {exc}", True
-                _reply(msg_id, {
-                    "content": [{"type": "text", "text": text}],
-                    "isError": is_error,
-                })
-        else:
-            _reply_error(msg_id, -32601, f"method not found: {method}")
+        response = handle_request(msg)
+        if response is None:
+            continue
+        sys.stdout.write(json.dumps(response) + "\n")
+        sys.stdout.flush()
     return 0
