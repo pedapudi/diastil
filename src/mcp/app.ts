@@ -23,6 +23,7 @@ import { state } from '../state'
 const PROTOCOL_VERSION = '2026-01-26'
 const HANDSHAKE_TIMEOUT_MS = 2000
 const SYNC_DEBOUNCE_MS = 1200
+const REQUEST_TIMEOUT_MS = 10_000
 
 interface Rpc {
   jsonrpc: '2.0'
@@ -51,6 +52,8 @@ class McpAppBridge {
   private readonly pending = new Map<number, (result: unknown) => void>()
   private ready = false
   private syncTimer = 0
+  /** the origin that first spoke the protocol to us — pinned for the session */
+  private hostOrigin: string | null = null
 
   private post(msg: Rpc): void {
     window.parent.postMessage(msg, '*')
@@ -60,6 +63,11 @@ class McpAppBridge {
     const id = ++this.seq
     return new Promise((resolve) => {
       this.pending.set(id, resolve)
+      // a host that never answers must not leak the entry: every edit sends an
+      // update-model-context, so an unanswered request per edit accumulates
+      window.setTimeout(() => {
+        if (this.pending.delete(id)) resolve(undefined)
+      }, REQUEST_TIMEOUT_MS)
       this.post({ jsonrpc: '2.0', id, method, params })
     })
   }
@@ -71,6 +79,10 @@ class McpAppBridge {
   private readonly onMessage = (ev: MessageEvent): void => {
     const msg = ev.data as Rpc | null
     if (!msg || msg.jsonrpc !== '2.0') return
+    // one host per app: the origin that answers the handshake owns this frame,
+    // and nobody else gets to push decks in or read them back out
+    if (this.hostOrigin === null) this.hostOrigin = ev.origin
+    else if (ev.origin !== this.hostOrigin) return
 
     // a response to one of our requests
     if (
@@ -125,6 +137,13 @@ class McpAppBridge {
   async connect(): Promise<boolean> {
     // Only meaningful inside a host frame; a bare page has no parent to talk to.
     if (typeof window === 'undefined' || window.parent === window) return false
+    // …and never when the SERVICE served this page: `dia serve` declares that
+    // topology with __diaServiceSameOrigin, and a service-served editor is by
+    // definition not an MCP App resource. Without this gate any website could
+    // iframe http://127.0.0.1:8317/editor/, answer the handshake, and both read
+    // every deck the user opens (update-model-context) and push decks into the
+    // editor (tool-result). The server declares the topology; we never guess.
+    if ((window as { __diaServiceSameOrigin?: boolean }).__diaServiceSameOrigin === true) return false
     window.addEventListener('message', this.onMessage)
     const ok = await Promise.race([
       this.request('ui/initialize', {
