@@ -35,6 +35,15 @@ export const blockMemo = new WeakMap<HTMLElement, BlockMemo>()
 export interface TabCellSlot { start: number; end: number; td: HTMLElement | null; pristineHtml: string | null }
 export const tabularCellMemo = new WeakMap<HTMLElement, TabCellSlot[]>()
 
+/** a figcaption's pristine rendered markup, captured the same way as
+ * blockMemo's html — before session id-stamping. A caption edit (setText,
+ * setInlineHtml, …) blows away any inline nodes the caption's prose had no
+ * business owning alone, e.g. a \label rendered as span.dia-label; emit.ts
+ * uses this to tell "genuinely edited" apart from "float changed elsewhere"
+ * (a sibling table cell), so an untouched caption's SOURCE bytes — prose,
+ * \label, comments — are never disturbed just because the float was. */
+export const captionMemo = new WeakMap<HTMLElement, string>()
+
 export interface RenderedDoc {
   article: HTMLElement
   blocks: RenderedBlock[]
@@ -237,6 +246,7 @@ function renderBlockInner(b: LxBlock, src: string): HTMLElement {
       if (b.caption) {
         const cap = document.createElement('figcaption')
         cap.append(...renderInlines(b.caption, src))
+        captionMemo.set(cap, cap.outerHTML)
         fig.appendChild(cap)
       }
       return fig
