@@ -70,13 +70,26 @@ prose (display/body), mono ONLY for labels/data. Text and chrome never
 hard-code a hue; they read tokens. The one licensed exception is
 illustrative artwork, below.
 
-### Four ready themes — paste one, whole
+### Eight ready themes — paste one, whole
 
-Do not derive tokens from the table below or from any css file: pick
-one of these four blocks and paste it into `style#dia-theme` verbatim
-(then adjust scales/gap/pad if the content needs it). **paper** is the
-default; use a dark theme only when the deck's subject or venue calls
-for it.
+Do not derive tokens from any css file: pick one of these blocks and
+paste it into `style#dia-theme` verbatim (then adjust scales/gap/pad if
+the content needs it). **Choosing is part of the design** — do not
+reach for paper out of habit; a body of decks that are all paper reads
+as one author who stopped deciding. Match the scheme to the subject and
+the venue, and vary it across decks:
+
+- **paper** — print-register technical work, reports, the neutral default
+- **solarized-light** — warm reading decks, teaching, essays
+- **lunaria-light** — soft humanist subjects, design, product
+- **belafonte-day** — archival, historical, literary material
+- **selenized-black** — systems/terminal subjects, neutral dark rooms
+- **ubuntu** — warm dark, community and open-source subjects
+- **solarized-dark** — cool dark, data-heavy evening venues
+- **dracula** — vivid dark, developer-culture audiences
+
+When the user names no preference, choose by subject — and if nothing
+argues otherwise, still rotate rather than repeat.
 
 ```css
 /* paper — the house default (light) */
@@ -124,11 +137,71 @@ for it.
 ```
 
 ```css
+/* lunaria-light — the soft humanist light */
+:root {
+  --dia-paper: #EBE4E1; --dia-ink: #363434; --dia-ink-soft: #4C4A4A;
+  --dia-ink-faint: #8D8987; --dia-accent: #3778A9; --dia-rule: #D0C9C5;
+  --dia-good: #497D46; --dia-bad: #783C1F;
+  --dia-face-display: "Source Sans 3", system-ui, sans-serif;
+  --dia-face-body: "Source Sans 3", system-ui, sans-serif;
+  --dia-face-label: "Source Code Pro", ui-monospace, monospace;
+  --dia-scale-1: 12px; --dia-scale-2: 15px; --dia-scale-3: 18px;
+  --dia-scale-4: 22px; --dia-scale-5: 30px; --dia-scale-6: 38px;
+  --dia-scale-7: 48px; --dia-gap: 24px; --dia-pad: 52px;
+}
+```
+
+```css
+/* belafonte-day — the archival vintage light */
+:root {
+  --dia-paper: #D5CCBA; --dia-ink: #34292D; --dia-ink-soft: #4E4247;
+  --dia-ink-faint: #857B72; --dia-accent: #426A79; --dia-rule: #BDB3A0;
+  --dia-good: #6E6A4E; --dia-bad: #BE100E;
+  --dia-face-display: "Source Sans 3", system-ui, sans-serif;
+  --dia-face-body: "Source Sans 3", system-ui, sans-serif;
+  --dia-face-label: "Source Code Pro", ui-monospace, monospace;
+  --dia-scale-1: 12px; --dia-scale-2: 15px; --dia-scale-3: 18px;
+  --dia-scale-4: 22px; --dia-scale-5: 30px; --dia-scale-6: 38px;
+  --dia-scale-7: 48px; --dia-gap: 24px; --dia-pad: 52px;
+}
+```
+
+```css
 /* ubuntu — the aubergine dark (what-is-dia wears it) */
 :root {
   --dia-paper: #300A24; --dia-ink: #EEEEEC; --dia-ink-soft: #CBC3C9;
   --dia-ink-faint: #8A7383; --dia-accent: #34E2E2; --dia-rule: #4B2640;
   --dia-good: #8AE234; --dia-bad: #CC0000;
+  --dia-face-display: "Source Sans 3", system-ui, sans-serif;
+  --dia-face-body: "Source Sans 3", system-ui, sans-serif;
+  --dia-face-label: "Source Code Pro", ui-monospace, monospace;
+  --dia-scale-1: 12px; --dia-scale-2: 15px; --dia-scale-3: 18px;
+  --dia-scale-4: 22px; --dia-scale-5: 30px; --dia-scale-6: 38px;
+  --dia-scale-7: 48px; --dia-gap: 24px; --dia-pad: 52px;
+}
+```
+
+```css
+/* solarized-dark — the cool data-room dark */
+:root {
+  --dia-paper: #04222B; --dia-ink: #93A1A1; --dia-ink-soft: #839496;
+  --dia-ink-faint: #586E75; --dia-accent: #2AA198; --dia-rule: #12404E;
+  --dia-good: #8BB80E; --dia-bad: #E0483C;
+  --dia-face-display: "Source Sans 3", system-ui, sans-serif;
+  --dia-face-body: "Source Sans 3", system-ui, sans-serif;
+  --dia-face-label: "Source Code Pro", ui-monospace, monospace;
+  --dia-scale-1: 12px; --dia-scale-2: 15px; --dia-scale-3: 18px;
+  --dia-scale-4: 22px; --dia-scale-5: 30px; --dia-scale-6: 38px;
+  --dia-scale-7: 48px; --dia-gap: 24px; --dia-pad: 52px;
+}
+```
+
+```css
+/* dracula — the vivid developer dark */
+:root {
+  --dia-paper: #282A36; --dia-ink: #F8F8F2; --dia-ink-soft: #D8D8D2;
+  --dia-ink-faint: #6272A4; --dia-accent: #BD93F9; --dia-rule: #44475A;
+  --dia-good: #50FA7B; --dia-bad: #FF5555;
   --dia-face-display: "Source Sans 3", system-ui, sans-serif;
   --dia-face-body: "Source Sans 3", system-ui, sans-serif;
   --dia-face-label: "Source Code Pro", ui-monospace, monospace;

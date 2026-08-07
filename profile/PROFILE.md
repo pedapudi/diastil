@@ -36,6 +36,18 @@ Inside a slide, everything is dialect unless it sits under a
 | `content/inline-color` | advisory | inline `style` colors should read tokens (`var(--dia-…)`), not literals |
 | `style/left-rail` | advisory | no left-rail highlights — `border-left` accent stripes (any width) or ≥2px rails, inline or in the theme; panels are full hairline borders with accent labels (docs/HOUSE-STYLE.md) |
 
+**Animated SVG is in-dialect.** SMIL elements (`<animate>`,
+`<animateTransform>`, `<animateMotion>`, `<set>`, `<mpath>`) and
+`@keyframes` inside a `<style>` embedded IN the svg are ordinary figure
+content — self-contained, script-free, and preserved byte-for-byte like
+any other svg markup. Two obligations ride along: the figure's RESTING
+frame must read as the complete figure (thumbnails, prints, and `.pptx`
+export rasterize a single frame), and motion must respect
+`prefers-reduced-motion` when it is more than a gentle drift (wrap the
+`@keyframes` case in the media query; SMIL drifts at documented
+amplitudes are exempt). No rule fires on animation elements; `content/
+script` and `content/event-handler` still apply inside the svg.
+
 Text roles (`dia-title`, `dia-kicker`, `dia-body`, `dia-caption`,
 `dia-footnote`) and layout containers (`dia-stack`, `dia-columns`,
 `dia-split`, `dia-cover`, `dia-figure`) are class conventions bound to

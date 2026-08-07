@@ -114,7 +114,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
     <path d="M4,5 L72,9" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.6; stroke-linecap: round; opacity: .55;"></path>
     <path d="M4,13 L80,13" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.6; stroke-linecap: round; opacity: .8;"></path>
     <path d="M4,21 L72,17" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.6; stroke-linecap: round; opacity: .55;"></path>
-    <circle cx="98" cy="13" r="4.5" style="fill: var(--dia-accent);"></circle>
+    <circle cx="98" cy="13" r="4.5" style="fill: var(--dia-accent);"><animate attributeName="cx" values="98;94.5;98" dur="9s" repeatCount="indefinite" calcMode="spline" keyTimes="0;.5;1" keySplines=".4 0 .6 1;.4 0 .6 1"></animate><animate attributeName="opacity" values="1;.8;1" dur="7s" repeatCount="indefinite"></animate></circle>
   </svg>
   <div class="dia-kicker">a field guide · 01</div>
   <h1 class="dia-title dia-cover-title"><span class="wordmark">diastīl</span><span class="respreview"><span>research</span><span>preview</span></span><br>decks that edit like <em>documents</em> and draw like <em>canvases</em>.</h1>
@@ -370,7 +370,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
       <path d="M810,64 H876 L890,78 V120 H810 Z" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.2;"></path>
       <path d="M876,64 V78 H890" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.2;"></path>
       <text x="822" y="82" style="fill: var(--dia-ink);">deck</text>
-      <path d="M834,98 l6,7 12,-14" style="fill: none; stroke: var(--dia-accent); stroke-width: 1.8;"></path>
+      <path d="M834,98 l6,7 12,-14" style="fill: none; stroke: var(--dia-accent); stroke-width: 1.8;"><animate attributeName="opacity" values="1;.55;1" dur="5s" repeatCount="indefinite" calcMode="spline" keyTimes="0;.5;1" keySplines=".4 0 .6 1;.4 0 .6 1"></animate></path>
     </svg>
   </figure>
   <div class="grid2" style="grid-template-columns: repeat(3, 1fr);">
@@ -490,7 +490,7 @@ li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: 
 
         <path d="M786,144 H656" style="stroke: var(--dia-ink-soft); stroke-width: 1.2;"></path>
         <text x="700" y="136" style="fill: var(--dia-ink-faint);">yes</text>
-        <rect x="530" y="122" width="126" height="44" rx="4" style="fill: none; stroke: var(--dia-accent); stroke-width: 1.6;"></rect>
+        <rect x="530" y="122" width="126" height="44" rx="4" style="fill: none; stroke: var(--dia-accent); stroke-width: 1.6;"><animate attributeName="opacity" values="1;.6;1" dur="6s" repeatCount="indefinite" calcMode="spline" keyTimes="0;.5;1" keySplines=".4 0 .6 1;.4 0 .6 1"></animate></rect>
         <text x="593" y="148" text-anchor="middle" style="fill: var(--dia-accent);">new candidate</text>
 
         <path d="M144,70 L150,74 L144,78 M280,70 L286,74 L280,78 M486,70 L492,74 L486,78 M650,70 L656,74 L650,78 M826,114 L830,120 L834,114 M662,140 L656,144 L662,148 M452,192 L446,196 L452,200 M280,86 L286,90 L280,94 M192,146 L196,152 L200,146" style="fill: none; stroke: var(--dia-ink-soft); stroke-width: 1.2;"></path>

@@ -1,6 +1,6 @@
 ---
 name: dia-artwork
-description: Draw and improve SVG figures and pictorial artwork for diastil decks — the line-art register (dandelion economy), reference recipes, the full-color pictorial style and canon, palette/setting variety rules, and the theme→analogy→draw→improve iteration loop. Use whenever creating a figure, illustrating a slide, or upgrading a deck's imagery; dia-authoring covers the surrounding dialect.
+description: Draw and improve SVG figures and pictorial artwork for diastil decks — the line-art register (dandelion economy), reference recipes, animation craft (SMIL motion in the register), the full-color pictorial style and canon, palette/setting variety rules, and the theme→analogy→draw→improve iteration loop. Use whenever creating a figure, illustrating or animating a slide, or upgrading a deck's imagery; dia-authoring covers the surrounding dialect and color schemes.
 ---
 
 # Drawing deck artwork
@@ -55,6 +55,63 @@ dashed `var(--dia-rule)`, ONE accented element):
 
 These are metaphor seeds, not a fixed menu — draw the deck's OWN
 subject with the same economy whenever a truer image exists.
+
+## Animating figures
+
+Animation follows the same economy as ink: **motion is the accent's
+privilege**. The faint structure holds still; what moves is the one
+accented element that carries the claim — the seeds drift, the comet
+crosses, the thread flows. One moving idea per figure, never a busy
+scene. A figure should breathe, not perform.
+
+The mechanics — self-contained, script-free, valid dialect:
+
+- **SMIL children** are the default: `<animate>`, `<animateTransform>`,
+  `<animateMotion>` (with `<mpath>` to follow a drawn path), `<set>`.
+  They live inside the element they animate and survive every
+  round-trip byte-for-byte. `@keyframes` in a `<style>` embedded IN the
+  svg are equally legal; never external CSS, never scripts.
+- **The resting frame IS the figure.** Thumbnails, prints, and `.pptx`
+  export rasterize a single frame — so every `values` list starts and
+  ends on the complete pose (`values="0 0; 0 -4; 0 0"`), and a
+  draw-in reveal must settle into the finished drawing, never leave it
+  half-made.
+- **Slow and quiet**: cycles of 4–14s, `calcMode="spline"` or
+  palindromic `values` for seamless loops, amplitudes of 2–6 viewBox
+  units. Stagger a family of marks with negative `begin` offsets
+  (`begin="-3s"`) so nothing marches in step.
+- **Reduced motion**: keyframe-driven motion goes inside
+  `@media (prefers-reduced-motion: no-preference)`; SMIL is exempt
+  only while it stays a gentle drift at the amplitudes above.
+- **Never animate**: text or labels (they are for reading), color
+  cycles, spins on symbols, anything bouncing. Easing is always gentle
+  (`keySplines=".4 0 .6 1"` or ease-in-out).
+
+Recipes in the register — each reference piece has one natural motion,
+already implied by its metaphor:
+
+- **dandelion**: the three accent seeds drift a few units along their
+  flight direction and ease back, opacities breathing, each on its own
+  period (7s / 9s / 11s) so the drift never synchronizes; the seed
+  head and stem are still.
+- **sonar sweep**: one accent radius line rotates slowly about the
+  center (`animateTransform type="rotate"`, 12s linear loop); the hit
+  blip pulses opacity `1;.4;1` on its own 5s; rings stay fixed.
+- **orbit and comet**: the comet runs its hyperbolic path once per
+  ~12s via `animateMotion` + `<mpath>`, tail dots fading behind it;
+  the orbiting bodies creep a few degrees, no more.
+- **braided river**: the accent thread flows — a long
+  `stroke-dasharray` with an animated `stroke-dashoffset` loop reads
+  as current; distributaries stay still.
+- **constellation**: the joined accent dots twinkle gently (r or
+  opacity ±20%, staggered); the noise dots do not.
+- **contour map**: the innermost accent ring breathes (r ±1.5, 8s);
+  everything else is geology and does not move.
+
+The improve pass applies to motion too: preview the slide, and delete
+any animation you stop noticing FOR the figure rather than noticing
+the figure through — motion that decorates instead of arguing is
+chartjunk with a clock.
 
 Full-color pictorial pieces carry the same discipline in a richer
 palette. The style (in this repo, every piece is drawn in
@@ -116,6 +173,14 @@ tributaries) instead of resetting on every slide.
   subject wants it (real palettes, layered fills, local `<defs>`
   gradients, sitting well on `var(--dia-paper)`) — reach for it
   because the picture needs it, not because a figure exists.
+- **Figures inherit the deck's color scheme through tokens** — the
+  deck is NOT always paper-cream; `dia-authoring` carries eight ready
+  schemes, light and dark, and the deck's author picks one to fit the
+  subject. Token-bound line art rethemes for free; a pictorial
+  piece's own palette must be checked against the deck's actual
+  `--dia-paper` (a dawn palette that sings on cream can die on
+  near-black — shift the family or add a grounding plane rather than
+  fighting the paper).
 - Reserve the SVG for real visual art, not boxed-up text: repeating
   paragraph copy inside small `<rect>` cards is textual crowding and
   makes a slide feel over-stuffed. Keep prose in a `.panel` on one side

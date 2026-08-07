@@ -56,6 +56,37 @@ describe('frame rules', () => {
   })
 })
 
+describe('animated svg is in-dialect', () => {
+  it('SMIL and embedded @keyframes raise no findings', () => {
+    const r = check((d) => {
+      const fig = d.createElement('figure')
+      fig.className = 'dia-figure'
+      fig.innerHTML = `<svg viewBox="0 0 100 60" aria-label="drift">
+        <style>@keyframes de-drift { to { transform: translateX(4px) } }
+          @media (prefers-reduced-motion: no-preference) { .drift { animation: de-drift 6s ease-in-out infinite alternate } }</style>
+        <circle class="drift" cx="20" cy="30" r="3" fill="var(--dia-accent)">
+          <animate attributeName="opacity" values="1;.5;1" dur="5s" repeatCount="indefinite"/>
+        </circle>
+        <path d="M10 50 C 30 20, 60 20, 90 40" stroke="var(--dia-ink-faint)" fill="none">
+          <animateTransform attributeName="transform" type="translate" values="0 0; 0 -2; 0 0" dur="7s" repeatCount="indefinite"/>
+        </path>
+      </svg>`
+      slide(d).appendChild(fig)
+    })
+    expect(r.findings).toEqual([])
+    expect(r.ok).toBe(true)
+  })
+
+  it('scripts and handlers inside an animated svg still fire', () => {
+    const r = check((d) => {
+      const fig = d.createElement('figure')
+      fig.innerHTML = `<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="2" onclick="x()"><animate attributeName="r" values="2;3;2" dur="3s"/></circle></svg>`
+      slide(d).appendChild(fig)
+    })
+    expect(rules(r)).toContain('content/event-handler')
+  })
+})
+
 describe('content rules', () => {
   it('content/script — script inside a dialect region', () => {
     const r = check((d) => slide(d).appendChild(d.createElement('script')))
