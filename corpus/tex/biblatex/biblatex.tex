@@ -1,0 +1,111 @@
+\documentclass[11pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath}
+\usepackage[backend=bibtex,style=numeric,sorting=nyt]{biblatex}
+\addbibresource{refs.bib}
+
+\title{Evaluation Protocols for Retrieval-Augmented Generation: A Survey}
+\author{A. Author \\ Department of Computer Science}
+\date{May 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Retrieval-augmented generation (RAG) systems are evaluated along at
+least three largely independent axes --- retrieval quality, answer
+faithfulness, and end-task accuracy --- and the literature has not
+converged on which combination of metrics best predicts deployed
+system quality. This survey organizes the evaluation protocols used
+across twenty recent systems, groups them by what they actually
+measure, and argues that faithfulness metrics in particular are
+under-reported relative to how often unfaithful generations are cited
+as a failure mode.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+
+Retrieval-augmented generation was popularized as a way to ground a
+language model's output in retrieved evidence rather than parametric
+memory alone \autocite{lewis2020rag}. Since then, evaluation practice
+has fragmented: some papers report only end-task accuracy on a
+question-answering benchmark \autocite{karpukhin2020dpr}, others report
+retrieval metrics such as recall@$k$ in isolation
+\autocite{izacard2021contriever}, and a smaller set reports
+faithfulness --- whether the generated answer is actually supported by
+the retrieved passages --- as its own axis \autocite{es2023ragas,niu2024ragtruth}.
+
+\section{Retrieval Quality}
+\label{sec:retrieval}
+
+Retrieval quality is the most consistently reported axis, typically as
+recall@$k$ or nDCG against a fixed passage index. \textcite{karpukhin2020dpr}
+established dense passage retrieval as a strong baseline for open-domain
+question answering, and \textcite{izacard2021contriever} showed that
+contrastive pretraining on unlabeled text closes much of the gap to
+supervised retrievers without requiring labeled query-passage pairs.
+
+\subsection{What Recall@$k$ Does Not Capture}
+\label{sec:recall-limits}
+
+Recall@$k$ treats every relevant passage as equally useful once
+retrieved, which is not true once the passage is handed to a generator
+with a finite context window: a relevant passage buried at rank $k$
+among $k{-}1$ irrelevant ones competes for attention with all of them.
+\Autocite{liu2023lost} showed that generation quality degrades measurably
+when the relevant passage sits in the middle of a long retrieved context,
+even when recall@$k$ is unchanged --- a result that recall-only
+evaluation protocols cannot detect at all.
+
+\section{Faithfulness}
+\label{sec:faithfulness}
+
+Faithfulness --- whether the generated answer is actually entailed by
+the retrieved evidence, as opposed to merely topically related to it ---
+is reported far less consistently than retrieval recall. Two automated
+protocols dominate recent work:
+
+\begin{itemize}
+  \item \textbf{Entailment-based scoring} \autocite[see][for the
+    original formulation]{es2023ragas} uses a natural language inference
+    model to check whether each claim in the generated answer is
+    entailed by the retrieved passages.
+  \item \textbf{Hallucination benchmarks} such as
+    \autocite{niu2024ragtruth} construct held-out sets with known
+    unsupported spans and report span-level precision and recall
+    against human annotation.
+\end{itemize}
+
+Of the systems surveyed, fewer than half report a faithfulness metric
+of either kind, despite unfaithful generation being cited as the
+dominant failure mode in essentially every qualitative error analysis
+we reviewed \autocite{niu2024ragtruth,es2023ragas}.
+
+\section{End-Task Accuracy}
+\label{sec:endtask}
+
+End-task accuracy --- exact match or F1 against a reference answer on a
+downstream benchmark --- is the most commonly reported number, and the
+one most papers optimize against directly \autocite{karpukhin2020dpr,lewis2020rag}.
+It is also the number most confounded by the other two axes: a system
+can achieve high end-task accuracy with mediocre retrieval, if the
+generator's parametric knowledge covers the gap, which is exactly the
+behavior RAG is meant to reduce reliance on in the first place.
+
+\section{Recommendations}
+\label{sec:recs}
+
+We recommend reporting all three axes rather than treating end-task
+accuracy as a sufficient summary statistic, and in particular reporting
+a faithfulness metric whenever a system claims to reduce hallucination
+--- a claim that end-task accuracy alone cannot substantiate, and that
+recall@$k$ cannot substantiate either, per the discussion in
+Section~\ref{sec:recall-limits}.
+
+\printbibliography
+
+\end{document}

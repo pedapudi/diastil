@@ -42,6 +42,23 @@ const ISLAND_CEILINGS: Record<string, number> = {
   'llama/llama.tex': 0.005,
   'palm.tex': 0.06,
   'palm2.tex': 0.03,
+  // measured 2026-08-07, corpus breadth (issue #8) — thesis (book class,
+  // \chapter now a real section level 0) and theorems (amsthm) land at 0:
+  // nothing they use falls outside the parser's vocabulary. biblatex lands
+  // at 0 too — \autocite/\parencite/\textcite (and their sentence-case
+  // companions, newly recognized) all parse as cite nodes. beamer is the
+  // outlier: \frame has an optional [..] arg AND an optional {title} arg,
+  // so it cannot safely join WRAPPER_BRACE_ARGS's fixed-count scan (an
+  // untitled frame whose body opens with a bare `{...}` group would have
+  // that group misread as the title) — every \begin{frame}...\end{frame}
+  // stays one island, which is the graceful-degradation the issue asked
+  // about, not a bug; only \section (beamer's own nav-bar markup) and the
+  // preamble/postamble frame survive as real structure. Filed as #20
+  // rather than fixed here.
+  'thesis/thesis.tex': 0.001,
+  'beamer/beamer.tex': 0.99,
+  'biblatex/biblatex.tex': 0.001,
+  'theorems/theorems.tex': 0.001,
 }
 
 /** minimum recognized structural blocks (sections+paras+lists+floats+math+…) */
@@ -53,6 +70,13 @@ const STRUCTURE_FLOORS: Record<string, number> = {
   'llama/llama.tex': 148,
   'palm.tex': 398,
   'palm2.tex': 475,
+  // measured 2026-08-07, corpus breadth (issue #8): 51 / 3 / 17 / 22 —
+  // beamer's 3 is \section×3 (islanded frames don't count as structure,
+  // see ISLAND_CEILINGS above)
+  'thesis/thesis.tex': 51,
+  'beamer/beamer.tex': 3,
+  'biblatex/biblatex.tex': 17,
+  'theorems/theorems.tex': 22,
 }
 
 function bodyBlocks(blocks: LxBlock[]): LxBlock[] {

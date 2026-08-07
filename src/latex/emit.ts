@@ -43,13 +43,13 @@ export function emitBlockTex(el: HTMLElement): string {
 
   if (el.matches('p')) return emitInlines(el.childNodes)
 
-  if (el.matches('h2.dia-sec, h3.dia-sec, h4.dia-sec, h5.dia-sec')) {
+  if (el.matches('h1.dia-sec, h2.dia-sec, h3.dia-sec, h4.dia-sec, h5.dia-sec')) {
     const title = emitInlines(el.childNodes)
     if (memo) {
       const patched = replaceSectionTitle(memo.slice, title)
       if (patched !== null) return patched
     }
-    const cmd = ['section', 'subsection', 'subsubsection', 'paragraph'][Number(el.tagName[1]) - 2] ?? 'section'
+    const cmd = ['chapter', 'section', 'subsection', 'subsubsection', 'paragraph'][Number(el.tagName[1]) - 1] ?? 'section'
     const label = el.getAttribute('data-dia-label')
     return `\\${cmd}{${title}}${label ? `\\label{${label}}` : ''}`
   }
@@ -384,7 +384,7 @@ export function replaceCommandGroup(slice: string, cmd: string, replacement: str
 /** the main {title} group of a heading slice — after the command name, an
  * optional star, and an optional [short title] */
 function replaceSectionTitle(slice: string, title: string): string | null {
-  const m = slice.match(/^\\(sub){0,2}(section|paragraph)/)
+  const m = slice.match(/^\\(chapter|(sub){0,2}(section|paragraph))/)
   if (!m) return null
   return replaceCommandGroup(slice, m[0].slice(1), title)
 }

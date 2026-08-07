@@ -1,0 +1,203 @@
+\documentclass[11pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{mathtools}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{proposition}[theorem]{Proposition}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{example}[theorem]{Example}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+
+\DeclareMathOperator{\prox}{prox}
+\DeclareMathOperator*{\argmin}{arg\,min}
+
+\title{Convergence of Proximal Gradient Descent Under the PL Inequality}
+\author{A. Author}
+\date{May 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We give a self-contained proof that proximal gradient descent converges
+linearly on composite objectives $F = f + g$ whenever the smooth part
+$f$ satisfies the Polyak-{\L}ojasiewicz (PL) inequality, without
+assuming convexity of $f$. The argument follows the classical descent
+lemma but replaces the strong-convexity step with the PL inequality
+directly, which is what lets the same proof cover a strictly larger
+class of objectives.
+\end{abstract}
+
+\section{Setup}
+\label{sec:setup}
+
+We study the composite minimization problem
+
+\begin{equation}
+  \label{eq:objective}
+  \min_{x \in \mathbb{R}^n} \; F(x) := f(x) + g(x),
+\end{equation}
+
+where $f$ is differentiable with $L$-Lipschitz gradient and $g$ is
+closed, convex, and possibly nonsmooth. The proximal gradient step with
+step size $\eta \le 1/L$ is
+
+\begin{equation}
+  \label{eq:pgd-step}
+  x_{k+1} = \prox_{\eta g}\bigl(x_k - \eta \nabla f(x_k)\bigr),
+  \qquad
+  \prox_{\eta g}(y) := \argmin_{x} \; \Bigl\{ g(x) + \frac{1}{2\eta}\lVert x - y \rVert^2 \Bigr\}.
+\end{equation}
+
+\begin{definition}[Polyak-{\L}ojasiewicz inequality]
+\label{def:pl}
+A differentiable function $f$ satisfies the PL inequality with constant
+$\mu > 0$ if
+\begin{equation}
+  \label{eq:pl}
+  \frac{1}{2}\lVert \nabla f(x) \rVert^2 \;\ge\; \mu \bigl(f(x) - f^\star\bigr)
+  \qquad \text{for all } x \in \mathbb{R}^n,
+\end{equation}
+where $f^\star = \inf_x f(x)$.
+\end{definition}
+
+\begin{remark}
+Every $\mu$-strongly convex function satisfies Definition~\ref{def:pl}
+with the same constant, but the PL inequality does not require
+convexity: over-parameterized least squares and several classes of
+one-hidden-layer networks satisfy it locally without $f$ being convex
+anywhere.
+\end{remark}
+
+\section{The Descent Lemma, Composite Version}
+\label{sec:descent}
+
+\begin{lemma}[Sufficient decrease]
+\label{lem:sufficient-decrease}
+If $\nabla f$ is $L$-Lipschitz and $\eta \le 1/L$, the proximal gradient
+update in Equation~\eqref{eq:pgd-step} satisfies
+\begin{equation}
+  \label{eq:sufficient-decrease}
+  F(x_{k+1}) \;\le\; F(x_k) - \frac{\eta}{2}\, \lVert G_\eta(x_k) \rVert^2,
+\end{equation}
+where $G_\eta(x_k) := \frac{1}{\eta}\bigl(x_k - x_{k+1}\bigr)$ is the
+gradient mapping at $x_k$.
+\end{lemma}
+
+\begin{proof}
+The $L$-Lipschitz gradient of $f$ gives the standard quadratic upper
+bound
+\begin{align}
+  f(x_{k+1}) &\le f(x_k) + \langle \nabla f(x_k), x_{k+1} - x_k \rangle + \frac{L}{2}\lVert x_{k+1} - x_k \rVert^2 \\
+  &\le f(x_k) + \langle \nabla f(x_k), x_{k+1} - x_k \rangle + \frac{1}{2\eta}\lVert x_{k+1} - x_k \rVert^2.
+\end{align}
+Adding $g(x_{k+1})$ to both sides and using the optimality condition of
+the proximal step --- $x_{k+1}$ minimizes $g(x) + \frac{1}{2\eta}\lVert x - (x_k - \eta \nabla f(x_k)) \rVert^2$,
+so in particular it beats $x_k$ itself --- yields, after rearranging,
+Equation~\eqref{eq:sufficient-decrease}. We omit the routine algebra
+connecting the two forms of the right-hand side.
+\end{proof}
+
+\section{Linear Convergence Under PL}
+\label{sec:convergence}
+
+\begin{theorem}[Linear convergence]
+\label{thm:linear-convergence}
+Suppose $f$ satisfies the PL inequality (Definition~\ref{def:pl}) with
+constant $\mu$, $\nabla f$ is $L$-Lipschitz, and $\eta \le 1/L$. Then
+proximal gradient descent satisfies
+\begin{equation}
+  \label{eq:linear-rate}
+  F(x_k) - F^\star \;\le\; (1 - \eta\mu)^k \bigl(F(x_0) - F^\star\bigr),
+\end{equation}
+where $F^\star = \inf_x F(x)$.
+\end{theorem}
+
+\begin{proof}
+Lemma~\ref{lem:sufficient-decrease} gives sufficient decrease in terms of
+the gradient mapping $G_\eta$. A standard composite-optimization
+identity relates $G_\eta$ to $\nabla f$ up to the subgradient of $g$ at
+the proximal point, and combining that identity with the PL inequality
+applied to $f$ (Equation~\eqref{eq:pl}) gives
+\begin{equation}
+  \label{eq:composite-pl}
+  \lVert G_\eta(x_k) \rVert^2 \;\ge\; 2\mu \bigl(F(x_k) - F^\star\bigr).
+\end{equation}
+Substituting Equation~\eqref{eq:composite-pl} into
+Equation~\eqref{eq:sufficient-decrease} and subtracting $F^\star$ from
+both sides gives
+\begin{equation}
+  F(x_{k+1}) - F^\star \;\le\; (1 - \eta\mu)\bigl(F(x_k) - F^\star\bigr).
+\end{equation}
+Unrolling this recursion over $k$ steps gives
+Equation~\eqref{eq:linear-rate}.
+\end{proof}
+
+\begin{corollary}
+\label{cor:iteration-complexity}
+Under the hypotheses of Theorem~\ref{thm:linear-convergence}, reaching
+$F(x_k) - F^\star \le \varepsilon$ requires at most
+\begin{equation}
+  k \;=\; O\!\left( \frac{L}{\mu} \log\frac{1}{\varepsilon} \right)
+\end{equation}
+iterations, using $\eta = 1/L$.
+\end{corollary}
+
+\subsection{A Worked Example}
+\label{sec:example}
+
+\begin{example}
+\label{ex:lasso}
+Take $f(x) = \frac{1}{2}\lVert Ax - b \rVert^2$ and $g(x) = \lambda \lVert x \rVert_1$,
+the Lasso objective. Here $f$ is convex but generally \emph{not}
+strongly convex when $A$ is rank-deficient, so the classical strong-convexity
+analysis does not apply. If $A$ has full row rank, however, $f$
+satisfies the PL inequality on any sublevel set with $\mu$ equal to the
+smallest eigenvalue of $AA^\top$, and Theorem~\ref{thm:linear-convergence}
+applies directly. The proximal step itself is the closed-form
+soft-threshold operator,
+\begin{equation}
+  \prox_{\eta \lambda \lVert \cdot \rVert_1}(y)_i =
+  \begin{cases}
+    y_i - \eta\lambda & y_i > \eta\lambda, \\
+    0 & \lvert y_i \rvert \le \eta\lambda, \\
+    y_i + \eta\lambda & y_i < -\eta\lambda,
+  \end{cases}
+\end{equation}
+applied coordinatewise.
+\end{example}
+
+\section{Discussion}
+\label{sec:discussion}
+
+The proof in Section~\ref{sec:convergence} never uses convexity of $f$
+directly; every step goes through either the descent lemma
+(Lemma~\ref{lem:sufficient-decrease}, which only needs Lipschitz
+gradients) or the PL inequality itself. This is the sense in which PL
+is "the right" replacement for strong convexity in first-order
+convergence proofs: it is exactly the property the proof consumes, and
+nothing more.
+
+\begin{proposition}
+\label{prop:pl-vs-convex}
+There exist functions that satisfy the PL inequality on $\mathbb{R}^n$
+and are not convex.
+\end{proposition}
+
+\begin{proof}
+Take $f(x) = x^2 + 3\sin^2(x)$ on $\mathbb{R}$. A direct computation
+shows $f$ satisfies the PL inequality globally with an explicit
+constant, while $f'' $ changes sign, so $f$ is not convex.
+\end{proof}
+
+\end{document}

@@ -1963,7 +1963,7 @@ function revokeAll(parts: Part[]): void {
  * class decided — so a line count taken against the column would under-read
  * them and clip. They keep the generous bracket and the ink trim, which the
  * blank space around them makes reliable. */
-const TYPE_SHAPES = 'p, h2.dia-sec, h3.dia-sec, h4.dia-sec, h5.dia-sec, ul, ol, dl'
+const TYPE_SHAPES = 'p, h1.dia-sec, h2.dia-sec, h3.dia-sec, h4.dia-sec, h5.dia-sec, ul, ol, dl'
 // block-shaped only: an INLINE island (a \looseness=-1, an unknown macro
 // mid-sentence) is still a line of type — counting it broke the tight
 // prose bracket for essentially every real paragraph

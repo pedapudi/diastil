@@ -27,7 +27,7 @@ export type LxBlock =
   | { kind: 'preamble'; span: Span; meta: PreambleMeta }
   /** \end{document} to EOF; preserved, never rendered */
   | { kind: 'postamble'; span: Span }
-  | { kind: 'section'; span: Span; level: 1 | 2 | 3 | 4; starred: boolean; inline: LxInline[]; label?: string }
+  | { kind: 'section'; span: Span; level: 0 | 1 | 2 | 3 | 4; starred: boolean; inline: LxInline[]; label?: string }
   | { kind: 'para'; span: Span; inline: LxInline[] }
   | { kind: 'abstract'; span: Span; body: LxBlock[] }
   /** transparent/decorative wrappers (center, quote, framed, multicols…) —
@@ -101,8 +101,10 @@ export type StyleCmd = 'bf' | 'it' | 'em' | 'tt' | 'ul' | 'sc' | 'sf'
 
 /* ---------- vocabulary ---------- */
 
-const SECTION_LEVEL: Record<string, 1 | 2 | 3 | 4> = {
-  section: 1, subsection: 2, subsubsection: 3, paragraph: 4, subparagraph: 4,
+/** \chapter sits one level above \section (book/report classes) — level 0
+ * renders as h1.dia-sec, distinct from the derived-header's h1.dia-title */
+const SECTION_LEVEL: Record<string, 0 | 1 | 2 | 3 | 4> = {
+  chapter: 0, section: 1, subsection: 2, subsubsection: 3, paragraph: 4, subparagraph: 4,
 }
 const LIST_ENVS = new Set(['itemize', 'enumerate', 'description'])
 /** wrapfigure/wraptable are floats with extra leading args the scanner skips */
@@ -164,7 +166,10 @@ const STYLE_DECL: Record<string, StyleCmd> = {
   bf: 'bf', bfseries: 'bf', it: 'it', itshape: 'it', em: 'em', tt: 'tt', ttfamily: 'tt', sc: 'sc', scshape: 'sc',
 }
 const REF_CMDS = new Set(['ref', 'eqref', 'autoref', 'cref', 'Cref', 'pageref'])
-const CITE_RE = /^[Cc]ite\w*$|^(parencite|textcite|autocite)$/
+// biblatex's "capitalize the first cite of a sentence" companions —
+// \Autocite, \Parencite, \Textcite — carry the same {keys} grammar as their
+// lowercase counterparts already below
+const CITE_RE = /^[Cc]ite\w*$|^[Pp]arencite$|^[Tt]extcite$|^[Aa]utocite$/
 /** table-rule commands stripped from cell starts */
 const RULE_CMDS = new Set(['hline', 'toprule', 'midrule', 'bottomrule', 'cmidrule', 'cline'])
 /** does a furniture span actually contain a rule command, vs. just blank

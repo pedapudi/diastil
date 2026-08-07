@@ -83,6 +83,95 @@ describe('blockmirror fixture replay', () => {
   describe.skipIf(skip)('llama.tex', runLlamaSuite)
 })
 
+/** load a fixture's doc and replay cutDocument against its captured
+ * synctex+ink — the same setup runLlamaSuite's beforeAll does, generalized
+ * so the corpus-breadth fixtures (issue #8) can run the coverage check
+ * below without hand-copied crop-rectangle goldens per block */
+async function cutFixture(paper: string, texRel: string): Promise<Doc> {
+  const fixture = JSON.parse(
+    readFileSync(join(here, '..', '..', 'corpus', 'fixtures', 'mirror', `${paper}.json`), 'utf-8'),
+  ) as Fixture
+  const tex = readFileSync(join(here, '..', '..', 'corpus', 'tex', texRel), 'utf-8')
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const doc = loadDocFromTex(tex, host, texRel.split('/').pop() ?? texRel)
+  state.deck = null
+  state.doc = doc
+  state.resetLog()
+
+  const rawRecords = fixture.synctex.lines.map(normalizeRecord).filter((r): r is SynctexRecord => r !== null)
+  const srcLines = doc.source.text.split('\n')
+  const records = withoutWrappers(rawRecords.filter((r) => !isPhantomRecord(r, srcLines)))
+  const pagesInk = new Map(fixture.pages.map((p) => [p.n, inkFromFixturePage(p)]))
+  const run: Pass = {
+    jobId: 'fixture',
+    dpi: fixture.pages[0]?.dpi ?? 130,
+    ySemantics: fixture.synctex.ySemantics,
+    byPage: groupByPage(records),
+    measure: 0,
+    claims: new Map(),
+    pages: fixturePageSource(pagesInk),
+    live: () => true,
+  }
+  await cutDocument(doc, records, run)
+  return doc
+}
+
+/** every top-level block of a compiled document must end up MIRRORED (its
+ * own crop) or explicitly HIDDEN (classifyOrphans folded it into a
+ * neighbour, or it sets no type of its own) — "mirrored+hidden only" is
+ * issue #8's own acceptance bar. A block classifyOrphans gave up on
+ * (`.de-unmirrored`, the quiet-dotted-edge marker) or never touched at all
+ * is a gap in the crop math the corpus should have caught.
+ *
+ * Two fixtures land short of zero, both filed rather than fixed here:
+ *  - thesis (issue #22): the References block. \backmatter + \appendix
+ *    each force a \cleardoublepage under the twoside layout the issue asked this
+ *    fixture to exercise ("double-page headers"), which inserts a BLANK
+ *    filler page between the two. bibliographyPages's prev/next page scan
+ *    (blockmirror.ts) has no notion of a content-free filler page, so the
+ *    boundary it computes for "pages this bibliography owns" lands one
+ *    page short of where the references are actually typeset. Needs
+ *    front/back-matter-aware page classification, not a table tweak.
+ *  - beamer (issue #21): all 12 non-preamble blocks (9 frames + 3 \section markers).
+ *    A 9-frame, 13-page deck produced only 14 synctex records total
+ *    (measured) — beamer's own box/overlay machinery gives synctex almost
+ *    nothing to attribute per source line, so segmentsFor finds nothing to
+ *    place for nearly every frame. A working beamer mirror needs a
+ *    different compile strategy (crop each frame as the whole PDF page
+ *    \begin{frame}...\end{frame} landed on, bypassing line attribution
+ *    entirely, the way bibliographyPages already bypasses it for
+ *    references) — new machinery, not a fix. The 3 \section markers are a
+ *    second, narrower gap: beamer's \section inks nothing on any slide
+ *    (it only feeds the nav bar / \tableofcontents), so classifyOrphans's
+ *    "no records = layout-only, hide it" rule never fires for it — that
+ *    rule works off the raw slice text alone (setsNoType/isLayoutOnlySlice
+ *    have no notion of "which document class is this"), so it cannot
+ *    special-case \section-inks-nothing for beamer without regressing
+ *    every article \section, which really does ink a heading. */
+const CORPUS_BREADTH_FIXTURES: Array<{ paper: string; tex: string; knownUnaccounted: number }> = [
+  { paper: 'thesis', tex: 'thesis/thesis.tex', knownUnaccounted: 1 },
+  { paper: 'beamer', tex: 'beamer/beamer.tex', knownUnaccounted: 12 },
+  { paper: 'biblatex', tex: 'biblatex/biblatex.tex', knownUnaccounted: 0 },
+  { paper: 'theorems', tex: 'theorems/theorems.tex', knownUnaccounted: 0 },
+]
+
+describe.skipIf(skip)('corpus breadth (issue #8): every block accounted for', () => {
+  for (const { paper, tex, knownUnaccounted } of CORPUS_BREADTH_FIXTURES) {
+    it(`${paper}.tex — every block mirrored or hidden, unaccounted count holds (only moves down)`, async () => {
+      const doc = await cutFixture(paper, tex)
+      const targets = mirrorTargets(doc.article)
+      const accounted = (b: HTMLElement): boolean =>
+        b.querySelector(':scope > .de-mirror') !== null || b.querySelector(':scope > .de-mirror-hidden') !== null
+      const unaccounted = targets.filter((b) => !accounted(b))
+      expect(
+        unaccounted.length,
+        `${targets.length} top-level blocks; unaccounted: ${JSON.stringify(unaccounted.map((b) => (b.textContent ?? '').slice(0, 60)))}`,
+      ).toBeLessThanOrEqual(knownUnaccounted)
+    })
+  }
+})
+
 function runLlamaSuite(): void {
   let doc: Doc
 

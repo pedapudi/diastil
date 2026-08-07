@@ -26,7 +26,7 @@ const SOURCE_CAP = 4000
  * a more useful image than its first screens, and the canvas has limits */
 const RENDER_MAX_PX = 2400
 
-const HEADING = 'h2.dia-sec, h3.dia-sec, h4.dia-sec, h5.dia-sec'
+const HEADING = 'h1.dia-sec, h2.dia-sec, h3.dia-sec, h4.dia-sec, h5.dia-sec'
 
 export interface DocSection {
   /** the section's blocks in flow order, heading first when there is one */
