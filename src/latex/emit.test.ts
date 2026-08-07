@@ -163,6 +163,11 @@ describe('table cell edits are surgical (issue #10 acceptance)', () => {
     expect(out).toContain('\\multirow{4}{*}{\\model}')
     expect(out).toContain('\\toprule')
     expect(out).toContain('\\bottomrule')
+    // regression (issue #17): this float's caption carries \label{tab:code}
+    // INSIDE its group; a cell-only edit must not touch the caption at all,
+    // and must not duplicate the label by also reconstructing the caption
+    expect(target.slice).toContain('\\label{tab:code}')
+    expect(out.match(/\\label\{tab:code\}/g)).toHaveLength(1)
   })
 
   it('cot.tex: editing one cell under a chained \\cmidrule(lr) run touches only that cell', () => {
@@ -178,6 +183,72 @@ describe('table cell edits are surgical (issue #10 acceptance)', () => {
     expect(added).toBe('77.7')
     expect(out).toContain('\\cmidrule(lr){3-4} \\cmidrule(lr){5-6}')
     expect(out).toContain('\\multicolumn{2}{c}{GSM8K}')
+  })
+})
+
+describe('caption group edits are surgical (issue #17 acceptance)', () => {
+  /** every top-level captioned float in a source, as (el, slice) pairs */
+  function captionedFloats(src: string) {
+    return renderPairs(src).filter(({ el }) => el.matches('figure.dia-figure') && el.querySelector('figcaption'))
+  }
+
+  it('llama.tex: a \\label INSIDE the caption group survives a caption edit, for every captioned float', () => {
+    const src = readFileSync(join(repo, 'corpus', 'tex', 'llama', 'llama.tex'), 'utf-8')
+    const floats = captionedFloats(src)
+    // every caption in this paper writes its \label inside the group —
+    // \label must follow \caption to bind the right counter
+    expect(floats.length).toBeGreaterThan(5)
+    for (const { el, slice } of floats) {
+      const cap = el.querySelector('figcaption')!
+      const labels = [...slice.matchAll(/\\label\{[^}]*\}/g)].map((m) => m[0])
+      expect(labels.length).toBeGreaterThan(0)
+      cap.textContent = 'Edited caption.'
+      const out = emitBlockTex(el)
+      expect(out).toContain('Edited caption.')
+      // the label(s), byte-identical, survive exactly once each
+      for (const label of labels) expect(out.split(label)).toHaveLength(2)
+    }
+  })
+
+  it('llama.tex tab:dataset: a % comment inside the group survives too, and only the prose bytes differ', () => {
+    const src = readFileSync(join(repo, 'corpus', 'tex', 'llama', 'llama.tex'), 'utf-8')
+    const target = captionedFloats(src).find(({ slice }) => slice.includes('\\label{tab:dataset}'))!
+    expect(target.slice).toContain('same sampling proportion. %\n  \\label{tab:dataset}\n  }')
+    const cap = target.el.querySelector('figcaption')!
+    cap.textContent = 'Short caption.'
+    const out = emitBlockTex(target.el)
+    expect(out).toContain('\\caption{Short caption.%\n  \\label{tab:dataset}\n  }')
+  })
+
+  it('palm.tex: a \\label LEADING the caption group (\\caption{\\label{x} Text}) survives too', () => {
+    const src = readFileSync(join(repo, 'corpus', 'tex', 'palm.tex'), 'utf-8')
+    const target = captionedFloats(src).find(({ slice }) => slice.includes('\\label{fig:toxicity-scaling}'))!
+    expect(target.slice).toContain('\\caption{\\label{fig:toxicity-scaling} Toxicity probability')
+    const cap = target.el.querySelector('figcaption')!
+    cap.textContent = 'Short caption.'
+    const out = emitBlockTex(target.el)
+    expect(out).toContain('\\caption{\\label{fig:toxicity-scaling} Short caption.}')
+  })
+
+  it('bloom.tex: a \\label OUTSIDE the caption group (the other shape) is untouched by a caption edit', () => {
+    const src = readFileSync(join(repo, 'corpus', 'tex', 'bloom.tex'), 'utf-8')
+    const target = captionedFloats(src).find(({ slice }) => slice.includes('\\label{fig:workinggroups}'))!
+    expect(target.slice).toContain('\\caption{Organization of BigScience working groups.}\n\\label{fig:workinggroups}\n\\end{figure}')
+    const cap = target.el.querySelector('figcaption')!
+    cap.textContent = 'New caption.'
+    const out = emitBlockTex(target.el)
+    expect(out).toContain('\\caption{New caption.}\n\\label{fig:workinggroups}\n\\end{figure}')
+  })
+
+  it('a float edited only through a sibling table cell leaves an untouched caption\'s bytes alone', () => {
+    const src = readFileSync(join(repo, 'corpus', 'tex', 'llama', 'llama.tex'), 'utf-8')
+    const target = captionedFloats(src).find(({ slice }) => slice.includes('\\label{tab:code}'))!
+    const td = [...target.el.querySelectorAll('td')].find((c) => c.textContent?.trim() === '56.2')!
+    td.textContent = '99.9'
+    const out = emitBlockTex(target.el)
+    // the caption's original bytes, label included, are untouched — not
+    // reconstructed from the DOM, not duplicated
+    expect(out).toContain(target.slice.slice(target.slice.indexOf('\\caption')))
   })
 })
 

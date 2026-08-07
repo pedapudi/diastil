@@ -12,7 +12,8 @@
  * Contract (tested): emitBlockTex(render(parse(x))) === slice(x) unedited,
  * and for edited blocks the emission re-parses to an equivalent tree. */
 
-import { blockMemo, tabularCellMemo } from './render'
+import { blockMemo, captionMemo, tabularCellMemo } from './render'
+import { setsNoType } from './parse'
 
 const EDITOR_ATTRS = ['data-dia-id', 'contenteditable', 'spellcheck', 'data-dia-selected', 'data-dia-current']
 
@@ -161,14 +162,22 @@ function emitItemBody(host: HTMLElement): string {
 /** floats reconstruct surgically: the caption and any embedded tabular are
  * the natively editable parts in v1, so patch the \caption group and splice
  * any edited table's own reconstruction into the original slice, leaving
- * everything else (placement, centering, graphics, sizing) byte-intact */
+ * everything else (placement, centering, graphics, sizing) byte-intact.
+ *
+ * A caption is only touched when IT changed (captionMemo, cell-grain-style)
+ * — a float whose ONLY edit is a sibling table cell must leave the caption's
+ * source bytes, \label and comments included, completely alone. Only when
+ * the caption itself was edited do we reconstruct it from the DOM, and even
+ * then surgically (replaceCaptionGroup) so a \label the edit's DOM op wiped
+ * (setText replaces all of a caption's children, span.dia-label included)
+ * is restored from the original slice rather than lost. */
 function emitFloat(el: HTMLElement, slice: string | null): string {
-  const cap = el.querySelector(':scope > figcaption')
-  const capTex = cap ? emitInlines(cap.childNodes) : null
+  const cap = el.querySelector<HTMLElement>(':scope > figcaption')
   if (slice) {
     let out = slice
-    if (capTex !== null) {
-      const patched = replaceCommandGroup(out, 'caption', capTex)
+    if (cap && cleanOuter(cap) !== captionMemo.get(cap)) {
+      const capTex = emitInlines(cap.childNodes)
+      const patched = replaceCaptionGroup(out, 'caption', capTex)
       if (patched !== null) {
         out = patched
       } else {
@@ -191,6 +200,7 @@ function emitFloat(el: HTMLElement, slice: string | null): string {
   for (const child of el.children) {
     if (child.matches('table')) lines.push(emitTabular(child as HTMLElement))
   }
+  const capTex = cap ? emitInlines(cap.childNodes) : null
   if (capTex !== null) lines.push(`\\caption{${capTex}}`)
   if (label) lines.push(`\\label{${label}}`)
   lines.push(`\\end{${env}}`)
@@ -332,8 +342,9 @@ export function escapeTex(text: string): string {
 
 /* ---------- surgical slice helpers ---------- */
 
-/** find the balanced {…} group of \cmd within a slice; replace its content */
-export function replaceCommandGroup(slice: string, cmd: string, replacement: string): string | null {
+/** locate the balanced {…} group of \cmd within a slice: the index of its
+ * opening brace and of its matching closing brace */
+function findCommandGroup(slice: string, cmd: string): { open: number; close: number } | null {
   const at = slice.indexOf(`\\${cmd}`)
   if (at < 0) return null
   let i = at + cmd.length + 1
@@ -354,11 +365,20 @@ export function replaceCommandGroup(slice: string, cmd: string, replacement: str
     if (c === '\\') { j++; continue }
     if (c === '{') depth++
     else if (c === '}') {
-      if (depth === 0) return slice.slice(0, open + 1) + replacement + slice.slice(j)
+      if (depth === 0) return { open, close: j }
       depth--
     }
   }
   return null
+}
+
+/** find the balanced {…} group of \cmd within a slice; replace its content
+ * wholesale — used where the group carries nothing the DOM does not, e.g. a
+ * heading's title group */
+export function replaceCommandGroup(slice: string, cmd: string, replacement: string): string | null {
+  const g = findCommandGroup(slice, cmd)
+  if (!g) return null
+  return slice.slice(0, g.open + 1) + replacement + slice.slice(g.close)
 }
 
 /** the main {title} group of a heading slice — after the command name, an
@@ -367,6 +387,106 @@ function replaceSectionTitle(slice: string, title: string): string | null {
   const m = slice.match(/^\\(sub){0,2}(section|paragraph)/)
   if (!m) return null
   return replaceCommandGroup(slice, m[0].slice(1), title)
+}
+
+/** find the balanced {…} group of \cmd and replace only its PROSE span,
+ * preserving the "furniture" the DOM carries no node for: a \label{…}
+ * written inside the group — LEADING (\caption{\label{x} Text…}) or
+ * TRAILING (the more common \caption{Text…\label{x}} — the idiom exists
+ * because \label must follow \caption to bind the right counter), a %
+ * comment, a bare \centering, \vspace{…}, and the whitespace around them */
+export function replaceCaptionGroup(slice: string, cmd: string, prose: string): string | null {
+  const g = findCommandGroup(slice, cmd)
+  if (!g) return null
+  const { lead, tail } = splitCaptionFurniture(slice.slice(g.open + 1, g.close))
+  return slice.slice(0, g.open + 1) + lead + prose + tail + slice.slice(g.close)
+}
+
+/** split a caption group's raw content into a leading furniture run, the
+ * prose span, and a trailing furniture run. The content is tokenized at
+ * brace-depth 0 into runs of ordinary text and furniture — a %-comment to
+ * end of line, or a command (with its argument groups) that setsNoType,
+ * e.g. \label{…}, \centering, \vspace{…} — then the longest LEADING and
+ * longest TRAILING runs of tokens that are furniture or pure whitespace are
+ * peeled off. What's left between them, even if it also contains furniture
+ * tokens sandwiched in real text, is the prose: an edit replaces it whole. */
+function splitCaptionFurniture(content: string): { lead: string; prose: string; tail: string } {
+  type Tok = { furniture: boolean; text: string }
+  const toks: Tok[] = []
+  let depth = 0
+  let otherStart = 0
+  let i = 0
+  const flushOther = (end: number) => {
+    if (end > otherStart) toks.push({ furniture: false, text: content.slice(otherStart, end) })
+  }
+  while (i < content.length) {
+    const c = content[i]
+    if (c === '\\' && depth === 0) {
+      const m = /^\\[a-zA-Z@]+\*?/.exec(content.slice(i))
+      if (m) {
+        const end = consumeCommandArgs(content, i + m[0].length)
+        if (setsNoType(content.slice(i, end))) {
+          flushOther(i)
+          toks.push({ furniture: true, text: content.slice(i, end) })
+          otherStart = end
+          i = end
+          continue
+        }
+      }
+      i += 2
+      continue
+    }
+    if (c === '\\') { i += 2; continue }
+    if (c === '{') { depth++; i++; continue }
+    if (c === '}') { if (depth > 0) depth--; i++; continue }
+    if (c === '%' && depth === 0) {
+      flushOther(i)
+      let j = i
+      while (j < content.length && content[j] !== '\n') j++
+      toks.push({ furniture: true, text: content.slice(i, j) })
+      otherStart = j
+      i = j
+      continue
+    }
+    i++
+  }
+  flushOther(content.length)
+
+  const isPeelable = (t: Tok) => t.furniture || t.text.trim() === ''
+  let start = 0
+  while (start < toks.length && isPeelable(toks[start])) start++
+  let end = toks.length
+  while (end > start && isPeelable(toks[end - 1])) end--
+  const join = (from: number, to: number) => toks.slice(from, to).map((t) => t.text).join('')
+  return { lead: join(0, start), prose: join(start, end), tail: join(end, toks.length) }
+}
+
+/** past a command's directly-attached [..] and balanced {..} argument
+ * groups — mirrors parse.ts's own consumeArgs so setsNoType is asked about
+ * exactly the span it would see during parsing */
+function consumeCommandArgs(s: string, from: number): number {
+  let i = from
+  for (;;) {
+    while (i < s.length && /\s/.test(s[i])) i++
+    if (s[i] === '[') {
+      const close = s.indexOf(']', i)
+      if (close < 0) return s.length
+      i = close + 1
+      continue
+    }
+    if (s[i] === '{') {
+      let depth = 0
+      let j = i
+      for (; j < s.length; j++) {
+        if (s[j] === '\\') { j++; continue }
+        if (s[j] === '{') depth++
+        else if (s[j] === '}' && --depth === 0) break
+      }
+      i = j < s.length ? j + 1 : s.length
+      continue
+    }
+    return i
+  }
 }
 
 /** split an env slice into the begin line (with argument groups) and the
