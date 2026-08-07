@@ -19,6 +19,7 @@ import { state } from '../state'
 import { SERVICE_BASE } from '../service/client'
 import { lastCompileJobId, onCompileState } from '../editor/doccompile'
 import { resealMemos } from './derived'
+import { texFragmentText } from '../latex/render'
 
 export interface BibEntry {
   /** natbib's short author form, e.g. "Austin et al.", "Elman", "Wiegreffe
@@ -140,14 +141,18 @@ export function citeText(
     : parentheticalCite(entries, pre, opt)
 }
 
-function parentheticalCite(entries: BibEntry[], pre: string | null, opt: string | null): string {
+function parentheticalCite(entries: BibEntry[], preRaw: string | null, optRaw: string | null): string {
+  const pre = preRaw === null ? null : texFragmentText(preRaw)
+  const opt = optRaw === null ? null : texFragmentText(optRaw)
   let body = entries.map((e) => `${e.authors}, ${e.year}`).join('; ')
   if (opt) body += `, ${opt}`
   if (pre !== null && pre !== '') body = `${pre} ${body}`
   return `(${body})`
 }
 
-function textualCite(entries: BibEntry[], pre: string | null, opt: string | null): string {
+function textualCite(entries: BibEntry[], preRaw: string | null, optRaw: string | null): string {
+  const pre = preRaw === null ? null : texFragmentText(preRaw)
+  const opt = optRaw === null ? null : texFragmentText(optRaw)
   // a post-note belongs inside ONE citation's year parens; natbib's own
   // rare multi-key case (\citet[][note]{a,b}) is not worth guessing at, so
   // the note lands on the single-key form and is appended plainly otherwise

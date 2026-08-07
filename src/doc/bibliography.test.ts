@@ -119,3 +119,14 @@ describe('applyBibliography rewrites a.dia-cite text in the rendered article', (
     expect(cites[0].getAttribute('data-dia-cite')).toBe('brown2020gpt3')
   })
 })
+
+describe('a note is prose, not its own source', () => {
+  it('renders LaTeX markup inside a pre/post note', () => {
+    // \citep[see][\textit{inter alia}]{a} — cot.tex writes exactly this, and
+    // a note shown as raw \textit{…} is the unrendered-tex defect
+    const bib = new Map([['a', { key: 'a', label: 'Author et al.(2020)Author', authors: 'Author et al.', year: '2020' }]])
+    const out = citeText('citep', ['a'], null, '\\textit{inter alia}', bib)
+    expect(out).toBe('(Author et al., 2020, inter alia)')
+    expect(out).not.toContain('\\textit')
+  })
+})

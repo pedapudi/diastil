@@ -95,6 +95,14 @@ function renderHeader(meta: PreambleMeta): HTMLElement | null {
  * \footnotemark, spacing) — strip what is provably furniture, keep unknown
  * macros visible (no macro expansion means hiding them would lose names) */
 function renderTexFragmentText(tex: string): Node[] {
+  return [document.createTextNode(texFragmentText(tex))]
+}
+
+/** The same furniture-stripping as a plain string — a citation's pre/post
+ * note is raw LaTeX on data-dia-cite-opt (`\textit{inter alia}`), and a
+ * note shown as its own source is the "unrendered tex" defect the derived
+ * header already solves. Display only; the attribute stays the truth. */
+export function texFragmentText(tex: string): string {
   // escapes first, or the comment strip eats a literal \% and the brace
   // strip eats a literal \{ — parked as BEL+code and restored at the end
   let text = tex.replace(/\\([%&_#${}])/g, (_, c: string) => `${c.charCodeAt(0)};`)
@@ -116,7 +124,7 @@ function renderTexFragmentText(tex: string): Node[] {
     .replace(/\x07(\d+);/g, (_, n: string) => String.fromCharCode(Number(n)))
     .replace(/\s+/g, ' ')
     .trim()
-  return [document.createTextNode(clean)]
+  return clean
 }
 
 /** a block that is \maketitle plus, at most, commands that set no type of
