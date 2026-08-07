@@ -96,29 +96,40 @@ describe('parseLatex structure', () => {
     const tab = f.body.find((b) => b.kind === 'tabular') as Extract<LxBlock, { kind: 'tabular' }>
     expect(tab.colspec).toBe('lr')
     expect(tab.rows).toHaveLength(2)
-    expect(tab.rows[0]).toHaveLength(2)
+    expect(tab.rows[0].cells).toHaveLength(2)
   })
 
-  it('tabular strips rule commands from cells', () => {
+  it('tabular strips rule commands from cells and keeps them on the row', () => {
     const [tbl] = body(DOC('\\begin{tabular}{ll}\\toprule a & b \\\\ \\midrule c & d \\\\ \\bottomrule\\end{tabular}'))
     const t = tbl as Extract<LxBlock, { kind: 'tabular' }>
     expect(t.rows).toHaveLength(2)
+    expect(t.rows[0].rule).toBe('\\toprule')
+    expect(t.rows[1].rule).toBe('\\midrule')
+    expect(t.trailingRule).toBe('\\bottomrule')
   })
 
-  it('tabular \\multicolumn and \\multirow become spanning cells', () => {
+  it('a chained run of \\cmidrule(lr){…} rides the row verbatim', () => {
+    const [tbl] = body(DOC('\\begin{tabular}{llll}a & b & c & d \\\\ \\cmidrule(lr){2-2} \\cmidrule(lr){3-4} e & f & g & h\\end{tabular}'))
+    const t = tbl as Extract<LxBlock, { kind: 'tabular' }>
+    expect(t.rows[1].rule).toBe('\\cmidrule(lr){2-2} \\cmidrule(lr){3-4}')
+  })
+
+  it('tabular \\multicolumn and \\multirow become spanning cells with their spec/width', () => {
     const [tbl] = body(DOC('\\begin{tabular}{ll}\\multicolumn{2}{c}{x} \\\\ \\multirow{2}{*}{a} & b \\\\ & c\\end{tabular}'))
     expect(tbl.kind).toBe('tabular')
     const t = tbl as Extract<LxBlock, { kind: 'tabular' }>
-    expect(t.rows[0][0].colspan).toBe(2)
-    expect(t.rows[1][0].rowspan).toBe(2)
-    expect(t.rows[2][0].inline).toHaveLength(0) // the covered placeholder
+    expect(t.rows[0].cells[0].colspan).toBe(2)
+    expect(t.rows[0].cells[0].colspanSpec).toBe('c')
+    expect(t.rows[1].cells[0].rowspan).toBe(2)
+    expect(t.rows[1].cells[0].rowspanWidth).toBe('*')
+    expect(t.rows[2].cells[0].inline).toHaveLength(0) // the covered placeholder
   })
 
   it('a spanning command with trailing content stays an ordinary cell', () => {
     const [tbl] = body(DOC('\\begin{tabular}{ll}\\multicolumn{2}{c}{x} extra & b\\end{tabular}'))
     expect(tbl.kind).toBe('tabular')
     const t = tbl as Extract<LxBlock, { kind: 'tabular' }>
-    expect(t.rows[0][0].colspan).toBeUndefined()
+    expect(t.rows[0].cells[0].colspan).toBeUndefined()
   })
 
   it('expands *{n}{spec} and strips >{…} decorations in the colspec test', () => {

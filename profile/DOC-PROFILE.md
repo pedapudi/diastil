@@ -66,7 +66,7 @@ Inside `article.dia-doc`:
 | paragraph | `<p>` |
 | `itemize` / `enumerate` / `description` | `ul` / `ol` / `dl` |
 | `figure` / `table` floats | `figure.dia-figure[data-dia-float]`, caption → `figcaption`, `\includegraphics` → `img.dia-graphic[data-dia-graphic-opts]` (pdf/eps → `div.dia-graphic-slot[data-dia-graphic-path]`, a labeled placeholder — browsers cannot render those in `<img>`) |
-| `tabular` | `<table data-dia-colspec>` |
+| `tabular` | `<table data-dia-colspec data-dia-trailing-rule>` rows `tr[data-dia-rule]`, cells `td[data-dia-colspan-spec][data-dia-rowspan-width]` — see below |
 | display math / math environments | `div.dia-math[data-dia-tex][data-dia-env][data-dia-label]` with MathML content (PROFILE.md §2) |
 | inline math | `span.dia-math.dia-math-inline[data-dia-tex]` |
 | verbatim / lstlisting / minted | `pre.dia-verbatim[data-dia-env]` |
@@ -98,8 +98,27 @@ Persisted document attributes beyond PROFILE.md §7, the complete list:
 table) · `data-dia-label` · `data-dia-env` · `data-dia-ref` ·
 `data-dia-ref-cmd` · `data-dia-cite` · `data-dia-cite-opt` ·
 `data-dia-cite-cmd` · `data-dia-cite-pre` · `data-dia-graphic-opts` ·
-`data-dia-graphic-path` · `data-dia-colspec` · `data-dia-expand`.
+`data-dia-graphic-path` · `data-dia-colspec` · `data-dia-expand` ·
+`data-dia-rule` · `data-dia-trailing-rule` · `data-dia-colspan-spec` ·
+`data-dia-rowspan-width`.
 Anything else `data-dia-*` is `content/unknown-dia-attr` (error).
+
+A tabular's structure survives a cell edit: `tr[data-dia-rule]` carries the
+exact source text of any rule commands (`\toprule`/`\midrule`/`\bottomrule`/
+`\hline`/`\cline{…}`, or a chained run of `\cmidrule(lr){…}`) that ran
+immediately before that row; `table[data-dia-trailing-rule]` carries the
+same for material after the last row's `\\` (typically `\bottomrule`) when
+no row follows it; a `\multicolumn` cell's `td[data-dia-colspan-spec]` and a
+`\multirow` cell's `td[data-dia-rowspan-width]` carry those commands' own
+`{spec}`/`{width}` arguments verbatim. Emission reconstructs an edited
+table cell-by-cell against the table's own memo slice (PROFILE.md's
+byte-exactness discipline extended to cell grain): an untouched cell, its
+row's rule, and every neighbor re-emit their exact original bytes, so a
+cell text edit's diff is exactly that cell's bytes — see `emitTabular` in
+`src/latex/emit.ts`. These four attributes are session-authoritative for
+that reconstruction; a document loaded from HTML alone (no live parse) falls
+back to reconstructing a `\multicolumn`/`\multirow` wrapper from them with
+loose defaults (`{c}`, `{*}`) when they are absent.
 
 Content rules shared with the deck profile, scoped to the article:
 `content/script`, `content/embed`, `content/event-handler`,

@@ -35,15 +35,36 @@ export type LxBlock =
   | { kind: 'wrapper'; span: Span; env: string; body: LxBlock[] }
   | { kind: 'list'; span: Span; env: 'itemize' | 'enumerate' | 'description'; items: LxListItem[]; srcEnv?: string }
   | { kind: 'float'; span: Span; env: 'figure' | 'table'; starred: boolean; caption?: LxInline[]; label?: string; graphics: LxGraphic[]; body: LxBlock[] }
-  | { kind: 'tabular'; span: Span; colspec: string; rows: LxTabCell[][] }
+  | { kind: 'tabular'; span: Span; colspec: string; rows: LxTabRow[]; trailingRule?: string }
   /** display math: \[…\], $$…$$, or a math environment */
   | { kind: 'math'; span: Span; tex: string; env?: string; label?: string }
   /** verbatim/lstlisting/minted — mono content, faithfully representable */
   | { kind: 'verbatim'; span: Span; env?: string; text: string }
   | { kind: 'island'; span: Span; reason: string }
 
-/** one table cell; colspan/rowspan carry \multicolumn/\multirow structure */
-export interface LxTabCell { inline: LxInline[]; colspan?: number; rowspan?: number }
+/** one table row: its cells, plus the exact source text of any rule
+ * commands that ran immediately before it — \toprule, \midrule, \bottomrule,
+ * \hline, \cline{…}, or a chained run of \cmidrule(lr){…} — verbatim, so
+ * reconstruction never downgrades a partial rule to a full-width one */
+export interface LxTabRow { cells: LxTabCell[]; rule?: string }
+
+/** one table cell; colspan/rowspan carry \multicolumn/\multirow structure.
+ * colspanSpec/rowspanWidth are those commands' own {spec}/{width} argument
+ * text verbatim — re-emitting a spanning cell as plain {c}/{*} silently
+ * drops a paper's actual column alignment and multirow width */
+export interface LxTabCell {
+  inline: LxInline[]
+  colspan?: number
+  rowspan?: number
+  colspanSpec?: string
+  rowspanWidth?: string
+  /** source span of the cell's content — after furniture and any
+   * \multicolumn/\multirow unwrap, exactly the range parseInline consumed.
+   * Session-only, like a block's own span: it lets emission splice an
+   * edited cell back into its row's exact original bytes instead of
+   * reconstructing the whole row. */
+  contentSpan: Span
+}
 
 export interface PreambleMeta {
   docclass?: string
@@ -146,6 +167,9 @@ const REF_CMDS = new Set(['ref', 'eqref', 'autoref', 'cref', 'Cref', 'pageref'])
 const CITE_RE = /^[Cc]ite\w*$|^(parencite|textcite|autocite)$/
 /** table-rule commands stripped from cell starts */
 const RULE_CMDS = new Set(['hline', 'toprule', 'midrule', 'bottomrule', 'cmidrule', 'cline'])
+/** does a furniture span actually contain a rule command, vs. just blank
+ * text/comments skipCellFurniture also swallows? */
+const RULE_TEXT_RE = /\\(?:hline|toprule|midrule|bottomrule|cmidrule|cline)\b/
 /** control symbols that are literal characters */
 const CHAR_ESCAPES: Record<string, string> = {
   '%': '%', '&': '&', '$': '$', '#': '#', '_': '_', '{': '{', '}': '}', ' ': ' ',
@@ -498,7 +522,7 @@ function parseTabular(cur: Cursor, open: number, close: number, span: Span): LxB
   }
 
   // split rows on depth-0 \\ and cells on depth-0 & — token-aligned
-  const rows: LxTabCell[][] = []
+  const rows: LxTabRow[] = []
   let cells: Array<{ lo: number; hi: number }> = []
   let cellLo = spec.close + 1
   let depth = 0
@@ -512,18 +536,47 @@ function parseTabular(cur: Cursor, open: number, close: number, span: Span): LxB
       cellLo = j + 1
     } else if (t.kind === 'cs' && t.name === '\\') {
       cells.push({ lo: cellLo, hi: j })
-      rows.push(cells.map((c) => parseTabCell(cur, c.lo, c.hi)))
+      rows.push(buildRow(cur, cells))
       cells = []
       cellLo = j + 1
     }
   }
   // material after the last \\ — often just \bottomrule, sometimes a row
   cells.push({ lo: cellLo, hi: close })
-  const lastRow = cells.map((c) => parseTabCell(cur, c.lo, c.hi))
-  if (lastRow.some((cell) => cell.inline.length > 0)) rows.push(lastRow)
+  const tail = buildRow(cur, cells)
+  let trailingRule: string | undefined
+  if (tail.cells.some((cell) => cell.inline.length > 0)) {
+    rows.push(tail)
+  } else {
+    // no row followed the last \\ — capture the trailing rule verbatim so a
+    // from-scratch reconstruction (no original bytes to splice into) can
+    // still close the table with it; an edited-cell splice never needs this,
+    // the bytes ride along in the untouched tail of the block's own slice
+    const from = cur.toks[cellLo]?.span.start ?? cur.toks[close].span.start
+    const raw = cur.src.slice(from, cur.toks[close].span.start).trim()
+    if (RULE_TEXT_RE.test(raw)) trailingRule = raw
+  }
 
   if (rows.length === 0) return { kind: 'island', span, reason: 'tabular rows did not scan' }
-  return { kind: 'tabular', span, colspec, rows }
+  return trailingRule !== undefined
+    ? { kind: 'tabular', span, colspec, rows, trailingRule }
+    : { kind: 'tabular', span, colspec, rows }
+}
+
+function buildRow(cur: Cursor, cellSpans: Array<{ lo: number; hi: number }>): LxTabRow {
+  const cells = cellSpans.map((c) => parseTabCell(cur, c.lo, c.hi))
+  const rule = cellSpans.length > 0 ? ruleTextBefore(cur, cellSpans[0].lo, cellSpans[0].hi) : undefined
+  return rule !== undefined ? { cells, rule } : { cells }
+}
+
+/** exact source text of any rule commands (+ their own arguments) leading a
+ * cell span — \toprule, \midrule, a chained run of \cmidrule(lr){…}, \hline,
+ * \cline{…} — or undefined when the row opens directly with content */
+function ruleTextBefore(cur: Cursor, lo: number, hi: number): string | undefined {
+  const end = skipCellFurniture(cur, lo, hi)
+  if (end === lo) return undefined
+  const raw = cur.src.slice(cur.toks[lo].span.start, cur.toks[end - 1].span.end).trim()
+  return RULE_TEXT_RE.test(raw) ? raw : undefined
 }
 
 /** expand `*{n}{spec}` repetitions and drop `>{…} <{…} !{…}` decorations —
@@ -550,6 +603,8 @@ function parseTabCell(cur: Cursor, lo: number, hi: number): LxTabCell {
   let i = skipCellFurniture(cur, lo, hi)
   let colspan: number | undefined
   let rowspan: number | undefined
+  let colspanSpec: string | undefined
+  let rowspanWidth: string | undefined
 
   for (let round = 0; round < 2; round++) {
     const t = cur.toks[i]
@@ -560,8 +615,8 @@ function parseTabCell(cur: Cursor, lo: number, hi: number): LxTabCell {
     if (!g1 || !g2 || !g3) break
     const n = Number(groupText(cur, g1).trim())
     if (!Number.isInteger(n) || n < 1 || n > 60) break
-    if (t.name === 'multicolumn') colspan = n
-    else rowspan = n
+    if (t.name === 'multicolumn') { colspan = n; colspanSpec = groupText(cur, g2) }
+    else { rowspan = n; rowspanWidth = groupText(cur, g2) }
     // the remaining tokens must be only whitespace — anything else after
     // the closing brace means this is not a plain spanning cell
     let rest = g3.close + 1
@@ -571,17 +626,26 @@ function parseTabCell(cur: Cursor, lo: number, hi: number): LxTabCell {
       if (r.kind === 'comment') { rest++; continue }
       break
     }
-    if (rest !== hi) { colspan = undefined; rowspan = undefined; break }
+    if (rest !== hi) { colspan = undefined; rowspan = undefined; colspanSpec = undefined; rowspanWidth = undefined; break }
     // descend into the content group
     hi = g3.hi
     i = skipCellFurniture(cur, g3.lo, hi)
   }
 
+  // the content span this cell's inline was parsed from — an empty span at
+  // the boundary token (closing brace, `&`, `\\`, or the tabular's own
+  // close) when the cell has nothing between furniture and boundary
+  const contentSpan: Span = i < hi
+    ? { start: cur.toks[i].span.start, end: cur.toks[hi - 1].span.end }
+    : { start: cur.toks[hi]?.span.start ?? cur.src.length, end: cur.toks[hi]?.span.start ?? cur.src.length }
+
   const inline = parseInline(cur, i, hi)
   const kept = inline.filter((n) => !(n.kind === 'text' && n.text.trim() === '')).length ? inline : []
-  const cell: LxTabCell = { inline: kept }
+  const cell: LxTabCell = { inline: kept, contentSpan }
   if (colspan !== undefined && colspan > 1) cell.colspan = colspan
   if (rowspan !== undefined && rowspan > 1) cell.rowspan = rowspan
+  if (cell.colspan !== undefined && colspanSpec !== undefined) cell.colspanSpec = colspanSpec
+  if (cell.rowspan !== undefined && rowspanWidth !== undefined) cell.rowspanWidth = rowspanWidth
   return cell
 }
 
