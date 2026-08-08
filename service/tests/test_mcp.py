@@ -161,7 +161,7 @@ http_only = pytest.mark.skipif(not _HTTP_READY,
 
 @pytest.fixture
 def client():
-    with TestClient(service_main.app) as c:
+    with TestClient(service_main.app, base_url="http://127.0.0.1:8317") as c:
         yield c
 
 
@@ -212,3 +212,50 @@ def test_http_mcp_notification_returns_202(client):
 def test_http_mcp_unknown_method_returns_jsonrpc_error(client):
     reply = client.post("/mcp", json=_rpc("no/such/method")).json()
     assert reply["error"]["code"] == -32601
+
+
+# ---------------------------------------------------------------------------
+# /mcp over HTTP: who is allowed to call it
+#
+# The tool surface writes files (dia_new scaffolds wherever it is pointed)
+# and spends model tokens, so "reachable from a web page" would be a
+# drive-by arbitrary write. CORS cannot carry that weight: the service
+# allows the "null" origin for the file:// standalone editor, and any site
+# can mint an opaque origin with <iframe sandbox>.
+# ---------------------------------------------------------------------------
+
+def _client():
+    from fastapi.testclient import TestClient
+    from dia_service import main
+    return TestClient(main.app, base_url="http://127.0.0.1:8317")
+
+
+LIST = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+
+
+def test_mcp_answers_a_native_client():
+    """No Origin header — an MCP client over stdio, a proxy, curl."""
+    r = _client().post("/mcp", json=LIST)
+    assert r.status_code == 200
+    assert "tools" in r.json()["result"]
+
+
+def test_mcp_refuses_any_browser_origin():
+    for origin in ("https://evil.example", "http://localhost:5199", "null"):
+        r = _client().post("/mcp", json=LIST, headers={"Origin": origin})
+        assert r.status_code == 403, origin
+        assert "browser" in r.json()["detail"]
+
+
+def test_mcp_refuses_a_rebound_host():
+    """DNS rebinding: the attacker's own name resolving to 127.0.0.1 makes
+    the request same-origin, so no Origin header arrives to refuse."""
+    r = _client().post("/mcp", json=LIST, headers={"Host": "evil.example"})
+    assert r.status_code == 403
+    assert "loopback" in r.json()["detail"]
+
+
+def test_mcp_accepts_loopback_hosts_with_and_without_a_port():
+    for host in ("127.0.0.1:8317", "localhost:8317", "127.0.0.1"):
+        r = _client().post("/mcp", json=LIST, headers={"Host": host})
+        assert r.status_code == 200, host
