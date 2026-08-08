@@ -192,6 +192,65 @@ describe('parseLatex structure', () => {
     expect(f).toMatchObject({ kind: 'float', env: 'figure' })
     expect((f as Extract<LxBlock, { kind: 'float' }>).graphics[0].path).toBe('x.png')
   })
+
+  describe('\\frame — optional title argument (issue #20)', () => {
+    // returns the frame's body blocks AND the full doc source, so a test
+    // can check for bytes by SPAN (inline 'island' nodes carry no text,
+    // only a span into the source) rather than by re-serializing
+    const frameBody = (src: string) => {
+      const full = DOC(src)
+      const [w] = body(full)
+      expect(w).toMatchObject({ kind: 'wrapper', env: 'frame' })
+      return { inner: (w as Extract<LxBlock, { kind: 'wrapper' }>).body, full }
+    }
+    const bodyText = (inner: LxBlock[], full: string) =>
+      inner.map((b) => full.slice(b.span.start, b.span.end)).join('')
+
+    it('a same-line title is consumed as the frame argument, not body', () => {
+      const { inner } = frameBody('\\begin{frame}{Outline}\\tableofcontents\\end{frame}')
+      expect(inner.every((b) => b.kind !== 'island')).toBe(true)
+      expect(inner.some((b) => b.kind === 'para')).toBe(true)
+    })
+
+    it('[fragile]{Title} — the bracket arg and the title both scan', () => {
+      const { inner } = frameBody('\\begin{frame}[fragile]{Block Size}\\tableofcontents\\end{frame}')
+      expect(inner.some((b) => b.kind === 'para')).toBe(true)
+    })
+
+    it('THE HAZARD: a titleless frame opening with a bare group keeps that group as body content', () => {
+      // the idiom the issue names: no title, the body's first thing is a
+      // bare {...} group on its own line. A wrongly-consumed "title" here
+      // would delete \centering\includegraphics from the tree entirely.
+      const { inner, full } = frameBody(
+        '\\begin{frame}\n  {\\centering\\includegraphics{fig.png}}\n\\end{frame}',
+      )
+      expect(bodyText(inner, full)).toContain('fig.png')
+    })
+
+    it('a bare group on the SAME line as \\begin{frame} is still refused: it opens with a layout declaration', () => {
+      // \centering is never how a real title begins — rule 2 refuses this
+      // even though rule 1 (same line) would otherwise allow it
+      const { inner, full } = frameBody('\\begin{frame}{\\centering\\includegraphics{fig.png}}\\end{frame}')
+      expect(bodyText(inner, full)).toContain('fig.png')
+    })
+
+    it('a group spanning a blank line is refused even on the same opening line', () => {
+      const { inner, full } = frameBody('\\begin{frame}{Title\n\n  more}\\tableofcontents\\end{frame}')
+      expect(bodyText(inner, full)).toContain('Title')
+    })
+
+    it('a titleless frame with no leading group at all parses cleanly', () => {
+      const { inner } = frameBody('\\begin{frame}\n  \\titlepage\n\\end{frame}')
+      expect(inner.length).toBeGreaterThan(0)
+    })
+
+    it('a text-macro title (\\model{} in One Slide) is consumed — not a layout declaration', () => {
+      const { inner, full } = frameBody('\\begin{frame}{\\model{} in One Slide}\\tableofcontents\\end{frame}')
+      expect(inner.some((b) => b.kind === 'para')).toBe(true)
+      // the title bytes are NOT re-emitted as a body paragraph
+      expect(bodyText(inner, full)).not.toContain('One Slide')
+    })
+  })
 })
 
 describe('parseLatex inline', () => {

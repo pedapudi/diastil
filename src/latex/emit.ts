@@ -498,7 +498,9 @@ export function partitionEnv(slice: string, env: string): { head: string; tail: 
   let i = slice.indexOf('}', beginTag.length)
   if (i < 0) return null
   i++
-  // argument groups hugging \begin{env}: [..] and {..}
+  // argument groups hugging \begin{env}: [..] and balanced {..} — a
+  // frame's {\model{} in One Slide} title nests a macro call, so this
+  // must count brace depth rather than stop at the first `}` (issue #20)
   for (;;) {
     if (slice[i] === '[') {
       const c = slice.indexOf(']', i)
@@ -507,9 +509,15 @@ export function partitionEnv(slice: string, env: string): { head: string; tail: 
       continue
     }
     if (slice[i] === '{') {
-      const c = slice.indexOf('}', i)
-      if (c < 0 || slice.slice(i, c).includes('\n')) break
-      i = c + 1
+      let depth = 0
+      let j = i
+      for (; j < slice.length; j++) {
+        if (slice[j] === '\\') { j++; continue }
+        if (slice[j] === '{') depth++
+        else if (slice[j] === '}' && --depth === 0) break
+      }
+      if (j >= slice.length || slice.slice(i, j + 1).includes('\n')) break
+      i = j + 1
       continue
     }
     break

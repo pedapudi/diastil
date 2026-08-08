@@ -151,4 +151,23 @@ describe('commitDocEdit', () => {
     state.undo()
     expect(exportTex(doc)).toBe(tex)
   })
+
+  it('beamer (issue #20): editing one frame\'s body leaves every other frame\'s title bytes untouched', () => {
+    const tex = readFileSync(join(repo, 'corpus', 'tex', 'beamer', 'beamer.tex'), 'utf-8')
+    const doc = mount(tex, 'beamer.tex')
+    const target = [...doc.article.querySelectorAll('p')].find((p) =>
+      (p.textContent ?? '').includes('accelerator with peak throughput'))!
+    commitDocEdit(doc, target, [setInlineHtml(target, 'Shortened bandwidth claim.')], 'Edit text')
+    const out = exportTex(doc)
+    expect(out).toContain('Shortened bandwidth claim.')
+    // every OTHER frame's begin line — bracket and title argument bytes —
+    // survives verbatim, including the `[fragile]` frame and the `\model{}`
+    // macro-in-title frame
+    expect(out).toContain('\\begin{frame}\n  \\titlepage\n\\end{frame}')
+    expect(out).toContain('\\begin{frame}{Outline}')
+    expect(out).toContain('\\begin{frame}{\\model{} in One Slide}')
+    expect(out).toContain('\\begin{frame}[fragile]{Block Size, By Layer}')
+    state.undo()
+    expect(exportTex(doc)).toBe(tex)
+  })
 })

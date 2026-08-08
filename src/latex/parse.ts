@@ -125,11 +125,24 @@ const WRAPPER_ENVS = new Set([
   'tcolorbox', 'minipage', 'subfigure', 'subtable', 'centering',
   'small', 'footnotesize', 'scriptsize', 'singlespace', 'spacing',
   'keywords', 'acks', 'addmargin', 'adjustwidth',
+  // beamer's slide — see WRAPPER_OPTIONAL_BRACE_ARGS: its title is an
+  // OPTIONAL brace arg, unlike every entry in WRAPPER_BRACE_ARGS below
+  'frame',
 ])
 /** required brace-argument counts for wrappers that take them */
 const WRAPPER_BRACE_ARGS: Record<string, number> = {
   multicols: 1, minipage: 1, subfigure: 1, subtable: 1, spacing: 1,
   addmargin: 1, adjustwidth: 2,
+}
+/** OPTIONAL leading brace-argument counts. Unlike WRAPPER_BRACE_ARGS (a
+ * REQUIRED count — the scanner just stops early if the group is missing,
+ * which is safe because a required arg is never body content), consuming
+ * one of these wrongly means real content silently disappears: the group
+ * becomes a "title" that rides in no block and is never emitted anywhere.
+ * matchOptionalBraceArg only takes the group when several signals agree
+ * it is a title, not a frame body that happens to open with `{...}`. */
+const WRAPPER_OPTIONAL_BRACE_ARGS: Record<string, number> = {
+  frame: 1,
 }
 
 /** theorem-like environments — wrappers whose head the theme styles
@@ -411,12 +424,22 @@ function parseEnv(cur: Cursor, open: number, close: number, name: string): LxBlo
     // [..] (a theorem's display name); a brace group after an argument-less
     // wrapper is CONTENT
     let lo = open + 1
+    let afterPos = cur.toks[open].span.end
     const b = matchBracketGroup(cur, lo, close)
-    if (b) lo = b.close + 1
+    if (b) { lo = b.close + 1; afterPos = b.closeSpan.end }
     for (let args = WRAPPER_BRACE_ARGS[base] ?? 0; args > 0; args--) {
       const g = matchBraceGroup(cur, lo, close)
       if (!g) break
       lo = g.close + 1
+      afterPos = g.closeSpan.end
+    }
+    // OPTIONAL brace args (frame's title): each candidate must survive
+    // matchOptionalBraceArg's disambiguation before it is taken
+    for (let args = WRAPPER_OPTIONAL_BRACE_ARGS[base] ?? 0; args > 0; args--) {
+      const g = matchOptionalBraceArg(cur, lo, close, afterPos)
+      if (!g) break
+      lo = g.close + 1
+      afterPos = g.closeSpan.end
     }
     return { kind: 'wrapper', span, env: base, body: parseBlocks(cur, lo, close) }
   }
@@ -944,6 +967,42 @@ function matchBraceGroup(cur: Cursor, at: number, hi: number): Group | null {
   while (i < hi && cur.toks[i].kind === 'text' && cur.slice(cur.toks[i].span).trim() === '') i++
   if (cur.toks[i]?.kind !== 'open') return null
   return matchGroupFrom(cur, i, hi)
+}
+
+/** An OPTIONAL leading brace argument (frame's title), taken only when it
+ * cannot plausibly be the environment's BODY instead. `afterPos` is the
+ * source position right after the construct this argument would hug
+ * (the \begin{env} tag, or a preceding [..]). Every check leans toward
+ * NOT consuming: an unconsumed group still renders, as an extra body
+ * paragraph; a wrongly-consumed one is deleted from the tree.
+ *
+ *  1. same line — a title's `{` sits on the same source line as what it
+ *     hugs; a body's opening group conventionally starts on the next
+ *     line (the common `\begin{frame}\n  {\centering\includegraphics{…}}`
+ *     idiom this guards against). matchBraceGroup happily crosses that
+ *     single newline (it only skips blank text), so this is checked
+ *     against the raw source, not just token kinds.
+ *  2. does not open with a layout/declaration command — reuses
+ *     NO_TYPE_BARE (\centering, \raggedright, \small, …): real slide
+ *     titles are prose or a text macro, never a bare declaration: a
+ *     group opening with one is almost certainly body content that
+ *     merely happens to sit on the begin line.
+ *  3. single paragraph — a title never spans a blank line; a group that
+ *     does is body content, not a title.
+ *
+ * All three must agree; any one failing means the group is left alone. */
+function matchOptionalBraceArg(cur: Cursor, at: number, hi: number, afterPos: number): Group | null {
+  const g = matchBraceGroup(cur, at, hi)
+  if (!g) return null
+  const openSpan = cur.toks[g.lo - 1].span
+  if (cur.src.slice(afterPos, openSpan.start).includes('\n')) return null
+  const text = groupText(cur, g).replace(/^\s+/, '')
+  const decl = /^\\([a-zA-Z@]+)\*?/.exec(text)
+  if (decl && NO_TYPE_BARE.has(decl[1])) return null
+  for (let i = g.lo; i < g.hi; i++) {
+    if (cur.toks[i].kind === 'parbreak') return null
+  }
+  return g
 }
 
 function matchGroupFrom(cur: Cursor, open: number, hi: number): Group | null {

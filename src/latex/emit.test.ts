@@ -300,4 +300,38 @@ describe('surgical helpers', () => {
     expect(part.head).toBe('\\begin{multicols}{2}')
     expect(part.tail).toBe('\\end{multicols}')
   })
+
+  it('partitionEnv keeps a frame\'s optional [..]{title} in the head (issue #20)', () => {
+    const part = partitionEnv('\\begin{frame}[fragile]{Block Size}\nbody\n\\end{frame}', 'frame')!
+    expect(part.head).toBe('\\begin{frame}[fragile]{Block Size}')
+    expect(part.tail).toBe('\\end{frame}')
+  })
+
+  it('partitionEnv does not swallow a titleless frame\'s bare-group body into the head', () => {
+    // the head must stop at the begin tag when the next group starts on a
+    // new line — this is what emitEnvWithChildren relies on to leave a
+    // frame body's leading {...} group to the rebuilt interior
+    const part = partitionEnv('\\begin{frame}\n  {\\centering fig}\n\\end{frame}', 'frame')!
+    expect(part.head).toBe('\\begin{frame}')
+    expect(part.tail).toBe('\\end{frame}')
+  })
+})
+
+describe('beamer round-trips (issue #20 acceptance)', () => {
+  it('every top-level block of the beamer fixture, unedited, emits exact bytes', () => {
+    const src = readFileSync(join(repo, 'corpus', 'tex', 'beamer', 'beamer.tex'), 'utf-8')
+    for (const { el, slice } of renderPairs(src)) {
+      expect(emitBlockTex(el)).toBe(slice)
+    }
+  })
+
+  it('an edited frame re-emits \\begin{frame}{Title} with the original title bytes preserved', () => {
+    const src = '\\begin{frame}{\\model{} in One Slide}\nOld body.\n\\end{frame}'
+    const [{ el }] = renderPairs(src)
+    el.querySelector('p')!.textContent = 'New body.'
+    const out = emitBlockTex(el)
+    expect(out.startsWith('\\begin{frame}{\\model{} in One Slide}')).toBe(true)
+    expect(out).toContain('New body.')
+    expect(out.trim().endsWith('\\end{frame}')).toBe(true)
+  })
 })
