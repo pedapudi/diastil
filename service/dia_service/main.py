@@ -19,6 +19,7 @@ Endpoints:
   DELETE /compile/{id}          -> cancel a running compile
   POST /tex/install             -> SSE progress for the managed tectonic install
   POST /tex/refresh             -> {tex} (re-probe the engine ladder)
+  POST /mcp                     -> JSON-RPC 2.0 MCP endpoint (same dispatch as `dia mcp`)
   /editor/*                     -> built editor bundle (mounted by the CLI)
 
 No telemetry. The only outbound traffic is to the endpoint the user
@@ -33,12 +34,13 @@ import json
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
-from . import agents, tex, texcompile
+from . import agents, mcp, tex, texcompile
 
 HOST = "127.0.0.1"
 PORT = 8317
@@ -783,6 +785,81 @@ async def tex_refresh() -> dict[str, Any]:
     """Re-probe the engine ladder — after installing TeX outside the app,
     or editing `[tex] engine` in config.toml."""
     return {"tex": tex.discover(refresh=True, config=CONFIG).as_dict()}
+
+
+# ---------------------------------------------------------------------------
+# /mcp — MCP JSON-RPC 2.0 over HTTP (same dispatch as `dia mcp` stdio)
+# ---------------------------------------------------------------------------
+#
+# Minimal, widely-supported "JSON-RPC over POST" transport: one request
+# object in the body, one response object back (or 202 for a notification).
+# This is the non-streaming form of MCP Streamable HTTP. Notifications
+# from server -> client (SSE) are a follow-up if a use case demands it.
+#
+# Auth is intentionally not enforced here: when a deployment fronts this
+# (a reverse proxy so a remote connector can reach it), the deployment is
+# the natural place to gate access — a token, mTLS, an IP allowlist — and
+# this code should not assume a scheme.
+#
+# But NO BROWSER PAGE may reach it, and CORS alone cannot enforce that.
+# The tool surface writes files (`dia_new` scaffolds at any path it is
+# given) and spends model tokens, so a reachable /mcp is a drive-by
+# arbitrary write. Two gates, because each catches what the other misses:
+#
+#   Origin — a browser attaches it to every cross-origin fetch, and native
+#     MCP clients (stdio proxies, desktop hosts, curl) never do. Presence
+#     alone therefore means "a web page is calling", and the answer is no.
+#     Relying on the CORS list instead would not do: it allows "null" for
+#     the file:// standalone editor, and ANY site can mint an opaque
+#     origin with <iframe sandbox> — verified writing a file from an
+#     ordinary third-party page before this gate existed.
+#   Host — DNS rebinding sidesteps Origin entirely by making the attacker's
+#     own domain resolve to 127.0.0.1, at which point the request is
+#     same-origin and carries no cross-origin Origin at all. A loopback
+#     service must therefore also insist it was addressed as loopback.
+
+# Loopback by default. A deployment that legitimately fronts /mcp with a
+# reverse proxy sets its own public name here — the proxy is then the thing
+# that authenticates, which is the arrangement this endpoint was written for.
+#   [service] mcp_allow_hosts = ["mcp.internal"]
+_DEFAULT_MCP_HOSTS = ["127.0.0.1", "localhost", "[::1]", "::1"]
+
+
+def _mcp_hosts() -> set[str]:
+    return set(CONFIG.get("service", {}).get("mcp_allow_hosts", _DEFAULT_MCP_HOSTS))
+
+
+def _mcp_caller_ok(request: Request) -> str | None:
+    """None when the caller may use /mcp, else the reason it may not."""
+    if request.headers.get("origin") is not None:
+        return ("/mcp is not reachable from a browser page — it writes files "
+                "and spends tokens. Call it from an MCP client over stdio "
+                "(`dia mcp`), or front it with a proxy that authenticates.")
+    host = (request.headers.get("host") or "").rsplit(":", 1)[0]
+    if host and host not in _mcp_hosts():
+        return (f"/mcp answers only to a loopback Host, not {host!r} — a name "
+                "that resolves to 127.0.0.1 is how DNS rebinding reaches a "
+                "local service.")
+    return None
+
+
+@app.post("/mcp")
+async def mcp_endpoint(msg: dict[str, Any], request: Request) -> Response:
+    """One MCP JSON-RPC request in, one response out.
+
+    Dispatches through `mcp.handle_request` — the same pure function
+    the stdio `dia mcp` server calls per line. Reads/urllib inside a
+    tool call would block the event loop, so the dispatch runs on a
+    worker thread. Notifications (no `id`) get a 202 with an empty body,
+    per the JSON-RPC convention.
+    """
+    refused = _mcp_caller_ok(request)
+    if refused is not None:
+        raise HTTPException(status_code=403, detail=refused)
+    response = await asyncio.to_thread(mcp.handle_request, msg)
+    if response is None:
+        return Response(status_code=202)
+    return JSONResponse(response)
 
 
 def mount_editor(dist: Path) -> None:
