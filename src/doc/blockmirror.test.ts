@@ -22,7 +22,8 @@ import {
   attachMirror, clearMirrors, cropBand, inBand, inkRunsOf, installBlockMirror,
   isMirrored, lineRangeOf, linePitch, mainRowBand, mirrorTargets, normalizeRecord, openBlock,
   pruneMirrors, regionForLines, segmentsFor, selectRunsFor, textLines, toTopDown, withoutWrappers, xGroupsOf,
-  bibliographyPages, isLayoutOnlySlice, liesAbovePrev, claimFloor, dropFolio,
+  bibliographyPages, bibliographyPrevPage, isFillerPage, isInklessSectionMarker,
+  isLayoutOnlySlice, liesAbovePrev, claimFloor, dropFolio,
   type SynctexRecord,
 } from './blockmirror'
 
@@ -930,6 +931,76 @@ describe('bibliographyPages', () => {
       { line: 1599, page: 10, y: 105 }, { line: 1604, page: 10, y: 752 },
     ]
     expect(bibliographyPages(recs, { from: 1600, to: 1601 })).toEqual([10])
+  })
+  it('issue #22: widens past a filler prev when next is otherwise a degenerate one-page range', () => {
+    // thesis.tex's own shape: \backmatter's box lands on 13 (departing
+    // page) and 14 (the \cleardoublepage filler); \appendix's \chapter
+    // leaves a closing box on 15 (the references' own page) before its own
+    // skip to 17. Without prevIsFiller the range is [14] and page 15 — the
+    // one with the actual references — is dropped.
+    const recs: SynctexRecord[] = [
+      { line: 270, page: 13, y: 732.1 }, { line: 270, page: 14, y: 70.46 },
+      { line: 277, page: 15, y: 732.1 }, { line: 277, page: 16, y: 70.46 }, { line: 277, page: 17, y: 181.34 },
+    ]
+    expect(bibliographyPages(recs, { from: 272, to: 273 })).toEqual([14])
+    expect(bibliographyPages(recs, { from: 272, to: 273 }, true)).toEqual([14, 15])
+  })
+  it('does not widen when prev is a filler but the range already has room', () => {
+    const recs: SynctexRecord[] = [
+      { line: 100, page: 11, y: 200 }, { line: 900, page: 20, y: 100 },
+    ]
+    expect(bibliographyPages(recs, { from: 894, to: 897 }, true)).toEqual(bibliographyPages(recs, { from: 894, to: 897 }, false))
+  })
+})
+
+describe('bibliographyPrevPage', () => {
+  it('is the highest page any content strictly before the range reached', () => {
+    const recs: SynctexRecord[] = [{ line: 100, page: 11, y: 200 }, { line: 120, page: 12, y: 300 }]
+    expect(bibliographyPrevPage(recs, { from: 130, to: 140 })).toBe(12)
+  })
+  it('is 0 with nothing before the range', () => {
+    expect(bibliographyPrevPage([{ line: 900, page: 17, y: 100 }], { from: 5, to: 6 })).toBe(0)
+  })
+})
+
+describe('isFillerPage', () => {
+  const inkOf = (runs: Array<[number, number]>, rows: number, cols: number, scale = 1) => {
+    const cells = new Uint8Array(cols * rows)
+    for (const [a, b] of runs) for (let y = a; y <= b; y++) for (let c = 40; c < 60; c++) cells[y * cols + c] = 1
+    return { cells, cols, rows, scale, wPt: cols / scale, hPt: rows / scale, extent: { xMin: 0, xMax: cols } }
+  }
+  it('null ink answers false, not a guess (see other crop-math fallbacks in this file)', () => {
+    expect(isFillerPage(null)).toBe(false)
+  })
+  it('is true for a page with no ink at all', () => {
+    expect(isFillerPage(inkOf([], 800, 500))).toBe(true)
+  })
+  it('is true for a one-line running header on an otherwise blank page', () => {
+    // measured on thesis.tex's page 14: ink rows 112-126 of 1428 (a
+    // \cleardoublepage filler's header), scale 1.806
+    expect(isFillerPage(inkOf([[112, 126]], 1428, 943, 1.806))).toBe(true)
+  })
+  it('is false once a page holds a real block of content below the header', () => {
+    // thesis.tex's page 15: header rows 112-126, body rows 295-1316
+    expect(isFillerPage(inkOf([[112, 126], [295, 1316]], 1428, 943, 1.806))).toBe(false)
+  })
+})
+
+describe('isInklessSectionMarker', () => {
+  it('hides a bare beamer \\section', () => {
+    expect(isInklessSectionMarker('\\section{Motivation}', 'beamer')).toBe(true)
+  })
+  it('hides a beamer \\subsection, and one carrying its own \\label', () => {
+    expect(isInklessSectionMarker('\\subsection{Detail}', 'beamer')).toBe(true)
+    expect(isInklessSectionMarker('\\section{Motivation}\n\\label{sec:motivation}', 'beamer')).toBe(true)
+  })
+  it('leaves an article or book \\section visible — same slice, different class', () => {
+    expect(isInklessSectionMarker('\\section{Motivation}', 'article')).toBe(false)
+    expect(isInklessSectionMarker('\\section{Motivation}', 'book')).toBe(false)
+    expect(isInklessSectionMarker('\\section{Motivation}', undefined)).toBe(false)
+  })
+  it('leaves prose alone even under beamer', () => {
+    expect(isInklessSectionMarker('\\section{Motivation} and some words', 'beamer')).toBe(false)
   })
 })
 

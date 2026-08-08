@@ -1156,6 +1156,11 @@ export async function refreshMirrors(jobId: string): Promise<void> {
   await cutDocument(doc, records, run)
 }
 
+/* the source a beamer frame block starts with, whatever markup a parser
+ * wraps it in (a dia-tex-island today; sniffed on the SOURCE rather than a
+ * class so it does not care) */
+const FRAME_START = /^\\begin\{frame\}/
+
 /** Cut every block's crops for one pass, given records and a page source
  * that is already resolved — no daemon fetch, no compile job, nothing
  * browser-only left in it but the DOM the crops attach to (which happy-dom
@@ -1183,10 +1188,45 @@ export async function cutDocument(doc: Doc, records: SynctexRecord[], run: Pass)
   const orphans: Orphan[] = []
   for (let i = 0; i < entries.length; i++) {
     const { block, range, segments } = entries[i]
+    const slice = doc.source.sliceOf(block.getAttribute('data-dia-id') ?? '') ?? ''
+    // a beamer frame: synctex gives its own source line almost nothing to
+    // place (14 records for a 13-page beamer.tex, measured) — but each
+    // record it DOES report lands at the frame's own left margin (x=0), not
+    // a real column position, which is nothing the ordinary per-record crop
+    // can bracket (bandFor's inBand keeps zero tolerance for every other
+    // paper's sake, so it drops a x=0 box on the floor rather than guess).
+    // What those same records DO say correctly is which PDF page each one
+    // is on — one record per overlay step, because beamer ships one page
+    // per \pause/<n->/\onslide split and \end{frame}'s line gets a fresh box
+    // at every shipout (measured on beamer.tex: a lone \pause produced 2
+    // records/pages, three `<n->` items plus a \onslide<4-> produced 4). So
+    // a frame skips segment-level placement
+    // entirely and crops the WHOLE of every page its own records name, the
+    // way bibliographyPages already bypasses line attribution for
+    // references — cheap to get right because the page list falls out of
+    // segmentsFor for free, and cutBlock's fullPages branch already exists.
+    if (FRAME_START.test(slice.trimStart())) {
+      const pages = [...new Set(segments.map((s) => s.page))].sort((a, b) => a - b)
+      if (pages.length > 0) {
+        cuts.push({ block, segments: [], range, fullPages: pages, key: `frame|${pages.join(',')}|${run.dpi}` })
+        continue
+      }
+      // no synctex attribution at all for this frame — not measured in the
+      // beamer.tex corpus fixture (every frame there gets at least one
+      // record), but nothing guarantees every frame always will. Falls
+      // through to the ordinary classification below, which marks it
+      // quietly rather than showing nothing at all.
+    }
     if (segments.length === 0) {
-      const slice = doc.source.sliceOf(block.getAttribute('data-dia-id') ?? '') ?? ''
       if (/\\bibliography\{|\\printbibliography/.test(slice)) {
-        const pages = bibliographyPages(records, range)
+        const prevPage = bibliographyPrevPage(records, range)
+        let prevIsFiller = false
+        if (prevPage > 0) {
+          const src = await run.pages.ink(prevPage)
+          if (!run.live()) return
+          if (src?.ink) prevIsFiller = isFillerPage(src.ink)
+        }
+        const pages = bibliographyPages(records, range, prevIsFiller)
         if (pages.length > 0) {
           cuts.push({ block, segments: [], range, fullPages: pages,
             key: `bib|${pages.join(',')}|${run.dpi}` })
@@ -1313,6 +1353,12 @@ interface Orphan {
  *    heading, a display whose records were the previous paragraph's box)
  *    hides as long as that neighbour mirrored;
  *  - layout-only source (\clearpage, \appendix…) sets nothing — hide it;
+ *  - in a beamer deck, \section (and \subsection) also sets nothing: it
+ *    only feeds the navigation bar / \tableofcontents, never a slide, and
+ *    unlike \clearpage that is not something setsNoType/isLayoutOnlySlice
+ *    can tell from the raw slice alone — in an article or book \section
+ *    very much DOES ink a heading, so hiding it needs the document class,
+ *    not just the command name — hide it;
  *  - a block sharing its source line with the previous one (display math
  *    after text on one line) is inside that crop for the same reason —
  *    and display math is inside the paragraph it interrupts even when the
@@ -1326,7 +1372,10 @@ function classifyOrphans(doc: Doc, orphans: Orphan[], mirrored: Set<HTMLElement>
     if (!block.isConnected) continue
     if (sharedWith && mirrored.has(sharedWith)) { putAside(block, 'hidden'); continue }
     const slice = doc.source.sliceOf(block.getAttribute('data-dia-id') ?? '') ?? ''
-    if (isLayoutOnlySlice(slice) || setsNoType(slice)) { putAside(block, 'hidden'); continue }
+    if (isLayoutOnlySlice(slice) || setsNoType(slice) || isInklessSectionMarker(slice, doc.docclass)) {
+      putAside(block, 'hidden')
+      continue
+    }
 
     const prev = block.previousElementSibling
     if (prev instanceof HTMLElement && mirrored.has(prev)) {
@@ -1836,6 +1885,39 @@ function hasInk(ink: PageInk, region: MirrorRegion): boolean {
   return false
 }
 
+/* a page whose ink runs shorter (top to bottom) than this is content-free —
+ * measured on thesis.tex: the running header \cleardoublepage leaves on a
+ * blank filler page is one line, 7.75pt tall (rows 112-126 at 1.806 device
+ * px/pt); the shortest REAL page in that same document (a chapter's last,
+ * mostly-empty page) still runs 567pt. Nothing in between was measured, so
+ * the threshold sits an order of magnitude above the header and well below
+ * any real page — a two-line caption alone would clear it. */
+const FILLER_INK_HEIGHT = 40
+
+/** Is this page typeset content-free below (or beside) its running header —
+ * the near-blank filler `\cleardoublepage` inserts to force the next chapter
+ * onto an odd page? A `\backmatter`/`\appendix` skip still leaves a synctex
+ * record on that filler page (the header is set there, and it carries the
+ * triggering line's box), which is what lets a page with no real neighbour
+ * content masquerade as one — see bibliographyPages. Null ink (nothing
+ * decoded, or nothing could be) answers "no" rather than guess, the same
+ * conservative default the rest of this file uses when a witness is
+ * missing. */
+export function isFillerPage(ink: PageInk | null): boolean {
+  if (!ink) return false
+  const inkedRow = (y: number): boolean => {
+    const row = y * ink.cols
+    for (let c = 0; c < ink.cols; c++) if (ink.cells[row + c]) return true
+    return false
+  }
+  let top = -1
+  for (let y = 0; y < ink.rows; y++) { if (inkedRow(y)) { top = y; break } }
+  if (top < 0) return true // no ink at all: also content-free
+  let bottom = top
+  for (let y = ink.rows - 1; y >= top; y--) { if (inkedRow(y)) { bottom = y; break } }
+  return (bottom - top) / ink.scale < FILLER_INK_HEIGHT
+}
+
 /** the run of rows, seen through one window, that the block's baselines
  * stand in — the vertical half of the same ink trim cropBand ends with */
 function ownRows(
@@ -1994,19 +2076,49 @@ function isOpenForEdit(block: HTMLElement): boolean {
   return block.hasAttribute('contenteditable') || block.querySelector('[contenteditable]') !== null
 }
 
+/** the highest page any content strictly before this block's source lines
+ * reached — the `prev` half of bibliographyPages' own scan, pulled out so a
+ * caller can decode THAT page's ink and ask isFillerPage about it before
+ * bibliographyPages decides the full range, without running the scan twice. */
+export function bibliographyPrevPage(records: SynctexRecord[], range: { from: number; to: number }): number {
+  let prev = 0
+  for (const r of records) if (r.line < range.from) prev = Math.max(prev, r.page)
+  return prev
+}
+
 /** The pages a \bibliography command typeset: from the page its preceding
  * line last touched through the page before the following content resumes.
  * Nothing else can say — the entries' boxes carry the .bbl FILE's synctex
- * tag, which the daemon rightly filters out. Exported for tests. */
-export function bibliographyPages(records: SynctexRecord[], range: { from: number; to: number }): number[] {
-  let prev = 0
-  let next = Infinity
-  for (const r of records) {
-    if (r.line < range.from) prev = Math.max(prev, r.page)
-    if (r.line > range.to) next = Math.min(next, r.page)
-  }
+ * tag, which the daemon rightly filters out. Exported for tests.
+ *
+ * `prevIsFiller` says the `prev` page itself is a content-free filler (see
+ * isFillerPage) — which a `\cleardoublepage` leaves behind with nothing on
+ * it but a running header, and that header still carries the triggering
+ * line's synctex record, so `prev` can land there with no real neighbour
+ * content at all (measured: thesis.tex's `\backmatter`, forced by `twoside`,
+ * does this to page 14). When it does, the naive `next` boundary is usually
+ * the SAME kind of artifact seen from the other side: whatever forces the
+ * next block onto its own fresh page (thesis.tex's `\chapter` after
+ * `\appendix`) leaves a closing box at the FOOT of the page the bibliography
+ * itself is typeset on (measured: page 15, the references' own page) —
+ * indistinguishable from real content by page number alone. Trusting it as
+ * a hard boundary crops the filler page and misses the references entirely,
+ * so a filler `prev` widens a degenerate one-page range by one more page,
+ * pulling in whatever is actually typeset right after the filler. Wrong
+ * when it turns out nothing real is there, but hasInk() (cutBlock) drops an
+ * empty page from the crop for free either way, so widening can never cut
+ * into a neighbour's content it shouldn't. */
+export function bibliographyPages(
+  records: SynctexRecord[],
+  range: { from: number; to: number },
+  prevIsFiller = false,
+): number[] {
+  const prev = bibliographyPrevPage(records, range)
   if (prev === 0) return []
+  let next = Infinity
+  for (const r of records) if (r.line > range.to) next = Math.min(next, r.page)
   if (next === Infinity) next = prev + 9 // refs at the end of the document
+  if (prevIsFiller && next === prev + 1) next = prev + 2
   // references may START on the page the body ends on and the next section
   // may start on the page they end on — the shared pages are still theirs
   // (the crop clips to what stands between the neighbours' records)
@@ -2021,6 +2133,21 @@ export function bibliographyPages(records: SynctexRecord[], range: { from: numbe
 const LAYOUT_ONLY = /^(?:\s|%[^\n]*|\\(?:clearpage|cleardoublepage|newpage|appendix|onecolumn|twocolumn|noindent|bigskip|medskip|smallskip|par)\b|\\(?:pagenumbering|bibliographystyle|label|vspace\*?|hspace\*?|setcounter\{[^}]*\})\{[^}]*\})+$/
 export function isLayoutOnlySlice(slice: string): boolean {
   return LAYOUT_ONLY.test(slice.trim())
+}
+
+/* a slice holding nothing but a \section/\subsection/\subsubsection command
+ * (starred or not) and — the everyday pairing — the \label right after it */
+const SECTION_MARKER = /^\\(?:sub)*section\*?\{(?:[^{}]|\{[^{}]*\})*\}\s*(?:\\label\{[^}]*\}\s*)?$/
+
+/** Does this slice hold nothing but a \section/\subsection whose CLASS says
+ * it inks no slide — beamer's own, which feeds only the navigation bar and
+ * \tableofcontents (measured: zero synctex records for any of beamer.tex's
+ * three)? The command name alone cannot say this: an article's or book's
+ * \section very much sets a real heading, so setsNoType/isLayoutOnlySlice
+ * (which read the slice text only) correctly leave it visible — the
+ * document class is the one input neither of them has. */
+export function isInklessSectionMarker(slice: string, docclass: string | undefined): boolean {
+  return docclass === 'beamer' && SECTION_MARKER.test(slice.trim())
 }
 
 interface Cut {
