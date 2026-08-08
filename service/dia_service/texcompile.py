@@ -193,6 +193,82 @@ def parse_log(text: str) -> list[TexError]:
 
 
 # ---------------------------------------------------------------------------
+# biblatex's classic-bibtex compatibility backend (issue #23)
+# ---------------------------------------------------------------------------
+#
+# `\usepackage[backend=bibtex]{biblatex}` asks biblatex to drive citations
+# through classic bibtex instead of biber. That mode compiles cleanly —
+# exit 0, a real PDF — but modern `biblatex.bst` is not fully supported by
+# classic bibtex, and the result is WRONG citation text, not a missing one:
+# measured on corpus/tex/biblatex/biblatex.tex, `\textcite{lamport1994}`
+# printed the entry's TITLE where the author name belongs. The reference
+# LIST from \printbibliography comes out fully correct — only the inline
+# \cite-family commands are affected — which is exactly what makes this the
+# worst failure shape a compiler can have: it looks finished.
+#
+# Installing biber does NOT fix this. biber only ever runs for biblatex's
+# DEFAULT backend; a document that explicitly asked for backend=bibtex has
+# opted out of biber entirely, and tectonic (verified on a real compile
+# while fixing this issue) still runs — and still ignores the failure of —
+# its own classic-bibtex fallback even with a working biber on PATH. The
+# only real fix is dropping `backend=bibtex` so the document uses biber.
+
+# `\usepackage[...,backend=bibtex,...]{biblatex}` — order of options inside
+# the brackets does not matter, so this looks for backend=bibtex anywhere
+# in them rather than parsing the whole option list.
+_BACKEND_BIBTEX = re.compile(
+    r"\\usepackage\s*\[[^\]]*\bbackend\s*=\s*bibtex\b[^\]]*\]\s*\{biblatex\}")
+# biblatex.sty's own warning when it loads the compatibility shim — emitted
+# regardless of engine, since it comes from the .sty, not the engine.
+# Captured verbatim from a real compile: service/tests/logs/
+# biblatex-bibtex-fallback.log.
+_FALLBACK_BIBTEX_BACKEND = re.compile(
+    r"Using fall-back BibTeX\(8\) backend", re.IGNORECASE)
+# classic bibtex refusing biblatex.bst's own bytecode, in the .blg — the
+# tell-tale that fires on EVERY entry, captured verbatim from a real
+# compile: service/tests/logs/biblatex-bibtex-fallback.blg.
+_BLG_CANT_MESS_WITH_ENTRIES = re.compile(r"You can't mess with entries here")
+
+BIBER_HOMEPAGE = "https://ctan.org/pkg/biber"
+
+
+def biblatex_bibtex_backend_finding(
+    source: str = "", log: str = "", blg: str = "",
+) -> TexError | None:
+    """A finding for the problems drawer when the risk above is real, or
+    None when it is not. Any ONE of the three tell-tales is sufficient —
+    they were all measured firing together on the same real compile, but a
+    caller may have only the source (checking before compiling), or only a
+    log and no .blg (a compile that failed before bibtex ran), or a .blg
+    with no matching source (main.tex was not passed in).
+
+    Deliberately does not accept or check "is biber installed" — irrelevant
+    here, since biber is not what fixes a `backend=bibtex` document (see
+    the module comment above)."""
+    if not (
+        _BACKEND_BIBTEX.search(source)
+        or _FALLBACK_BIBTEX_BACKEND.search(log)
+        or _BLG_CANT_MESS_WITH_ENTRIES.search(blg)
+    ):
+        return None
+    return TexError(
+        level="warning",
+        file=None,
+        line=None,
+        message=(
+            "biblatex is compiling on the classic-bibtex compatibility "
+            "backend (backend=bibtex); modern biblatex styles are not "
+            "fully supported by classic bibtex, so inline citations "
+            "(\\cite, \\textcite, \\autocite, …) can render the WRONG "
+            "text even though the compile succeeded — the reference list "
+            "itself is unaffected. Installing biber will not fix this: "
+            "remove backend=bibtex so biblatex uses its default biber "
+            f"backend instead ({BIBER_HOMEPAGE})."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # synctex
 # ---------------------------------------------------------------------------
 
@@ -690,6 +766,25 @@ class CompileJob:
                 return p
         return None
 
+    def _source_text(self) -> str:
+        """The workdir's main.tex — the adapted copy (see
+        _adapt_source_for_engine), which still carries the author's
+        \\usepackage options untouched. Empty string, never an exception,
+        if it cannot be read: this feeds a warning check, not a build step."""
+        try:
+            return (self.workdir / "main.tex").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return ""
+
+    def _blg_text(self) -> str:
+        """classic bibtex's own log, if this run produced one. Empty when
+        biber ran instead (biber writes no .blg) or nothing ran at all."""
+        p = self.workdir / "main.blg"
+        try:
+            return p.read_text(encoding="utf-8", errors="replace") if p.is_file() else ""
+        except OSError:
+            return ""
+
     def status_dict(self) -> dict[str, Any]:
         return {
             "jobId": self.id,
@@ -778,6 +873,15 @@ class CompileJob:
             if self.pdf_path.is_file() and self.pdf_path.stat().st_size > 0:
                 self.status = "ok"
                 self.pages = _page_count(self.log, self.pdf_path)
+                # a real PDF is exactly the case parse_log's findings do not
+                # cover: the engine reported success, but the citation TEXT
+                # can still be wrong (issue #23) — see the module comment
+                # above biblatex_bibtex_backend_finding
+                finding = biblatex_bibtex_backend_finding(
+                    source=self._source_text(), log=self.log,
+                    blg=self._blg_text())
+                if finding is not None:
+                    self.errors.append(finding)
             else:
                 self.status = "error"
                 if not self.errors and not self.detail:

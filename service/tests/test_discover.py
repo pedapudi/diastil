@@ -114,6 +114,44 @@ def test_cache_dir_honors_xdg(monkeypatch, tmp_path):
     assert tex.cache_root().parts[-2:] == (".cache", "diastil")
 
 
+def test_biber_absent_is_not_an_engine_failure(monkeypatch, fake_path):
+    """No biber anywhere: the engine ladder is untouched, and the
+    capability says so plainly rather than omitting the field."""
+    install(fake_path, "pdflatex")
+    only(monkeypatch, fake_path)
+    cap = tex.discover(config={})
+    assert cap.engine == "pdflatex"
+    assert cap.biber is False
+    assert tex.biber_path() is None
+
+
+def test_biber_on_path_is_reported_alongside_any_engine(monkeypatch, fake_path):
+    install(fake_path, "pdflatex")
+    install(fake_path, "biber", "biber version 2.20")
+    only(monkeypatch, fake_path)
+    cap = tex.discover(config={})
+    assert cap.engine == "pdflatex"
+    assert cap.biber is True
+    assert tex.biber_path() == str(fake_path / "biber")
+
+
+def test_biber_is_reported_even_with_no_engine_at_all(monkeypatch, fake_path):
+    install(fake_path, "biber", "biber version 2.20")
+    only(monkeypatch, fake_path)
+    cap = tex.discover(config={})
+    assert cap.engine is None
+    assert cap.biber is True
+
+
+def test_biber_path_is_cached_until_reset(monkeypatch, fake_path):
+    only(monkeypatch, fake_path)
+    assert tex.biber_path() is None
+    install(fake_path, "biber")
+    assert tex.biber_path() is None       # cached
+    tex.reset_cache()
+    assert tex.biber_path() == str(fake_path / "biber")
+
+
 def test_every_release_is_pinned_by_hash():
     """No user-supplied URLs, and nothing computed at runtime: the whole
     install surface is these four constants."""

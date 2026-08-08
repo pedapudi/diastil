@@ -23,6 +23,13 @@ Poppler's command-line tools are discovered the same way, for a different
 job: turning a compiled PDF into page images the editor can show inline.
 They are a separate axis from the engine — a machine can rasterize PDFs it
 cannot produce, and vice versa — so they get their own capability flag.
+
+`biber` is a third, separate axis, discovered the same PATH-only way
+(biber_path()): it is biblatex's real bibliography backend, and a machine
+can have a fine TeX engine and no biber at all. See biber_path()'s
+docstring for why there is no managed download for it, and
+texcompile.biblatex_bibtex_backend_finding for what happens when a
+document needs it and it is missing.
 """
 
 from __future__ import annotations
@@ -68,6 +75,12 @@ class TexCapability:
     can be turned into page images, which is what the editor's island
     previews need. It is reported even when there is no engine at all,
     because the two are genuinely separate installs.
+
+    `biber` is independent too, and for the same reason: it is biblatex's
+    real bibliography backend (see biber_path()), a document can need it
+    with any of the four engines, and a machine can have TeX but no biber
+    or vice versa. Reported even when there is no engine at all so the
+    client can say why citations will be wrong before the user even tries.
     """
 
     engine: str | None = None
@@ -78,6 +91,7 @@ class TexCapability:
     managed: bool = False
     detail: str | None = None
     page_render: bool = False
+    biber: bool = False
 
     def as_dict(self) -> dict:
         # the wire format is camelCase like the rest of the API (jobId,
@@ -218,6 +232,42 @@ def page_info_tool() -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# biber (biblatex's real bibliography backend — issue #23)
+# ---------------------------------------------------------------------------
+
+_biber: dict[str, str | None] = {}
+
+
+def biber_path() -> str | None:
+    """Absolute path to `biber` on PATH, or None. PATH discovery only, like
+    tool_path() above — deliberately NOT a managed download.
+
+    Unlike tectonic, biber has no single GitHub Releases page with one
+    checksummed archive per platform; upstream ships per-platform binaries
+    through SourceForge under names that move release to release. texdl.py's
+    whole design is that nothing is fetched without a URL and sha256 pinned
+    in code and verified before use (see its module docstring); a URL or
+    hash we cannot ourselves confirm would be exactly the "invented" pin
+    that design refuses to ship, so installing biber is left to the user —
+    their OS package manager, TeX Live/MacTeX (both bundle it), or CTAN.
+
+    Once biber IS on PATH, nothing else here has to change to use it: a
+    real compile (this repo's own managed tectonic 0.15.0, verified by
+    hand while fixing issue #23) shells out to an external `biber` on its
+    own for a document using biblatex's default backend — no flag, no
+    code path in this module drives it — and latexmk has auto-detected and
+    run biber with zero configuration since v4.22 (2011; CTAN latexmk.txt,
+    `$bibtex_use`). What biber_path() is FOR is telling the user the truth
+    when it is missing: see texcompile.biblatex_bibtex_backend_finding.
+
+    Cached like tool_path(): a compile-heavy session polls this a lot, and
+    a binary does not appear mid-session. reset_cache() forgets it too."""
+    if "biber" not in _biber:
+        _biber["biber"] = shutil.which("biber")
+    return _biber["biber"]
+
+
+# ---------------------------------------------------------------------------
 # discovery
 # ---------------------------------------------------------------------------
 
@@ -255,6 +305,7 @@ def discover(refresh: bool = False, config: dict | None = None) -> TexCapability
     downloadable = _downloadable()
     managed = managed_tectonic_path()
     page_render = page_render_tool() is not None
+    biber = biber_path() is not None
 
     for engine, path in _candidates(cfg):
         version = probe_version(path)
@@ -268,6 +319,7 @@ def discover(refresh: bool = False, config: dict | None = None) -> TexCapability
             downloadable=downloadable,
             managed=(engine == "tectonic" and Path(path) == managed),
             page_render=page_render,
+            biber=biber,
         )
         return _cache
 
@@ -276,7 +328,8 @@ def discover(refresh: bool = False, config: dict | None = None) -> TexCapability
         if pinned else "no TeX engine found"
     )
     _cache = TexCapability(
-        downloadable=downloadable, detail=detail, page_render=page_render)
+        downloadable=downloadable, detail=detail, page_render=page_render,
+        biber=biber)
     return _cache
 
 
@@ -297,3 +350,4 @@ def reset_cache() -> None:
     global _cache
     _cache = None
     _tools.clear()
+    _biber.clear()
