@@ -124,34 +124,12 @@ async function cutFixture(paper: string, texRel: string): Promise<Doc> {
  * (`.de-unmirrored`, the quiet-dotted-edge marker) or never touched at all
  * is a gap in the crop math the corpus should have caught.
  *
- * Two fixtures land short of zero, both filed rather than fixed here:
- *  - thesis (issue #22): the References block. \backmatter + \appendix
- *    each force a \cleardoublepage under the twoside layout the issue asked this
- *    fixture to exercise ("double-page headers"), which inserts a BLANK
- *    filler page between the two. bibliographyPages's prev/next page scan
- *    (blockmirror.ts) has no notion of a content-free filler page, so the
- *    boundary it computes for "pages this bibliography owns" lands one
- *    page short of where the references are actually typeset. Needs
- *    front/back-matter-aware page classification, not a table tweak.
- *  - beamer (issue #21): all 12 non-preamble blocks (9 frames + 3 \section markers).
- *    A 9-frame, 13-page deck produced only 14 synctex records total
- *    (measured) — beamer's own box/overlay machinery gives synctex almost
- *    nothing to attribute per source line, so segmentsFor finds nothing to
- *    place for nearly every frame. A working beamer mirror needs a
- *    different compile strategy (crop each frame as the whole PDF page
- *    \begin{frame}...\end{frame} landed on, bypassing line attribution
- *    entirely, the way bibliographyPages already bypasses it for
- *    references) — new machinery, not a fix. The 3 \section markers are a
- *    second, narrower gap: beamer's \section inks nothing on any slide
- *    (it only feeds the nav bar / \tableofcontents), so classifyOrphans's
- *    "no records = layout-only, hide it" rule never fires for it — that
- *    rule works off the raw slice text alone (setsNoType/isLayoutOnlySlice
- *    have no notion of "which document class is this"), so it cannot
- *    special-case \section-inks-nothing for beamer without regressing
- *    every article \section, which really does ink a heading. */
+ * Both fixtures that used to land short of zero (issues #21, #22) are now
+ * accounted in full — see the dedicated assertions below for what each fix
+ * actually produces (a page count, a picture count), not just this ratchet. */
 const CORPUS_BREADTH_FIXTURES: Array<{ paper: string; tex: string; knownUnaccounted: number }> = [
-  { paper: 'thesis', tex: 'thesis/thesis.tex', knownUnaccounted: 1 },
-  { paper: 'beamer', tex: 'beamer/beamer.tex', knownUnaccounted: 12 },
+  { paper: 'thesis', tex: 'thesis/thesis.tex', knownUnaccounted: 0 },
+  { paper: 'beamer', tex: 'beamer/beamer.tex', knownUnaccounted: 0 },
   { paper: 'biblatex', tex: 'biblatex/biblatex.tex', knownUnaccounted: 0 },
   { paper: 'theorems', tex: 'theorems/theorems.tex', knownUnaccounted: 0 },
 ]
@@ -169,6 +147,52 @@ describe.skipIf(skip)('corpus breadth (issue #8): every block accounted for', ()
         `${targets.length} top-level blocks; unaccounted: ${JSON.stringify(unaccounted.map((b) => (b.textContent ?? '').slice(0, 60)))}`,
       ).toBeLessThanOrEqual(knownUnaccounted)
     })
+  }
+})
+
+/** issue #22: thesis.tex's References block used to crop the near-blank
+ * filler page \backmatter's \cleardoublepage leaves on page 14 (twoside)
+ * and miss the references entirely, typeset whole on page 15. It must now
+ * mirror — and specifically as ONE picture (page 15's real content; page
+ * 14 is still in bibliographyPages' returned range, but hasInk drops it,
+ * exactly as it always dropped a genuinely blank page). */
+it('issue #22: thesis.tex mirrors the References block, not the blank filler page before it', async () => {
+  const doc = await cutFixture('thesis', 'thesis/thesis.tex')
+  const bib = [...doc.article.querySelectorAll<HTMLElement>('p')]
+    .find((b) => (b.textContent ?? '').includes('\\bibliography{refs}'))
+  if (!bib) throw new Error('fixture replay: no block holds \\bibliography{refs}')
+  expect(bib.querySelector(':scope > .de-mirror')).not.toBeNull()
+  expect(bib.querySelectorAll('.de-mirror-part').length).toBe(1)
+})
+
+/** issue #21: beamer.tex's 9 frames and 3 \section markers used to be
+ * entirely unaccounted (12 of 12) — 14 synctex records for a 13-page deck
+ * gave segmentsFor almost nothing to place, and a frame's one record sits
+ * at x=0 (the page's own left edge, not a real column), which bandFor's
+ * exact-tolerance inBand correctly refuses to bracket for every other
+ * paper's sake. Both are now handled in full: every frame crops the WHOLE
+ * PDF page(s) its own records name (cause 1's fullPages path — the frame
+ * with one \pause and the frame with three `<n->` items plus a \onslide<4->
+ * both get every one of their overlay pages), and \section hides gracefully
+ * once the classifier knows the docclass is beamer (cause 2). */
+it('issue #21: beamer.tex mirrors every frame (incl. every overlay page) and hides every \\section', async () => {
+  const doc = await cutFixture('beamer', 'beamer/beamer.tex')
+  const islands = [...doc.article.querySelectorAll<HTMLElement>('div.dia-tex-island')]
+  expect(islands.length).toBe(9) // 9 \begin{frame}...\end{frame} blocks
+  for (const frame of islands) {
+    expect(frame.querySelector(':scope > .de-mirror'), (frame.textContent ?? '').slice(0, 40)).not.toBeNull()
+  }
+  // measured: 1 overlay page each except the two \pause/\onslide frames —
+  // "Why On-Device..." (1 pause: 2 pages) and "What Structured Sparsity
+  // Buys" (3 \item overlays + 1 \onslide: 4 pages) — 9 frames, 13 pages
+  const pictures = islands.map((f) => f.querySelectorAll('.de-mirror-part').length)
+  expect(pictures.reduce((a, b) => a + b, 0)).toBe(13)
+  expect(pictures).toEqual([1, 1, 2, 4, 1, 1, 1, 1, 1])
+
+  const sections = [...doc.article.querySelectorAll<HTMLElement>('h2.dia-sec')]
+  expect(sections.length).toBe(3) // Motivation, Method, Results
+  for (const section of sections) {
+    expect(section.querySelector(':scope > .de-mirror-hidden'), (section.textContent ?? '')).not.toBeNull()
   }
 })
 

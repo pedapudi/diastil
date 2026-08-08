@@ -35,6 +35,10 @@ export interface Doc {
   title: string
   fileName: string
   docVersion: string
+  /** \documentclass's own argument (`article`, `beamer`, `book`…), mined by
+   * the parser's PreambleMeta. Not persisted — always re-derived from the
+   * source on load, the same as everything else parseLatex reads off it. */
+  docclass?: string
 }
 
 export const EMPTY_COMMENTS = '{"version":1,"threads":[]}'
@@ -223,6 +227,7 @@ function mountDoc(host: HTMLElement, input: MountInput): Doc {
     title: input.title,
     fileName: input.fileName,
     docVersion: input.docVersion,
+    docclass: pmeta?.docclass,
   }
 }
 
