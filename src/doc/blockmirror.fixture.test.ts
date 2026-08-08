@@ -177,7 +177,10 @@ it('issue #22: thesis.tex mirrors the References block, not the blank filler pag
  * once the classifier knows the docclass is beamer (cause 2). */
 it('issue #21: beamer.tex mirrors every frame (incl. every overlay page) and hides every \\section', async () => {
   const doc = await cutFixture('beamer', 'beamer/beamer.tex')
-  const islands = [...doc.article.querySelectorAll<HTMLElement>('div.dia-tex-island')]
+  // frames render as wrappers since #20; the crop path sniffs the SOURCE,
+  // so it did not care — this selector has to keep up with the parser
+  const islands = [...doc.article.querySelectorAll<HTMLElement>('div.dia-wrap-frame, div.dia-tex-island')]
+    .filter((el) => /^\\begin\{frame\}/.test(doc.source.sliceOf(el.getAttribute('data-dia-id') ?? '') ?? ''))
   expect(islands.length).toBe(9) // 9 \begin{frame}...\end{frame} blocks
   for (const frame of islands) {
     expect(frame.querySelector(':scope > .de-mirror'), (frame.textContent ?? '').slice(0, 40)).not.toBeNull()
