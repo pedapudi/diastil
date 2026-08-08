@@ -44,6 +44,8 @@ def test_health_reports_tex(client, engine):
         "synctex": True, "downloadable": True, "managed": False, "detail": None,
         # this capability is about poppler, not the engine — see test_pages.py
         "pageRender": False,
+        # and this one is about biber, not the engine either — see test_discover.py
+        "biber": False,
     }
     # the pre-existing keys are untouched
     assert "ok" in body
