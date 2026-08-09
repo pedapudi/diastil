@@ -489,9 +489,25 @@ function parseFloatEnv(cur: Cursor, open: number, close: number, env: 'figure' |
   const placement = matchBracketGroup(cur, i, close)
   if (placement) i = placement.close + 1
 
+  // a LOOSE RUN is everything between two float-level constructs: the prose
+  // a float carries beside its graphic ("(a) left, (b) right", a note the
+  // author wrote under the image). Kept unparsed it stays in the source but
+  // never reaches the surface the user edits in — visible in the compiled
+  // mirror, absent from the document. Runs are flushed through parseBlocks
+  // only when they actually BEAR PROSE (see runBearsProse): a run of pure
+  // furniture — \centering, \small, a \subfloat whose only text sits in its
+  // bracket argument — would otherwise island its command bytes onto the
+  // surface as junk, which is a worse defect than the one being fixed.
+  let runLo = -1
+  const flushRun = (runHi: number) => {
+    if (runLo >= 0 && runBearsProse(cur, runLo, runHi)) body.push(...parseBlocks(cur, runLo, runHi))
+    runLo = -1
+  }
+
   while (i < close) {
     const t = cur.toks[i]
     if (t.kind === 'envbegin') {
+      flushRun(i)
       const envClose = findEnvEnd(cur.toks, i, close, t.name)
       if (envClose < 0) { i = close; break }
       body.push(parseEnv(cur, i, envClose, t.name))
@@ -502,16 +518,17 @@ function parseFloatEnv(cur: Cursor, open: number, close: number, env: 'figure' |
       if (t.name === 'caption') {
         const b = matchBracketGroup(cur, i + 1, close)
         const g = matchBraceGroup(cur, b ? b.close + 1 : i + 1, close)
-        if (g) { caption = parseInline(cur, g.lo, g.hi); i = g.close + 1; continue }
+        if (g) { flushRun(i); caption = parseInline(cur, g.lo, g.hi); i = g.close + 1; continue }
       }
       if (t.name === 'label') {
         const g = matchBraceGroup(cur, i + 1, close)
-        if (g) { label = groupText(cur, g); i = g.close + 1; continue }
+        if (g) { flushRun(i); label = groupText(cur, g); i = g.close + 1; continue }
       }
       if (t.name === 'includegraphics') {
         const b = matchBracketGroup(cur, i + 1, close)
         const g = matchBraceGroup(cur, b ? b.close + 1 : i + 1, close)
         if (g) {
+          flushRun(i)
           graphics.push({
             span: { start: t.span.start, end: cur.toks[g.close].span.end },
             path: groupText(cur, g).trim(),
@@ -522,15 +539,56 @@ function parseFloatEnv(cur: Cursor, open: number, close: number, env: 'figure' |
         }
       }
     }
+    if (runLo < 0) runLo = i
     if (t.kind === 'open') {
       // skip a balanced group so nested commands aren't misread as float-level
+      // (the group's bytes stay part of the run around it)
       const g = matchGroupFrom(cur, i, close)
       i = g ? g.close + 1 : i + 1
       continue
     }
     i++
   }
+  flushRun(close)
   return { kind: 'float', span, env, starred, caption, label, graphics, body }
+}
+
+/** glue primitives whose dimension is a BARE argument, not a braced one
+ * (\vspace{1em} is already a group, and its text never reaches depth 0).
+ * Measured on the corpus: `\centering \small \vskip 0.1in` opens a dozen
+ * palm/flan floats, and that "0.1in" is the only depth-0 text they have —
+ * without this the spacing run would be promoted to a paragraph and its
+ * command bytes shown as islands under the figure. */
+const BARE_DIMEN_RE = /\\(?:vskip|hskip|kern|addvspace|abovedisplayskip|belowdisplayskip|raise|lower)\b\s*=?\s*-?[\d.]*\s*(?:pt|mm|cm|em|ex|sp|in|bp|pc|fil{1,3})?/g
+
+/** does a float-level run carry text a reader would call prose? Only
+ * DEPTH-0 text counts: `\subfloat[Left panel]{…}` and `\resizebox{…}{…}{…}`
+ * put their words inside groups, where they are a command's argument, not
+ * float body. Command names themselves don't count either — an unknown
+ * macro is not evidence of prose, and treating it as such would island
+ * every layout run in the corpus onto the surface.
+ *
+ * What's left after both strips must contain a character that is neither
+ * whitespace nor punctuation nor a symbol: `(a)` and CJK prose qualify, a
+ * stray `.`, a `~` or an orphaned `\\` do not. A run whose ONLY content is
+ * a macro call (`\model{}`) stays unparsed — conservative on purpose, the
+ * cost is invisibility (the bytes are still exported) where the cost of a
+ * false positive is visible junk on every figure. */
+function runBearsProse(cur: Cursor, lo: number, hi: number): boolean {
+  let depth = 0
+  let flat = ''
+  for (let i = lo; i < hi; i++) {
+    const t = cur.toks[i]
+    if (t.kind === 'open' || t.kind === 'bopen') { depth++; continue }
+    if (t.kind === 'close' || t.kind === 'bclose') { depth--; continue }
+    if (depth !== 0 || t.kind === 'comment') continue
+    flat += cur.slice(t.span)
+  }
+  const bare = flat
+    .replace(BARE_DIMEN_RE, ' ')
+    .replace(/\\[a-zA-Z@]+\*?/g, ' ')
+    .replace(/\\[\s\S]/g, ' ')
+  return /[^\s\p{P}\p{S}]/u.test(bare)
 }
 
 function parseTabular(cur: Cursor, open: number, close: number, span: Span): LxBlock {

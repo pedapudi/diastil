@@ -252,6 +252,89 @@ describe('caption group edits are surgical (issue #17 acceptance)', () => {
   })
 })
 
+describe('float interior edits reach the source', () => {
+  /** the ONLY differing substring between two strings — see the table-cell
+   * suite above; the bar for a float child is the same as for a cell */
+  function onlyDiff(a: string, b: string): { removed: string; added: string } {
+    let p = 0
+    while (p < a.length && p < b.length && a[p] === b[p]) p++
+    let sa = a.length
+    let sb = b.length
+    while (sa > p && sb > p && a[sa - 1] === b[sb - 1]) { sa--; sb-- }
+    return { removed: a.slice(p, sa), added: b.slice(p, sb) }
+  }
+
+  it('an edited paragraph inside a float changes exactly its own bytes', () => {
+    const src = '\\begin{figure}[t]\n\\centering\n\\includegraphics[width=.5\\linewidth]{plot.png}\nA descriptive note that lives inside the float.\n\\caption{The caption.}\n\\label{fig:x}\n\\end{figure}\n'
+    const [{ el }] = renderPairs(src)
+    const p = el.querySelector('p')!
+    expect(p.textContent).toContain('A descriptive note')
+    // no shared prefix or suffix with the original, so onlyDiff pins the
+    // touched bytes exactly
+    p.textContent = 'Rewritten note'
+    const out = emitBlockTex(el)
+    const { removed, added } = onlyDiff(src.trim(), out)
+    expect(removed).toBe('A descriptive note that lives inside the float.')
+    expect(added).toBe('Rewritten note')
+  })
+
+  it('an edited island inside a float reaches the source, placement intact', () => {
+    const src = '\\begin{figure}[htbp]\n\\centering\n\\begin{tikzpicture}\n\\draw (0,0);\n\\end{tikzpicture}\n\\caption{Cap.}\n\\end{figure}\n'
+    const [{ el }] = renderPairs(src)
+    el.querySelector('.dia-tex-island pre')!.textContent = '\\begin{tikzpicture}\n\\draw (1,1);\n\\end{tikzpicture}'
+    const out = emitBlockTex(el)
+    expect(out).toBe(src.trim().replace('\\draw (0,0);', '\\draw (1,1);'))
+  })
+
+  it('a paragraph nested in a float\'s minipage reaches the source; siblings keep bytes', () => {
+    const src = '\\begin{figure}\n\\centering\n\\begin{minipage}{0.45\\textwidth}\nLeft   panel  prose.\n\\end{minipage}\n\\begin{minipage}{0.45\\textwidth}\nRight panel prose.\n\\end{minipage}\n\\caption{Two panels.}\n\\end{figure}\n'
+    const [{ el }] = renderPairs(src)
+    el.querySelectorAll('p')[1].textContent = 'Right panel, edited.'
+    const out = emitBlockTex(el)
+    expect(out).toContain('Right panel, edited.')
+    // the untouched sibling keeps its odd spacing, and the float's own
+    // furniture (placement-less begin, \centering, caption) is byte-intact
+    expect(out).toContain('Left   panel  prose.')
+    expect(out).toContain('\\begin{minipage}{0.45\\textwidth}')
+    expect(out).toContain('\\centering')
+    expect(out).toContain('\\caption{Two panels.}')
+  })
+
+  it('a caption edit and a body edit in one float both land', () => {
+    const src = '\\begin{figure}\n\\includegraphics{f.png}\nBody note.\n\\caption{Old caption}\n\\end{figure}\n'
+    const [{ el }] = renderPairs(src)
+    el.querySelector('p')!.textContent = 'New note.'
+    el.querySelector('figcaption')!.textContent = 'New caption'
+    const out = emitBlockTex(el)
+    expect(out).toBe('\\begin{figure}\n\\includegraphics{f.png}\nNew note.\n\\caption{New caption}\n\\end{figure}')
+  })
+
+  it('an unedited float with body prose still emits its exact bytes', () => {
+    const src = '\\begin{figure}\n\\centering\n\\includegraphics{f.png}\n\nA note.  With  spacing.\n\n\\caption{C}\n\\end{figure}\n'
+    const [{ el, slice }] = renderPairs(src)
+    expect(emitBlockTex(el)).toBe(slice)
+  })
+
+  it('palm2.tex: a paragraph two levels inside a float changes only its own bytes', () => {
+    // the prose sits in a tcolorbox INSIDE the figure, beside an
+    // lstlisting and further paragraphs — on the pre-fix parser the commit
+    // was accepted and the export came back byte-identical
+    const src = readFileSync(join(repo, 'corpus', 'tex', 'palm2.tex'), 'utf-8')
+    const target = renderPairs(src).find(({ el }) =>
+      el.matches('figure.dia-figure') && el.querySelector('p'))!
+    const p = target.el.querySelector('p')!
+    expect(p.textContent).toContain('can you fix this code with a bug')
+    p.textContent = 'Edited float prose.'
+    const out = emitBlockTex(target.el)
+    const { removed, added } = onlyDiff(target.slice, out)
+    expect(removed).toBe('can you fix this code with a bug and add line by line comments in Korean')
+    expect(added).toBe('Edited float prose')
+    // the sibling verbatim and the box's own frame keep their bytes
+    expect(out).toContain('\\begin{lstlisting}[style=py,language=Python]')
+    expect(out).toContain('\\begin{tcolorbox}[nobeforeafter, title=Fixing a bug with comments in Korean, colback=white]')
+  })
+})
+
 describe('inline emission', () => {
   it('escapes special characters and round-trips through the parser', () => {
     const p = document.createElement('p')
