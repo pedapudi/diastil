@@ -77,6 +77,52 @@ function withStructure(doc: Doc, op: Op): Op {
   }
 }
 
+/** Build-as-you-go: `make(step)` is called again after each op it returned
+ * has been applied, until it returns null.
+ *
+ * A structural op is built from live source offsets, so anything that lands
+ * AFTER another one — the second insert of a copilot proposal, the second
+ * hop of a move across three blocks — has to be built once the first has
+ * landed. Built upfront, it would point at bytes that had since moved, and
+ * the region guard would (correctly, uselessly) refuse it. */
+export function lateDocOp(doc: Doc, label: string, by: 'you' | 'copilot', make: (step: number) => Op | null): Op {
+  let done: Op[] = []
+  const self: Op = {
+    label,
+    author: by,
+    apply() {
+      done = []
+      for (let op = make(0); op; op = make(done.length)) {
+        op.apply()
+        done.push(op)
+      }
+      if (done.length === 0) console.warn(`dia-doc: "${label}" no longer applies — nothing changed`)
+      refreshDerived(doc.article)
+      state.bus.emit({ type: 'blocks-changed' })
+    },
+    invert() {
+      const inverses = [...done].reverse().map((o) => o.invert())
+      return {
+        label: `un-${label}`,
+        author: by,
+        apply() {
+          for (const o of inverses) o.apply()
+          refreshDerived(doc.article)
+          state.bus.emit({ type: 'blocks-changed' })
+        },
+        invert: () => self,
+      }
+    },
+  }
+  return self
+}
+
+/** the top-level blocks that have source bytes, in flow order (the derived
+ * header is a rendering of the preamble, not a block) */
+export function docBlocks(doc: Doc): HTMLElement[] {
+  return ([...doc.article.children] as HTMLElement[]).filter((el) => topBlockOf(doc, el) === el)
+}
+
 /** render ONE top-level block from LaTeX. Going through the parser (rather
  * than building the element by hand) is what makes the new block's DOM and
  * its source the same thing by construction: it carries the render memo for

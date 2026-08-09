@@ -234,11 +234,11 @@ describe('doc-mode compileOps: structural actions', () => {
   it('skips what has no source-safe shape yet, with an actionable reason', () => {
     const doc = mount()
     const cases: Array<[ProposedOp, string]> = [
-      [op({ action: 'move-el', target: 'section 1 para 1', extra: { index: 0 } }), 'source view'],
       [op({ action: 'add-slide', target: '', value: '<section class="dia-slide"></section>' }), 'not a deck'],
       [op({ action: 'set-style', target: 'section 1 para 1', extra: { prop: 'color' }, value: 'red' }), 'set-token'],
-      [op({ action: 'remove', target: 'section 1 para 1' }), 'source view'],
       [op({ action: 'insert-node', target: 'n1' }), 'deck action'],
+      [op({ action: 'move-el', target: 'section 1 para 1' }), 'extra.index'],
+      [op({ action: 'move-el', target: '"plainly"', extra: { index: 0 } }), 'whole top-level blocks'],
     ]
     for (const [proposal, reason] of cases) {
       const res = compileOps([proposal])
@@ -267,6 +267,88 @@ describe('doc-mode compileOps: structural actions', () => {
     res.ops[0].apply()
     expect(exportTex(doc)).toContain('\\emph{Emphatically.}')
     res.ops[0].invert().apply()
+    expect(exportTex(doc)).toBe(SAMPLE)
+  })
+
+  it('adds a whole block: the html becomes LaTeX, and the LaTeX becomes the block', () => {
+    const doc = mount()
+    const res = compileOps([op({
+      action: 'insert-html', target: 'document', value: '<h2 class="dia-sec">Related Work</h2>',
+      extra: { index: 2 }, label: 'Add a Related Work section',
+    })])
+    expect(res.skipped).toEqual([])
+    res.ops[0].apply()
+    expect(doc.source.text).toContain('\\section{Related Work}')
+    expect([...doc.article.children][2].textContent).toBe('Related Work')
+    // only the new block's bytes are new
+    expect(exportTex(doc).replace('\n\n\\section{Related Work}', '')).toBe(SAMPLE)
+    res.ops[0].invert().apply()
+    expect(exportTex(doc)).toBe(SAMPLE)
+  })
+
+  it('appends when no index is given, and refuses html LaTeX cannot carry', () => {
+    const doc = mount()
+    const res = compileOps([op({ action: 'insert-html', target: 'document', value: '<p>A closing note.</p>' })])
+    res.ops[0].apply()
+    expect(exportTex(doc)).toContain('Results follow.\n\nA closing note.\n\n\\end{document}')
+    res.ops[0].invert().apply()
+    expect(exportTex(doc)).toBe(SAMPLE)
+
+    const bad = compileOps([op({ action: 'insert-html', target: 'document', value: '<p></p>' })])
+    expect(bad.ops).toEqual([])
+    expect(bad.skipped[0].reason).toContain('no content')
+  })
+
+  it('two block inserts in ONE proposal both land', () => {
+    // each structural op reads live source offsets, so the second must be
+    // built after the first has landed — built upfront it would patch bytes
+    // that had already moved
+    const doc = mount()
+    const res = compileOps([
+      op({ action: 'insert-html', target: 'document', value: '<p>First addition.</p>', extra: { index: 1 } }),
+      op({ action: 'insert-html', target: 'document', value: '<p>Second addition.</p>', extra: { index: 2 } }),
+    ])
+    expect(res.skipped).toEqual([])
+    for (const o of res.ops) o.apply()
+    expect(doc.source.text).toContain('First addition.\n\nSecond addition.')
+    expect(exportTex(doc).replace('\n\nFirst addition.\n\nSecond addition.', '')).toBe(SAMPLE)
+    for (const o of [...res.ops].reverse()) o.invert().apply()
+    expect(exportTex(doc)).toBe(SAMPLE)
+  })
+
+  it('removes a whole block, source slice and separator together', () => {
+    const doc = mount()
+    const res = compileOps([op({ action: 'remove', target: 'section 1 para 2' })])
+    expect(res.skipped).toEqual([])
+    res.ops[0].apply()
+    expect(exportTex(doc)).not.toContain('A second paragraph of the introduction.')
+    expect(exportTex(doc)).toBe(SAMPLE.replace('A second paragraph of the introduction.\n\n', ''))
+    res.ops[0].invert().apply()
+    expect(exportTex(doc)).toBe(SAMPLE)
+  })
+
+  it('moves a whole block to a position — several hops, one undo step', () => {
+    const doc = mount()
+    const before = [...doc.article.children].map((el) => el.textContent)
+    const res = compileOps([op({ action: 'move-el', target: 'section 1 para 1', extra: { index: 3 } })])
+    expect(res.skipped).toEqual([])
+    res.ops[0].apply()
+    const after = [...doc.article.children].map((el) => el.textContent)
+    expect(after[3]).toBe(before[1])
+    expect(after.slice().sort()).toEqual(before.slice().sort())
+    // the moved slice keeps its bytes; the source is a permutation
+    expect(doc.source.text).toContain('We begin with a claim, stated \\textbf{plainly}.')
+    res.ops[0].invert().apply()
+    expect(exportTex(doc)).toBe(SAMPLE)
+  })
+
+  it('a whole-block proposal previews and reverts like any other', () => {
+    const doc = mount()
+    const res = compileOps([op({ action: 'insert-html', target: 'document', value: '<p>Previewed.</p>' })])
+    startPreview(res.ops, null, () => {})
+    expect(doc.article.textContent).toContain('Previewed.')
+    clearPreview('rejected', false)
+    expect(doc.article.textContent).not.toContain('Previewed.')
     expect(exportTex(doc)).toBe(SAMPLE)
   })
 
