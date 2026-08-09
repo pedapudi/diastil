@@ -32,7 +32,7 @@ import threading
 import time
 import uuid
 from collections import OrderedDict
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -89,7 +89,195 @@ def _clean(message: str) -> str:
     return re.sub(r"\s+", " ", message).strip()
 
 
-def parse_log(text: str) -> list[TexError]:
+# ---------------------------------------------------------------------------
+# which FILE a finding came from: the log's open-file stack
+# ---------------------------------------------------------------------------
+#
+# tectonic's v2 CLI has no -file-line-error, so an error inside an \input'd
+# chapter arrives as a bare `! …` plus an `l.NN` that is the CHAPTER's line
+# number with nothing naming the chapter. Measured with the managed
+# tectonic 0.15.0 and kept verbatim as service/tests/logs/
+# multifile-chapter-error.log: a broken control sequence on line 29 of
+# chapters/method.tex came back as `line: 29, file: None`, and line 29 of
+# the 16-line main file does not exist at all.
+#
+# The one thing a log always says about file identity is TeX's own
+# bookkeeping: `(chapters/method` when it opens a file, `)` when it closes
+# one. Tracking that nesting recovers the file current at any point. Three
+# things make it fiddly, all measured on the same real tectonic output:
+#
+#   * the printed name is what \input ASKED for, not a path — `(chapters/
+#     intro)`, with no `./` and no `.tex`. Resolving it has to put the
+#     extension TeX appends back on.
+#   * lines wrap at max_print_line (79 in that log) mid-path with no
+#     continuation marker, so a printed name can be a prefix of the truth —
+#     and a prefix can resolve to the WRONG real file (`chapters/method` is
+#     a prefix of both `method.tex` and `method-v2.tex`).
+#   * TeX echoes the author's own source back into the log (error context
+#     under `l.NN`, the paragraph under an overfull box) and that text has
+#     parentheses in it, which would corrupt the nesting.
+#
+# So the stack is never trusted on its own. A frame may only name a finding
+# when it resolves to a .tex file this compile actually laid out in its
+# workdir AND the finding's line number exists in that file. Anything else
+# keeps the answer this parser has always given — `file: None` — because a
+# wrong file sends an author to a paragraph that is fine, which is worse
+# than no jump at all.
+
+# TeX's max_print_line. 79 measured in tectonic 0.15.0's log; TeX Live uses
+# 79 or 80. A name token that runs to the end of a line this long may have
+# been cut in half, so the frame it opens is treated as unknown.
+_MAX_PRINT_LINE = 79
+# what ends a file name in a log: the delimiters TeX itself prints around
+# them. Names with spaces in them are simply not recoverable here.
+_NAME_STOP = frozenset("()[]{}<> \t\"'")
+# error context and box echoes quote the document verbatim — the two places
+# a `(` in the log is the AUTHOR's paren rather than TeX's bookkeeping.
+_QUOTES_SOURCE = ("<recently read>", "<inserted text>", "<to be read again>",
+                  "<argument>", "<template>", "Runaway argument")
+# A box echo is one paragraph and ends with a lone `[]` or a blank line. All
+# 168 boxes across the corpus's real logs terminated that way, the longest
+# after 8 lines; the cap is only there so a log that does NOT terminate one
+# cannot swallow the rest of the file.
+_ECHO_MAX_LINES = 12
+
+
+@dataclass(frozen=True)
+class SourceMap:
+    """The .tex files one compile laid out, keyed the way the CLIENT keys
+    them: project-relative, posix, extension included (`chapters/method.tex`).
+
+    `lines` maps each of those to its line count — the sanity check that
+    stops a desynchronised stack from blaming a chapter for a line number
+    the chapter does not have. `roots` are absolute directories a log may
+    print a path against (the temp workdir, the opened document's own
+    directory) — they exist to be stripped, never to be handed to a client
+    that must not learn where the temp dir is.
+
+    `root` is the file the job compiles as main.tex, and `multi_file` says
+    whether it actually \\input's another source. Together they are what
+    keeps a one-file document's answers byte-identical: there, the root is
+    the ONLY thing a line number could mean, naming it would say nothing,
+    and so it is not named. In a document that really has chapters the root
+    has to be named — otherwise a typo in the preamble comes back as
+    "somewhere", which is the same dead row this whole section exists to
+    remove, just moved.
+    """
+
+    lines: dict[str, int] = field(default_factory=dict)
+    root: str = "main.tex"
+    roots: tuple[str, ...] = ()
+    multi_file: bool = False
+
+    def resolve(self, printed: str) -> str | None:
+        """A name as the log printed it → the project-relative key, or None
+        when it is not one of this project's sources (a bundle .sty, a font
+        .fd, a stray paren in a message)."""
+        name = printed.strip().strip("\"'").replace("\\", "/")
+        if not name:
+            return None
+        if name.startswith("/"):
+            for root in self.roots:
+                if name.startswith(root):
+                    name = name[len(root):]
+                    break
+            else:
+                # an absolute path under no root of ours is a system or
+                # bundle file; making it relative would invent a key
+                return None
+        while name.startswith("./"):
+            name = name[2:]
+        if name in self.lines:
+            return name
+        # \input{chapters/intro} prints without the .tex TeX appends for it
+        if "." not in name.rsplit("/", 1)[-1] and f"{name}.tex" in self.lines:
+            return f"{name}.tex"
+        return None
+
+    def attributable(self, name: str | None, line: int | None) -> bool:
+        """May a finding be reported as belonging to `name`? Only for a
+        source this compile laid out, only at a line that source actually
+        has, and — for the root — only in a document with chapters at all
+        (see the class docstring)."""
+        if name is None or (name == self.root and not self.multi_file):
+            return False
+        count = self.lines.get(name)
+        if count is None:
+            return False
+        return line is None or 1 <= line <= count
+
+
+class _FileStack:
+    """TeX's open-file nesting, replayed line by line.
+
+    `current()` is the innermost open frame, or None whenever that frame is
+    not a project source — a .sty, a truncated name, a paren from a
+    message. It never falls through to the frame BELOW an unknown one: an
+    error raised inside a class file genuinely is not in the chapter that
+    included it, and saying so would be the wrong-place answer."""
+
+    def __init__(self, sources: SourceMap) -> None:
+        self.sources = sources
+        self.stack: list[str | None] = []
+        # a `)` with nothing open means the nesting has desynchronised and
+        # every depth after it is a guess; stop answering rather than guess
+        self.lost = False
+        self._skip = 0
+        self._echo = 0
+
+    def current(self) -> str | None:
+        if self.lost or not self.stack:
+            return None
+        return self.stack[-1]
+
+    def feed(self, raw: str) -> None:
+        stripped = raw.strip()
+        if self._skip > 0:
+            self._skip -= 1
+            return
+        if self._echo > 0:
+            self._echo -= 1
+            if not stripped or stripped == "[]":
+                self._echo = 0
+            return
+        if _BOX.match(stripped):
+            self._echo = _ECHO_MAX_LINES
+            return
+        if stripped.startswith("!"):
+            return
+        if _LNN.match(stripped) or stripped.startswith(_QUOTES_SOURCE):
+            # the line under `l.NN` is the rest of the offending source line
+            self._skip = 1
+            return
+        self._scan(raw)
+
+    def _scan(self, line: str) -> None:
+        # a token that ends flush with a full-width line may have been cut
+        # by max_print_line; see the section comment
+        wrapped = len(line) >= _MAX_PRINT_LINE
+        i, n = 0, len(line)
+        while i < n:
+            c = line[i]
+            if c == "(":
+                j = i + 1
+                while j < n and line[j] not in _NAME_STOP:
+                    j += 1
+                token = line[i + 1:j]
+                truncated = j == n and wrapped
+                self.stack.append(
+                    None if truncated else self.sources.resolve(token))
+                i = j
+            elif c == ")":
+                if self.stack:
+                    self.stack.pop()
+                else:
+                    self.lost = True
+                i += 1
+            else:
+                i += 1
+
+
+def parse_log(text: str, sources: SourceMap | None = None) -> list[TexError]:
     """TeX log → structured findings, newest engines and oldest alike.
 
     Three shapes are recognised: `-file-line-error` lines (file + line +
@@ -100,15 +288,32 @@ def parse_log(text: str) -> list[TexError]:
     Deliberately lenient: an unrecognised line is skipped, never guessed at.
     A missed warning costs the user nothing; a hallucinated file:line sends
     them to the wrong place in their document.
+
+    `sources` is what the compile laid out in its workdir; with it, a
+    finding raised inside an \\input'd chapter is attributed to that chapter
+    by replaying the log's open-file stack (see the section above). Without
+    it — a caller holding only a log — every finding answers exactly what it
+    answered before this existed.
     """
     findings: list[TexError] = []
+    stack = _FileStack(sources) if sources is not None else None
 
-    # bare `!` errors still waiting for a line number. A group, not a single
-    # error: `! LaTeX Error: File not found.` and the `! Emergency stop.` it
+    def attributed(name: str | None, line: int | None) -> str | None:
+        """the open-file stack's answer, but only where it is allowed to
+        speak — see SourceMap.attributable"""
+        if sources is None or not sources.attributable(name, line):
+            return None
+        return name
+
+    # bare `!` errors still waiting for a line number, each with the file
+    # that was open when it was raised. A group, not a single error:
+    # `! LaTeX Error: File not found.` and the `! Emergency stop.` it
     # provokes share the one `l.NN` that follows, and both are true of it.
-    pending: list[TexError] = []
-    # a warning still collecting continuation lines
+    pending: list[tuple[TexError, str | None]] = []
+    # a warning still collecting continuation lines, and the file that was
+    # open when it OPENED — by the time it flushes, TeX may have moved on
     warning: TexError | None = None
+    warning_where: str | None = None
     parts: list[str] = []
 
     def flush_warning() -> None:
@@ -120,19 +325,25 @@ def parse_log(text: str) -> list[TexError]:
         if m:
             warning.line = int(m.group(1))
         warning.message = body
+        warning.file = attributed(warning_where, warning.line)
         findings.append(warning)
         warning = None
         parts = []
 
     def open_warning(message: str) -> None:
-        nonlocal warning, parts
+        nonlocal warning, warning_where, parts
         flush_warning()
         warning = TexError(level="warning", file=None, line=None, message="")
+        warning_where = stack.current() if stack is not None else None
         parts = [message]
         if _ON_INPUT_LINE.search(message) or message.rstrip().endswith("."):
             flush_warning()
 
     for raw in text.splitlines():
+        # the stack has to see every line, including the ones the finding
+        # logic below skips or swallows into a warning body
+        if stack is not None:
+            stack.feed(raw)
         line = raw.rstrip()
         stripped = line.strip()
 
@@ -163,10 +374,20 @@ def parse_log(text: str) -> list[TexError]:
             msg = _clean(_BANG.sub(lambda mm: mm.group("msg"), m.group("msg")))
             if msg:
                 pending = []
+                # the engine named the file itself, so it is authoritative;
+                # resolving only rewrites `./chapters/method.tex` (or the
+                # temp workdir's absolute form) into the project key the
+                # client uses, and leaves anything else exactly as printed
+                where = m.group("file")
+                line_no = int(m.group("line"))
+                if sources is not None:
+                    resolved = sources.resolve(where)
+                    if sources.attributable(resolved, line_no):
+                        where = resolved  # type: ignore[assignment]
                 findings.append(TexError(
                     level="error",
-                    file=m.group("file"),
-                    line=int(m.group("line")),
+                    file=where,
+                    line=line_no,
                     message=msg,
                 ))
             continue
@@ -176,15 +397,20 @@ def parse_log(text: str) -> list[TexError]:
             msg = _clean(m.group("msg"))
             if not msg or set(msg) <= {"=", "-"}:
                 continue
-            error = TexError(level="error", file=None, line=None, message=msg)
-            pending.append(error)
+            where = stack.current() if stack is not None else None
+            # named now so an error that never gets an `l.NN` still says
+            # which chapter it came from; the `l.NN` branch re-checks it
+            error = TexError(level="error", file=attributed(where, None),
+                             line=None, message=msg)
+            pending.append((error, where))
             findings.append(error)
             continue
 
         m = _LNN.match(stripped)
         if m and pending:
-            for error in pending:
+            for error, where in pending:
                 error.line = int(m.group("line"))
+                error.file = attributed(where, error.line)
             pending = []
             continue
 
@@ -1003,6 +1229,105 @@ def engine_passes(engine: str) -> int:
 
 EventCb = Callable[[dict], None]
 
+# Only .tex, and only what this compile actually laid out. A .sty, a .cls
+# or a bundle file is not a place the editor can jump to, and admitting one
+# here would change what a single-file document reports today — the one
+# thing chapter attribution is not allowed to do.
+_SOURCE_SUFFIX = ".tex"
+# Caps on the workdir walk. It follows symlinks, and on the CLI path one of
+# those symlinks is the user's own document directory, which may be a paper
+# repo with a deep tree in it. The walk feeds a log parser, so running out
+# of budget costs an attribution, never a compile.
+_WALK_MAX_FILES = 2000
+_WALK_MAX_DEPTH = 6
+# A .tex big enough to be a generated blob is not a file anyone edits, and
+# counting its lines is work nobody asked for.
+_WALK_MAX_BYTES = 4 * 1024 * 1024
+
+
+def source_map(workdir: Path, texinputs_dir: Path | None = None,
+               root: str = "main.tex") -> SourceMap:
+    """The .tex files this compile can honestly attribute a finding to.
+
+    Keyed relative to the workdir, which is also the engine's cwd and
+    therefore the same key `\\input{chapters/method}` resolves against — the
+    project-relative path the client already uses for assets and for
+    /project/file. Absolute temp paths never leave this function.
+
+    The walk follows symlinks because that is how the CLI path puts the
+    document's own folder in front of the engine (see _link_support_files),
+    and it de-duplicates on the real path so a directory that links to its
+    own parent cannot spin."""
+    import os
+
+    lines: dict[str, int] = {}
+    roots: list[str] = []
+    for base in (workdir, texinputs_dir):
+        if base is None:
+            continue
+        for form in (str(base), str(base.resolve())):
+            # both forms, because /tmp is a symlink to /private/tmp on macOS
+            # and a log may print either one
+            if not form.endswith("/"):
+                form += "/"
+            if form not in roots:
+                roots.append(form)
+
+    start = str(workdir)
+    seen: set[str] = set()
+    budget = _WALK_MAX_FILES
+    for dirpath, dirnames, filenames in os.walk(start, followlinks=True):
+        real = os.path.realpath(dirpath)
+        if real in seen:
+            dirnames[:] = []
+            continue
+        seen.add(real)
+        depth = os.path.relpath(dirpath, start).count(os.sep) + 1
+        if depth >= _WALK_MAX_DEPTH or budget <= 0:
+            dirnames[:] = []
+        for name in filenames:
+            if not name.endswith(_SOURCE_SUFFIX) or budget <= 0:
+                continue
+            budget -= 1
+            path = Path(dirpath) / name
+            try:
+                if path.stat().st_size > _WALK_MAX_BYTES:
+                    continue
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            key = Path(os.path.relpath(path, start)).as_posix()
+            lines[key] = text.count("\n") + (1 if text and not text.endswith("\n") else 0)
+    built = SourceMap(lines=lines, root=root, roots=tuple(roots))
+    return replace(built, multi_file=_pulls_in_another_source(workdir, built))
+
+
+# `\input{chapters/method}` / `\include{chapters/method}` — the braces form
+# only, which is the one the editor emits and the one the rest of this
+# codebase already assumes.
+_INPUTS = re.compile(r"\\(?:input|include)\s*\{([^}]*)\}")
+# an unescaped `%` starts a comment; `% \input{old}` is not an input, and
+# counting it would flip a one-file document into the multi-file answer
+_COMMENT = re.compile(r"(?<!\\)%.*$", re.M)
+
+
+def _pulls_in_another_source(workdir: Path, sources: SourceMap) -> bool:
+    """Does the root really read another of this project's .tex files?
+
+    Asked of the SOURCE rather than of the log, because the case that needs
+    the answer most is the one where no chapter ever gets opened: a broken
+    \\usepackage stops the run in the preamble, and the log then looks
+    exactly like a single-file document's."""
+    try:
+        text = (workdir / sources.root).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    for m in _INPUTS.finditer(_COMMENT.sub("", text)):
+        name = sources.resolve(m.group(1).strip())
+        if name is not None and name != sources.root:
+            return True
+    return False
+
 
 @dataclass
 class CompileJob:
@@ -1027,6 +1352,8 @@ class CompileJob:
 
     _proc: subprocess.Popen | None = field(default=None, repr=False)
     _cancelled: bool = field(default=False, repr=False)
+    # the workdir's .tex files and their line counts, walked once (sources)
+    _sources: SourceMap | None = field(default=None, repr=False)
     # page rasterization state: one poppler run at a time per job, and the
     # page geometry computed once (see page_geometry)
     _render_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
@@ -1088,6 +1415,16 @@ class CompileJob:
             return (self.workdir / "main.tex").read_text(encoding="utf-8", errors="replace")
         except OSError:
             return ""
+
+    def sources(self) -> SourceMap:
+        """The files this job's findings may name — the identity half of a
+        compile, and the reason an error inside an \\input'd chapter can say
+        `chapters/method.tex` instead of a line number against the wrong
+        file. Cached: parse_log asks once per run, but page/synctex requests
+        arrive later against the same workdir."""
+        if self._sources is None:
+            self._sources = source_map(self.workdir, self.texinputs_dir)
+        return self._sources
 
     def _blg_text(self) -> str:
         """classic bibtex's own log, if this run produced one. Empty when
@@ -1178,7 +1515,10 @@ class CompileJob:
                 self.log = disk_log.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 pass
-        self.errors = parse_log(self.log)
+        # built here rather than at create() time: the walk is what tells
+        # parse_log which files a finding may be attributed to, and by now
+        # the engine has laid out everything it was going to lay out
+        self.errors = parse_log(self.log, self.sources())
 
         if self._cancelled:
             self.status = "cancelled"

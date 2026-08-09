@@ -4,10 +4,18 @@
  * The jump is the whole point. A TeX error is a line number in a file the
  * user never looks at; this maps it back through the source spans to the
  * block that produced it — line -> byte offset -> innermost bound block id ->
- * element -> scroll + flash. When the finding names a file that is not this
- * document's source (a .sty, an \input'd chapter), the row says so and stays
- * put rather than jumping somewhere plausible and wrong. */
+ * element -> scroll + flash.
+ *
+ * WHICH file's lines those are is the part that has to be right. The daemon
+ * reports a project-relative path (`chapters/method.tex`) for a finding it
+ * could place and null for one it could not, and every line number here is
+ * counted in THAT file. A finding this document cannot claim — a .sty, a
+ * class, a chapter the engine named but the project does not have — makes
+ * the row say so and stay put rather than jump somewhere plausible and
+ * wrong: an author sent to a paragraph that is fine is worse off than an
+ * author sent nowhere. */
 
+import type { DocSource } from '../latex/source'
 import type { Doc } from '../model/doc'
 import { state } from '../state'
 import { grantFolderAndRecompile, onCompileState, type CompileState, type TexError } from './doccompile'
@@ -95,7 +103,7 @@ function render(s: CompileState): void {
   // the one-click recovery: only offered when the failure is EXACTLY the
   // shape a folder grant fixes, and only where the API exists to fix it
   if (s.blindMissing && folderGrantAvailable()) list.append(grantRow())
-  for (const f of findings) list.append(rowFor(f))
+  for (const f of findings) list.append(rowFor(f, state.doc ?? null))
 
   // a failed compile opens the drawer itself; a clean one never closes it
   // behind the user's back (they may be reading the last run's warnings)
@@ -130,7 +138,7 @@ function grantRow(): HTMLElement {
   return row
 }
 
-function rowFor(f: TexError): HTMLElement {
+function rowFor(f: TexError, doc: Doc | null): HTMLElement {
   const row = document.createElement('button')
   row.type = 'button'
   row.className = f.level === 'warning' ? 'de-prob-row is-warn' : 'de-prob-row'
@@ -139,60 +147,72 @@ function rowFor(f: TexError): HTMLElement {
   dot.className = 'de-prob-dot'
   const where = document.createElement('span')
   where.className = 'de-prob-where'
-  // a finding with no file is not claimed for main.tex — the engine did not
-  // say so, and a filename we invented is a filename the user cannot check
-  where.textContent = f.line === null ? (f.file ?? '—')
+  // a finding with no file is not labelled with one — the engine did not say
+  // so, and a filename we invented is a filename the user cannot check
+  where.textContent = f.line === null ? (f.file === null ? '—' : displayFile(doc, f.file))
     : f.file === null ? `line ${f.line}`
-      : `${shortFile(f.file)}:${f.line}`
+      : `${displayFile(doc, f.file)}:${f.line}`
   const msg = document.createElement('span')
   msg.className = 'de-prob-msg'
   msg.textContent = f.message
 
   row.append(dot, where, msg)
 
-  const target = jumpableLine(f)
+  const target = doc === null ? null : jumpTarget(doc, f)
   if (target === null) {
     row.classList.add('is-flat')
-    row.title = f.file && !isMainSource(f.file)
-      ? `reported in ${f.file} — not this document's source`
-      : 'no line to jump to'
+    row.title = declineReason(doc, f)
   } else {
     row.title = 'jump to the block this line is in'
-    row.addEventListener('click', () => jumpToLine(target))
+    row.addEventListener('click', () => jumpTo(doc as Doc, target.source, target.line))
   }
   return row
 }
 
-/** the daemon compiles the source as `main.tex`; anything else is a package,
- * a class, or an \input'd file whose own line numbering we cannot map a
- * main-file offset into */
-function isMainSource(file: string): boolean {
-  return /(^|[\\/])main\.tex$/.test(file)
+/** The source a finding's line number is counted in, or null when nothing
+ * in this document can honestly claim it. The project owns the map from a
+ * compile path to a file (`main.tex` is the job's name for the root, and
+ * only the job's — the user's file is `thesis.tex`); the drawer only asks. */
+export function sourceForFile(doc: Doc, file: string | null): DocSource | null {
+  if (file === null) {
+    // The engine said a line but not a file. In a one-file document that is
+    // not ambiguous — there is one file. In a multi-file one it is: measured
+    // on a real tectonic run, an undefined control sequence inside
+    // chapters/method.tex reported line 29 with no file, and the main file
+    // it would have been mapped against is sixteen lines long.
+    return doc.project.multiFile ? null : doc.source
+  }
+  return doc.project.sourceOfCompilePath(file)
 }
 
-function shortFile(file: string): string {
+/** a path this document owns stays whole — `chapters/method.tex:29` is the
+ * only form an author can check against their own tree — while a path into
+ * a TeX installation is worth naming but not worth eighty columns */
+function displayFile(doc: Doc | null, file: string): string {
+  if (doc !== null && sourceForFile(doc, file) !== null) return file
   const tail = file.split(/[\\/]/).pop() ?? file
   return tail || file
 }
 
-function jumpableLine(f: TexError): number | null {
+function jumpTarget(doc: Doc, f: TexError): { source: DocSource; line: number } | null {
   if (f.line === null) return null
-  if (f.file !== null && !isMainSource(f.file)) return null
-  // A file-less line in a MULTI-FILE project cannot be placed. TeX numbers
-  // lines per file, and an \input'd chapter's line 26 is not main.tex's
-  // line 26 — measured: an undefined control sequence inside
-  // chapters/method.tex comes back as `line: 26, file: null`, which mapped
-  // against main.tex lands on an unrelated paragraph. Refusing to jump is
-  // the honest answer until the daemon's log parse tracks the open-file
-  // stack (`(./chapters/method.tex … )`) and attributes the line itself.
-  if (f.file === null && state.doc?.project.multiFile) return null
-  return f.line
+  const source = sourceForFile(doc, f.file)
+  return source === null ? null : { source, line: f.line }
 }
 
-function jumpToLine(line: number): void {
-  const doc = state.doc
-  if (!doc) return
-  const el = blockForLine(doc, line)
+/** why this row does not jump. A dead row with no explanation reads as a
+ * broken drawer; the reason is the difference between "we will not guess"
+ * and "this is broken". */
+function declineReason(doc: Doc | null, f: TexError): string {
+  if (f.line === null) return 'no line to jump to'
+  if (f.file !== null) return `reported in ${f.file} — not one of this document's files`
+  return doc !== null && doc.project.multiFile
+    ? 'the engine gave a line but not which file it is in, and this document is more than one file — jumping would be a guess'
+    : 'no line to jump to'
+}
+
+function jumpTo(doc: Doc, source: DocSource, line: number): void {
+  const el = blockForLine(doc, line, undefined, source)
   if (!el) return
   scrollToBlock(el)
   flashBlock(el)
@@ -208,22 +228,29 @@ function jumpToLine(line: number): void {
  * line, then into the following few lines, taking the first offset that is
  * inside a bound span. Forward and bounded, because the block a stray line
  * belongs to is the one that follows it, and an unbounded scan on a click
- * handler is a hang waiting for a large document. */
-export function blockForLine(doc: Doc, line: number, host?: ParentNode): HTMLElement | null {
-  const id = idForLine(doc, line)
+ * handler is a hang waiting for a large document.
+ *
+ * `source` names WHICH file the line is counted in; it defaults to the
+ * document's root source, which is the only one a single-file document has.
+ * The element is looked up in the one article either way — every file's
+ * blocks render into it, and a block id is unique across the project. */
+export function blockForLine(doc: Doc, line: number, host?: ParentNode,
+                             source?: DocSource): HTMLElement | null {
+  const id = idForLine(doc, line, source)
   if (id === null) return null
   const root = host ?? doc.article
   return root.querySelector<HTMLElement>(`[data-dia-id="${cssEscape(id)}"]`)
 }
 
-/** the block id owning a 1-based source line, or null */
-export function idForLine(doc: Doc, line: number): string | null {
-  const text = doc.source.text
-  const start = doc.source.offsetOfLine(line)
+/** the block id owning a 1-based line of `source`, or null */
+export function idForLine(doc: Doc, line: number, source?: DocSource): string | null {
+  const src = source ?? doc.source
+  const text = src.text
+  const start = src.offsetOfLine(line)
   const LOOKAHEAD_LINES = 6
   let seenNewlines = 0
   for (let i = start; i < text.length; i++) {
-    const id = doc.source.idAt(i)
+    const id = src.idAt(i)
     if (id !== null) return id
     if (text[i] === '\n' && ++seenNewlines > LOOKAHEAD_LINES) break
   }

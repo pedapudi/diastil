@@ -14,7 +14,9 @@ import pytest
 
 from dia_service import tex, texcompile
 
-HELLO = "\\documentclass{article}\\begin{document}hi\\end{document}\n"
+from conftest import LOGS
+
+HELLO ="\\documentclass{article}\\begin{document}hi\\end{document}\n"
 
 
 @pytest.fixture
@@ -116,6 +118,64 @@ def test_texinputs_points_at_the_document_directory(engine, tmp_path):
     plain = texcompile.create(tex_source=HELLO, doc_id="d2")
     assert plain._env() is None
     plain.cleanup()
+
+
+# ---------------------------------------------------------------------------
+# file identity: which of the job's files a finding may name
+# ---------------------------------------------------------------------------
+
+CHAPTERS = {
+    "chapters/intro.tex": "\\section{Introduction}\n\nShort on purpose.\n",
+    "chapters/method.tex": "\\section{Method}\n" + "\nProse.\n" * 12 + "\n\\gradiant{f}\n",
+    "chapters/results.tex": "\\section{Results}\n\nAlso short.\n",
+}
+
+
+def test_the_source_map_keys_chapters_the_way_the_client_does(engine):
+    """Project-relative, posix, extension included — the same string the
+    client sent as an asset name and the same one \\input resolves."""
+    job = texcompile.create(tex_source=HELLO, doc_id="d1", assets=dict(CHAPTERS))
+    sources = job.sources()
+    assert set(sources.lines) == {"main.tex", *CHAPTERS}
+    assert sources.lines["chapters/intro.tex"] == 3
+    assert sources.root == "main.tex"
+    job.cleanup()
+
+
+def test_the_source_map_follows_the_symlinked_document_folder(engine, tmp_path):
+    """The CLI path never sends chapters as assets — it puts the document's
+    own folder in front of the engine, and the walk has to see through the
+    symlinks that puts there."""
+    paper = tmp_path / "paper"
+    (paper / "chapters").mkdir(parents=True)
+    for name, text in CHAPTERS.items():
+        (paper / name).write_text(text, encoding="utf-8")
+    (paper / "paper.tex").write_text(HELLO, encoding="utf-8")
+    (paper / "notes.txt").write_text("not a source\n", encoding="utf-8")
+
+    job = texcompile.create(tex_source=HELLO, doc_id="d1", texinputs_dir=paper)
+    lines = job.sources().lines
+    assert set(CHAPTERS) <= set(lines)
+    assert "notes.txt" not in lines  # only .tex is a place the editor jumps
+    job.cleanup()
+
+
+def test_a_real_chapter_error_survives_the_whole_job(engine, monkeypatch):
+    """The golden log is real tectonic 0.15.0 output (see test_parse_log);
+    replaying it through a job with the same chapters laid out is what shows
+    the workdir walk and the parser agreeing end to end."""
+    monkeypatch.setenv("DIA_FAKE_LOG", str(LOGS / "multifile-chapter-error.log"))
+    method = "\\section{Method}\n" + "\nProse.\n" * 13 + "\n\\gradiant{f}\n"
+    assert method.count("\n") == 29  # the log's `l.29` is this file's last line
+    job = texcompile.compile_sync(
+        tex_source="x\n" * 16, doc_id="d1",
+        assets={**CHAPTERS, "chapters/method.tex": method})
+    assert job.status == "error"
+    assert [(e.file, e.line, e.message) for e in job.errors] == [
+        ("chapters/method.tex", 29, "Undefined control sequence.")]
+    # the temp workdir is the daemon's business, not the client's
+    assert str(job.workdir) not in str(job.status_dict())
+    job.cleanup()
 
 
 # ---------------------------------------------------------------------------
