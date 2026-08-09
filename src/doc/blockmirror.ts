@@ -674,14 +674,89 @@ function paperIsDark(doc: Doc): boolean {
 }
 
 function detach(block: HTMLElement): void {
+  // a peeked crop is the same crop under another class name (see peekBlock);
+  // matching only `de-mirror` here would leave the picture behind and then
+  // revoke the url under it, which draws a broken image
+  if (peeked === block) peeked = null
   for (const el of [...block.children]) {
-    if (el.classList.contains('de-mirror')) el.remove()
+    if (el.classList.contains('de-mirror') || el.classList.contains('de-mirror-peeked')) el.remove()
   }
   const entry = shown.get(block)
   for (const url of entry?.urls ?? []) {
     if (url.startsWith('blob:')) URL.revokeObjectURL(url)
   }
   shown.delete(block)
+}
+
+/* ---------- stepping a crop aside so a find can be SEEN ---------- */
+
+/* Find & replace paints its highlights as Ranges over the block's HTML text
+ * and mutates no DOM at all — it cannot wrap a match in <mark>, because
+ * cleanOuter and serializeDoc REMOVE artifact elements and the matched words
+ * would go with them (docfind.ts's opening comment argues it). This file
+ * hides that same HTML text whenever a block is showing its crop. Composed,
+ * the two correct designs cancel: measured live on corpus/tex/llama with a
+ * real compile, 131 of 152 blocks were mirrored, so on 86% of the paper a
+ * search reported "1 / 5", scrolled, and shaded nothing the reader could
+ * see.
+ *
+ * The fix is the interaction the mirror already teaches: the crop steps
+ * aside and the HTML form comes back — what a double-click does, except for
+ * the ONE block holding the current match and only while it holds it.
+ *
+ * It has to be non-destructive, which is why this is not `detach`: detach
+ * revokes the crop's object urls and only a fresh compile makes new ones, so
+ * peeking through it would burn the document's pictures one keystroke at a
+ * time. Instead the artifact's CLASS is renamed. Both hiding rules are keyed
+ * on the class (`:has(> .de-mirror)` for a crop, `:has(> .de-mirror-hidden)`
+ * for a block whose ink stands inside a neighbour's crop), so a rename stops
+ * them matching and the block's own markup — which this file still never
+ * touches — renders exactly as it did before any of this existed. The
+ * renamed node keeps `dia-editor-artifact`, so serializeDoc strips it the
+ * same way, and an inline `display: none` on it hides the picture: an inline
+ * style on a node that is itself stripped can leak nothing. Unpeeking is the
+ * same swap backwards, so the crop survives a search of any length. */
+const PEEKABLE = ['de-mirror', 'de-mirror-hidden']
+const PEEKED = '-peeked'
+
+/** the one block currently showing its HTML form on loan, if any */
+let peeked: HTMLElement | null = null
+
+/** Show `block`'s HTML form even though the compile gave it a crop (or gave
+ * its ink to a neighbour), so a decoration painted on that text is visible.
+ * At most one block is ever on loan; `null` restores the last one. Returns
+ * whether anything is now peeked. */
+export function peekBlock(block: HTMLElement | null): boolean {
+  if (peeked === block) return peeked !== null
+  if (peeked) unpeek(peeked)
+  peeked = block && block.isConnected && swapPeek(block, false) ? block : null
+  return peeked !== null
+}
+
+/** is this block showing its HTML form on loan from its crop? */
+export function isPeeked(block: HTMLElement): boolean {
+  return peeked === block
+}
+
+function unpeek(block: HTMLElement): void {
+  swapPeek(block, true)
+}
+
+/** rename this block's mirror artifacts one way or the other; true when
+ * there was one to rename */
+function swapPeek(block: HTMLElement, back: boolean): boolean {
+  let any = false
+  for (const el of [...block.children]) {
+    for (const name of PEEKABLE) {
+      const from = back ? name + PEEKED : name
+      const to = back ? name : name + PEEKED
+      if (!el.classList.contains(from)) continue
+      el.classList.replace(from, to)
+      if (el instanceof HTMLElement) el.style.display = back ? '' : 'none'
+      any = true
+    }
+  }
+  return any
 }
 
 /* ---------- the staleness marker ---------- */
@@ -854,6 +929,22 @@ const FRAME_START = /^\\begin\{frame\}/
  * fixture replay can drive the exact placement pipeline against a captured
  * box map instead of a live compile — see blockmirror.fixture.test.ts. */
 export async function cutDocument(doc: Doc, run: Pass): Promise<void> {
+  // A pass rebuilds every marker on every block, and an unchanged crop is
+  // kept in place rather than re-attached — so a block left on loan to a
+  // find (see peekBlock) would come out of the pass showing HTML with
+  // nothing left that knows how to put its picture back. Hand the loan in
+  // before the rebuild and take it out again after, so a search that
+  // outlives an auto-compile still shows the reader its match.
+  const loan = peeked
+  peekBlock(null)
+  try {
+    await cutPass(doc, run)
+  } finally {
+    if (loan?.isConnected) peekBlock(loan)
+  }
+}
+
+async function cutPass(doc: Doc, run: Pass): Promise<void> {
   // WHICH boxes a block owns is pure and cheap; turning one into pixels is
   // not. So ownership is worked out for the whole document first and the
   // pass then walks the cuts in an order that decodes each page once (see
@@ -1030,7 +1121,10 @@ export function measuredGapPct(
 function spaceMirrors(doc: Doc, run: Pass): void {
   let prev: Claim[] | undefined
   for (const block of mirrorTargets(doc.article)) {
-    const mirror = block.querySelector(':scope > .de-mirror')
+    // a peeked crop still holds this block's place in the rhythm: it is the
+    // same node under another class, and skipping it would measure the next
+    // block's gap from the wrong neighbour
+    const mirror = block.querySelector(':scope > .de-mirror, :scope > .de-mirror-peeked')
     if (!(mirror instanceof HTMLElement)) continue
     const claims = heldClaims.get(block)
     if (!claims?.length) { mirror.style.marginTop = ''; prev = undefined; continue }
@@ -1104,7 +1198,11 @@ function putAside(block: HTMLElement, how: 'hidden' | 'marked'): void {
 }
 
 function clearAside(block: HTMLElement): void {
-  for (const el of block.querySelectorAll(':scope > .de-mirror-hidden, :scope > .de-unmirrored')) el.remove()
+  // `.de-mirror-hidden-peeked` is the same marker mid-peek (see peekBlock)
+  if (peeked === block) peeked = null
+  for (const el of block.querySelectorAll(
+    ':scope > .de-mirror-hidden, :scope > .de-mirror-hidden-peeked, :scope > .de-unmirrored',
+  )) el.remove()
   aside.delete(block)
 }
 

@@ -8,6 +8,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { state } from '../state'
 import { exportTex, loadDoc, loadDocFromTex, serializeDoc } from '../model/doc'
+import { attachMirror, clearMirrors, isMirrored, isPeeked } from '../doc/blockmirror'
+import { docBlocks } from '../doc/sync'
 import {
   buildReplaceOp, closeDocFind, collectDocMatches, docFindOwnsKey, findInText, mountDocFind,
   openDocFind, replaceAllIn,
@@ -49,6 +51,9 @@ function mount(tex = SAMPLE, name = 'sample.tex') {
 }
 
 beforeEach(() => {
+  // crops are module state: a mirror left hanging from one case would hide
+  // the next one's prose, and the peek loan with it
+  clearMirrors()
   state.doc = null
   state.resetLog()
 })
@@ -370,6 +375,68 @@ describe('the find bar', () => {
     type(field(0), 'paragraph')
     closeDocFind()
     expect(host.querySelector<HTMLElement>('.de-find')!.hidden).toBe(true)
+  })
+
+  /* A highlight is a Range over the block's HTML text, and a block showing
+   * its compiled crop has that text hidden underneath the picture — so on a
+   * compiled paper the bar counted matches and shaded nothing anyone could
+   * see (131 of llama.tex's 152 blocks were mirrored). The current match's
+   * block is lent its HTML form back for as long as it holds the match. */
+
+  it('lends the current match\'s block its HTML form back, and takes it away again', () => {
+    const doc = mount()
+    const paras = docBlocks(doc).filter((b) => b.matches('p'))
+    const first = paras.find((b) => b.textContent!.startsWith('First paragraph'))!
+    const second = paras.find((b) => b.textContent!.startsWith('Second paragraph'))!
+    attachMirror(doc, first, [{ url: 'data:,a' }])
+    attachMirror(doc, second, [{ url: 'data:,b' }])
+
+    openDocFind()
+    type(field(0), 'paragraph')
+    expect(countEl().textContent).toBe('1/2')
+    expect(isPeeked(first)).toBe(true)
+    expect(isPeeked(second)).toBe(false)
+
+    btn('›').click()
+    expect(isPeeked(first)).toBe(false)
+    expect(isPeeked(second)).toBe(true)
+    // the block it left is showing its crop again, with its url intact
+    expect(first.querySelector<HTMLImageElement>('.de-mirror img')!.src).toContain('data:,a')
+
+    closeDocFind()
+    expect(isPeeked(first)).toBe(false)
+    expect(isPeeked(second)).toBe(false)
+    expect(isMirrored(first)).toBe(true)
+    expect(isMirrored(second)).toBe(true)
+  })
+
+  it('a search over a mirrored document still moves not one byte', () => {
+    const doc = mount()
+    for (const block of docBlocks(doc)) attachMirror(doc, block, [{ url: 'data:,x' }])
+    const tex = exportTex(doc)
+    const html = serializeDoc(doc)
+
+    openDocFind()
+    type(field(0), 'paragraph')
+    btn('›').click()
+    expect(exportTex(doc)).toBe(tex)
+    expect(serializeDoc(doc)).toBe(html)
+    closeDocFind()
+    expect(exportTex(doc)).toBe(tex)
+    expect(serializeDoc(doc)).toBe(html)
+  })
+
+  it('replace-all over mirrored blocks is still ONE undo, and gives the source back', () => {
+    const doc = mount()
+    for (const block of docBlocks(doc)) attachMirror(doc, block, [{ url: 'data:,x' }])
+    openDocFind(true)
+    type(field(0), 'paragraph')
+    type(field(1), 'passage')
+    btn('all').click()
+    expect(doc.source.text).toContain('First passage')
+    expect(doc.source.text).toContain('Second passage')
+    state.undo()
+    expect(exportTex(doc)).toBe(SAMPLE)
   })
 
   it('an edit from elsewhere re-runs the search rather than holding dead nodes', () => {
