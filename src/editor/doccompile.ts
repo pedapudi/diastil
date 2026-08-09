@@ -19,6 +19,7 @@ import { state } from '../state'
 import { SERVICE_BASE, sseData, type TexCapability } from '../service/client'
 import { servicePathOf } from './slides'
 import { grantFolderAccess, summarizeSkips, type FolderGrantResult } from './folderGrant'
+import { scanInputPaths } from '../latex/project'
 
 /** one finding from the engine's log, as the daemon's parse_log emits it */
 export interface TexError {
@@ -270,7 +271,10 @@ export function compileGrant(): CompileGrant | null { return grant }
  * cancelled the picker or the API is unavailable — callers should leave
  * their affordance exactly as it was rather than reporting a failure. */
 export async function grantFolderAndRecompile(doc: Doc): Promise<FolderGrantResult | null> {
-  const result = await grantFolderAccess()
+  // the grant is told which paths this document actually \inputs — that is
+  // the only thing that lets it look below the folder's top level, and it
+  // is what makes an unreadable chapter readable
+  const result = await grantFolderAccess(scanInputPaths(doc.source.text), doc.texName)
   if (result === null) return null
   grant = { folderName: result.folderName, assets: result.assets, skippedCount: result.skipped.length }
   if (result.skipped.length > 0) {
@@ -314,8 +318,13 @@ export async function compileNow(doc: Doc): Promise<CompileResult | null> {
         docId: docIdOf(doc),
         docPath: servicePathOf() ?? undefined,
         // a granted folder's files ride along on every compile for the rest
-        // of the session, not just the one that prompted the grant
-        ...(grant ? { assets: grant.assets } : {}),
+        // of the session, not just the one that prompted the grant. The
+        // project's own \input'd files go LAST and win: they are the copies
+        // the user has been editing, and a compile of the bytes still on
+        // disk is a compile of a document nobody is looking at.
+        ...(grant || doc.project.multiFile
+          ? { assets: { ...(grant?.assets ?? {}), ...doc.project.includedTexts() } }
+          : {}),
       }),
     })
   } catch {

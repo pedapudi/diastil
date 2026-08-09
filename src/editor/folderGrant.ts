@@ -14,11 +14,17 @@
  * decisions (what counts as a support file, the size budget, name safety)
  * live — those are exercised directly in folderGrant.test.ts. */
 
-/** the daemon reads these as siblings of main.tex; \input/\includegraphics
- * cannot reach anything else in this folder (a stray chapter .tex, a .zip,
- * a .DS_Store), so pulling those in would just be dead weight against the
- * budget below */
-const TEXT_EXTENSIONS = new Set(['sty', 'cls', 'bst', 'bib', 'bbl'])
+/** the daemon reads these as siblings of main.tex; everything else in the
+ * folder (a .zip, a .DS_Store, a README) is dead weight against the budget
+ * below.
+ *
+ * `tex` used to be excluded, with a comment claiming \input could not reach
+ * a stray chapter. It can — that was the bug: a multi-file document did not
+ * merely render poorly, it failed to compile at all, on the first missing
+ * chapter. Sibling .tex now ships. What did NOT change is the shape of the
+ * capability: the picker still lists one directory, and the only way below
+ * it is a path the DOCUMENT ITSELF names (see grantFolderAccess). */
+const TEXT_EXTENSIONS = new Set(['sty', 'cls', 'bst', 'bib', 'bbl', 'tex'])
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'eps', 'pdf'])
 
 /** one file this large is almost certainly not a LaTeX support file — a
@@ -42,8 +48,8 @@ function extOf(name: string): string {
   return i < 0 ? '' : name.slice(i + 1).toLowerCase()
 }
 
-/** a .sty/.cls/.bst/.bib/.bbl or a figure image — the set the daemon can
- * actually use to unblind a compile */
+/** a .sty/.cls/.bst/.bib/.bbl/.tex or a figure image — the set the daemon
+ * can actually use to unblind a compile */
 export function isSupportFile(name: string): boolean {
   const ext = extOf(name)
   return TEXT_EXTENSIONS.has(ext) || IMAGE_EXTENSIONS.has(ext)
@@ -61,12 +67,16 @@ export function isTextSupportFile(name: string): boolean {
  * a separator on an exotic filesystem or a mounted share, and the daemon's
  * own checks are the ground truth for what it will accept, so this stays a
  * mirror rather than a looser local guess. */
-export function isValidAssetName(name: string): boolean {
+export function isValidAssetName(name: string, mainName?: string): boolean {
   if (!name || name.trim() !== name) return false
   if (name.startsWith('/') || name.startsWith('\\')) return false
   if (name.slice(0, 3).includes(':')) return false
   if (name.split(/[/\\]/).some((part) => part === '' || part === '.' || part === '..')) return false
   if (name === 'main.tex') return false
+  // the document being edited rides as `texSource`, and the in-memory copy
+  // is the one with the user's unsaved edits in it — shipping the stale
+  // bytes off disk under the same roof is how you compile yesterday's draft
+  if (mainName !== undefined && name === mainName) return false
   return true
 }
 
@@ -75,12 +85,12 @@ export function isValidAssetName(name: string): boolean {
  * are considered in the order given; a directory listing is typically
  * alphabetical, so the budget fills alphabetically too rather than by any
  * hidden preference. */
-export function planGrant(files: FileStat[]): GrantPlan {
+export function planGrant(files: FileStat[], mainName?: string): GrantPlan {
   const accepted: FileStat[] = []
   const skipped: SkippedFile[] = []
   let total = 0
   for (const f of files) {
-    if (!isValidAssetName(f.name)) { skipped.push({ name: f.name, reason: 'name' }); continue }
+    if (!isValidAssetName(f.name, mainName)) { skipped.push({ name: f.name, reason: 'name' }); continue }
     if (!isSupportFile(f.name)) { skipped.push({ name: f.name, reason: 'type' }); continue }
     if (f.size > MAX_FILE_BYTES) { skipped.push({ name: f.name, reason: 'too-large' }); continue }
     if (total + f.size > MAX_TOTAL_BYTES) { skipped.push({ name: f.name, reason: 'budget' }); continue }
@@ -113,6 +123,33 @@ export function summarizeSkips(skipped: SkippedFile[]): string {
       return `${names.length} ${label(r)} (${shown}${names.length > 3 ? ', …' : ''})`
     })
   return `skipped ${parts.join('; ')}`
+}
+
+/* ---------- reaching below the top level ---------- */
+
+/** How many directory levels below the granted folder the walk may go.
+ * `chapters/intro.tex` is one; `parts/two/intro.tex` is two. Nothing real
+ * needs more, and the cap is the last line of defence if the "only paths
+ * the document names" rule below is ever loosened. */
+export const MAX_GRANT_DEPTH = 3
+
+/** May the walk descend into this directory? ONLY when some path the
+ * document itself \inputs runs through it.
+ *
+ * This is what keeps widening the grant to .tex from becoming "read
+ * anything the user has". The picker grants one directory; before this
+ * change the walk read that directory and stopped. It still does — the
+ * only thing that reaches deeper is a path written in the document's own
+ * source, so what the grant can see is bounded by the DOCUMENT, not by
+ * the size or shape of the folder the user happened to pick. */
+export function descendInto(relPath: string, wanted: readonly string[]): boolean {
+  return wanted.some((w) => w.startsWith(`${relPath}/`))
+}
+
+/** May a file BELOW the top level be read? Only when it is exactly a path
+ * the document named — a wanted directory is a keyhole, not a door. */
+export function acceptNested(relPath: string, wanted: readonly string[]): boolean {
+  return wanted.includes(relPath)
 }
 
 /* ---------- the browser part ---------- */
@@ -155,18 +192,28 @@ export interface FolderGrantResult {
 }
 
 /** Ask the browser for a folder and read its support files into an assets
- * map. ONE LEVEL ONLY: the picker lists a single directory, not a tree, so
- * a deck of nested subfolders is left alone rather than walked. This is not
- * a compromise so much as the common case — \input/\includegraphics resolve
- * beside main.tex the overwhelming majority of the time — and an unbounded
- * recursive walk is exactly the "huge folder" the size budget above exists
- * to guard against.
+ * map.
+ *
+ * THE TOP LEVEL, PLUS WHAT THE DOCUMENT ASKED FOR. The picker lists a
+ * single directory; that directory's support files are read as they always
+ * were. `wanted` — the project-relative paths the document's own
+ * \input/\include name (latex/project.ts scanInputPaths) — is the ONLY way
+ * the walk goes deeper, one named file at a time, MAX_GRANT_DEPTH levels
+ * at most. An unbounded recursive walk is exactly the "huge folder" the
+ * size budget exists to guard against, and "the user granted a folder" is
+ * not the same permission as "read everything under it".
+ *
+ * `mainName` is the open document's own file name, which is skipped: it
+ * ships as `texSource`, from memory, edits included.
  *
  * Must be called from a user gesture (directly inside a click handler, not
  * after an intervening await) — the browser enforces this itself and throws
  * otherwise. Resolves null if the API is unavailable or the user cancels the
  * picker; neither is a failure worth reporting. */
-export async function grantFolderAccess(): Promise<FolderGrantResult | null> {
+export async function grantFolderAccess(
+  wanted: readonly string[] = [],
+  mainName?: string,
+): Promise<FolderGrantResult | null> {
   const picker = pickerFn()
   if (!picker) return null
   let dir: FSDirHandleLike
@@ -176,16 +223,35 @@ export async function grantFolderAccess(): Promise<FolderGrantResult | null> {
     return null // cancelled, or denied — the browser already told the user
   }
   const files: { name: string; file: File }[] = []
-  for await (const entry of dir.values()) {
-    if (entry.kind !== 'file') continue // one level only — see above
-    files.push({ name: entry.name, file: await entry.getFile() })
-  }
-  const plan = planGrant(files.map((f) => ({ name: f.name, size: f.file.size })))
-  const wanted = new Set(plan.accepted.map((a) => a.name))
+  await walkGrant(dir, '', wanted, files, 0)
+  const plan = planGrant(files.map((f) => ({ name: f.name, size: f.file.size })), mainName)
+  const accepted = new Set(plan.accepted.map((a) => a.name))
   const assets: Record<string, string> = {}
   for (const f of files) {
-    if (!wanted.has(f.name)) continue
+    if (!accepted.has(f.name)) continue
     assets[f.name] = await readAsset(f.file)
   }
   return { folderName: dir.name, assets, skipped: plan.skipped }
+}
+
+async function walkGrant(
+  dir: FSDirHandleLike,
+  prefix: string,
+  wanted: readonly string[],
+  out: { name: string; file: File }[],
+  depth: number,
+): Promise<void> {
+  for await (const entry of dir.values()) {
+    const rel = prefix ? `${prefix}/${entry.name}` : entry.name
+    if (entry.kind === 'file') {
+      // top level as before; below it, only a file the document named
+      if (prefix === '' || acceptNested(rel, wanted)) {
+        out.push({ name: rel, file: await entry.getFile() })
+      }
+      continue
+    }
+    if (depth + 1 >= MAX_GRANT_DEPTH) continue
+    if (!descendInto(rel, wanted)) continue
+    await walkGrant(entry, rel, wanted, out, depth + 1)
+  }
 }
