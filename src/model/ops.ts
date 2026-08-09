@@ -3,8 +3,10 @@
 
 import type { NodeGeom, Op } from '../types'
 import type { Doc } from './doc'
+import type { Span } from '../latex/lex'
 import { routeAll, routeEdge, setNodeGeom, getNodeGeom } from '../scene/route'
 import { emitBlockTex } from '../latex/emit'
+import { blockMemo } from '../latex/render'
 import { applySourceText } from '../doc/reconcile'
 
 const author = (a?: 'you' | 'copilot') => a ?? 'you'
@@ -49,6 +51,234 @@ export function syncedBlockOp(doc: Doc, blockEl: HTMLElement, domOps: Op[], labe
       return syncedBlockOp(doc, blockEl, inverses, `un-${label}`, author(by))
     },
   }
+}
+
+/* ---------- document structure: whole top-level blocks ----------
+ *
+ * syncedBlockOp can change what is INSIDE one block. These change the
+ * sequence of blocks itself — insert, remove, move, split, join — and they
+ * are the same bargain at one level up: the DOM move and the source patch
+ * are one invertible op, or the two truths drift apart.
+ *
+ * The shape is a REGION rewrite. A structural edit owns a contiguous run of
+ * source — one or two adjacent block spans plus the whitespace between them
+ * — and is described by that region's exact bytes on BOTH sides, plus which
+ * block id owns which stretch afterwards. The inverse is then literally the
+ * same op with the sides swapped: undo restores the region's original bytes
+ * verbatim (not a re-emission that might reformat them), and every byte
+ * outside the region is untouched by construction, in both directions. */
+
+const BLOCK_SEP = '\n\n'
+
+/** a block id's stretch of a region, in offsets RELATIVE to the region */
+interface RegionBind { id: string; start: number; end: number }
+interface SourceRegion { text: string; binds: RegionBind[] }
+
+function regionOp(
+  doc: Doc, domOps: Op[], start: number,
+  before: SourceRegion, after: SourceRegion, label: string, by?: 'you' | 'copilot',
+): Op {
+  return {
+    label,
+    author: author(by),
+    apply() {
+      // the region's bytes are this op's premise. If the source moved under
+      // it — a source-view session between apply and redo — patching by
+      // offset would rewrite bytes the op never owned, so it does nothing
+      // and says so rather than corrupting the one thing it protects.
+      if (doc.source.text.slice(start, start + before.text.length) !== before.text) {
+        console.error(`dia-doc: "${label}" no longer matches its source region — nothing applied`)
+        return
+      }
+      for (const o of domOps) o.apply()
+      doc.source.patch(start, start + before.text.length, after.text)
+      for (const b of before.binds) doc.source.drop(b.id)
+      for (const b of after.binds) doc.source.bind(b.id, { start: start + b.start, end: start + b.end })
+    },
+    invert() {
+      const inverses = [...domOps].reverse().map((o) => o.invert())
+      return regionOp(doc, inverses, start, after, before, `un-${label}`, author(by))
+    },
+  }
+}
+
+function blockSpan(doc: Doc, el: Element): Span | null {
+  const id = el.getAttribute('data-dia-id')
+  return id ? doc.source.spanOf(id) : null
+}
+
+/** the neighbouring top-level block that HAS source bytes. The derived
+ * header has none — it is not a place a block can sit next to, and treating
+ * it as one would put a paragraph's source above \begin{document}. */
+export function neighbourBlock(doc: Doc, el: HTMLElement, dir: -1 | 1): HTMLElement | null {
+  let cur = dir < 0 ? el.previousElementSibling : el.nextElementSibling
+  while (cur) {
+    if (cur instanceof HTMLElement && blockSpan(doc, cur)) return cur
+    cur = dir < 0 ? cur.previousElementSibling : cur.nextElementSibling
+  }
+  return null
+}
+
+/** insert a rendered block, with `tex` as its source, beside `ref` (or into
+ * an empty body when ref is null). The insertion is PURE: the payload is
+ * the block plus one blank line, spliced at a boundary, so neither
+ * neighbour's bytes are rewritten. */
+export function insertBlockOp(
+  doc: Doc, el: HTMLElement, tex: string, ref: HTMLElement | null,
+  where: 'before' | 'after', label: string, by?: 'you' | 'copilot',
+): Op | null {
+  const id = el.getAttribute('data-dia-id')
+  if (!id) return null
+
+  let at: number
+  let text: string
+  let offset: number
+  const prev = ref && where === 'after' ? ref : ref && neighbourBlock(doc, ref, -1)
+  if (prev) {
+    const span = blockSpan(doc, prev)
+    if (!span) return null
+    at = span.end
+    text = BLOCK_SEP + tex
+    offset = BLOCK_SEP.length
+  } else if (ref) {
+    // nothing above it: the block goes in front of the first block's bytes
+    const span = blockSpan(doc, ref)
+    if (!span) return null
+    at = span.start
+    text = tex + BLOCK_SEP
+    offset = 0
+  } else {
+    // an empty body — the only anchor left is \begin{document} itself
+    const m = /\\begin\{document\}[^\n]*\n?/.exec(doc.source.text)
+    if (!m) return null
+    at = m.index + m[0].length
+    text = `\n${tex}\n`
+    offset = 1
+  }
+
+  const index = ref ? [...doc.article.children].indexOf(ref) + (where === 'after' ? 1 : 0) : doc.article.children.length
+  return regionOp(doc, [insertEl(doc.article, index, el, label, by)], at,
+    { text: '', binds: [] },
+    { text, binds: [{ id, start: offset, end: offset + tex.length }] },
+    label, by)
+}
+
+/** remove a whole block, taking ONE separator with it — the blank line a
+ * removed block leaves behind would otherwise stack with its neighbour's */
+export function removeBlockOp(doc: Doc, el: HTMLElement, label: string, by?: 'you' | 'copilot'): Op | null {
+  const id = el.getAttribute('data-dia-id')
+  const span = blockSpan(doc, el)
+  if (!id || !span) return null
+  let { start, end } = span
+  const nextSpan = blockSpanOfNeighbour(doc, el, 1)
+  const prevSpan = blockSpanOfNeighbour(doc, el, -1)
+  if (nextSpan && nextSpan.start >= end) end = nextSpan.start
+  else if (prevSpan && prevSpan.end <= start) start = prevSpan.end
+  return regionOp(doc, [removeEl(el, label, by)], start,
+    { text: doc.source.text.slice(start, end), binds: [{ id, start: span.start - start, end: span.end - start }] },
+    { text: '', binds: [] },
+    label, by)
+}
+
+/** swap a block with its neighbour: the two slices EXCHANGE places and the
+ * whitespace between them stays where it is, so a move relocates bytes
+ * rather than re-emitting (and thereby reformatting) either block */
+export function moveBlockOp(doc: Doc, el: HTMLElement, dir: -1 | 1, label: string, by?: 'you' | 'copilot'): Op | null {
+  const other = neighbourBlock(doc, el, dir)
+  if (!other) return null
+  const [first, second] = dir < 0 ? [other, el] : [el, other]
+  const fs = blockSpan(doc, first)
+  const ss = blockSpan(doc, second)
+  const fid = first.getAttribute('data-dia-id')
+  const sid = second.getAttribute('data-dia-id')
+  if (!fs || !ss || !fid || !sid || ss.start < fs.end) return null
+
+  const a = doc.source.text.slice(fs.start, fs.end)
+  const sep = doc.source.text.slice(fs.end, ss.start)
+  const b = doc.source.text.slice(ss.start, ss.end)
+  const index = [...doc.article.children].indexOf(second) + 1
+  return regionOp(doc, [moveEl(first, doc.article, index, label, by)], fs.start,
+    { text: a + sep + b, binds: bindPair(fid, a, sep, sid, b) },
+    { text: b + sep + a, binds: bindPair(sid, b, sep, fid, a) },
+    label, by)
+}
+
+function bindPair(firstId: string, a: string, sep: string, secondId: string, b: string): RegionBind[] {
+  return [
+    { id: firstId, start: 0, end: a.length },
+    { id: secondId, start: a.length + sep.length, end: a.length + sep.length + b.length },
+  ]
+}
+
+/** split a block in two: `el` keeps the head (and its identity, so an
+ * untouched head re-emits its ORIGINAL bytes), `tailEl` is the new block */
+export function splitBlockOp(
+  doc: Doc, el: HTMLElement, headHtml: string, tailEl: HTMLElement,
+  label: string, by?: 'you' | 'copilot',
+): Op | null {
+  const id = el.getAttribute('data-dia-id')
+  const tailId = tailEl.getAttribute('data-dia-id')
+  const span = blockSpan(doc, el)
+  if (!id || !tailId || !span) return null
+
+  const headTex = emitAs(el, headHtml)
+  const tailTex = emitBlockTex(tailEl)
+  const after = headTex + BLOCK_SEP + tailTex
+  const index = [...doc.article.children].indexOf(el) + 1
+  const domOps = [setInlineHtml(el, headHtml, by), insertEl(doc.article, index, tailEl, label, by)]
+  return regionOp(doc, domOps, span.start,
+    { text: doc.source.text.slice(span.start, span.end), binds: [{ id, start: 0, end: span.end - span.start }] },
+    {
+      text: after,
+      binds: [
+        { id, start: 0, end: headTex.length },
+        { id: tailId, start: headTex.length + BLOCK_SEP.length, end: after.length },
+      ],
+    },
+    label, by)
+}
+
+/** join a block into the one before it — the inverse shape of a split */
+export function joinBlocksOp(
+  doc: Doc, first: HTMLElement, second: HTMLElement, label: string, by?: 'you' | 'copilot',
+): Op | null {
+  const fid = first.getAttribute('data-dia-id')
+  const sid = second.getAttribute('data-dia-id')
+  const fs = blockSpan(doc, first)
+  const ss = blockSpan(doc, second)
+  if (!fid || !sid || !fs || !ss || ss.start < fs.end) return null
+
+  const merged = first.innerHTML + second.innerHTML
+  const joined = emitAs(first, merged)
+  const domOps = [setInlineHtml(first, merged, by), removeEl(second, label, by)]
+  return regionOp(doc, domOps, fs.start,
+    {
+      text: doc.source.text.slice(fs.start, ss.end),
+      binds: bindPair(fid, doc.source.text.slice(fs.start, fs.end),
+        doc.source.text.slice(fs.end, ss.start), sid, doc.source.text.slice(ss.start, ss.end)),
+    },
+    { text: joined, binds: [{ id: fid, start: 0, end: joined.length }] },
+    label, by)
+}
+
+/** the LaTeX a block would emit if its inline content were `html`.
+ *
+ * The probe carries the original's render memo on purpose: a split whose
+ * head is the paragraph's untouched markup must emit that paragraph's
+ * original bytes, not a reconstruction of them — pressing Enter at the end
+ * of a paragraph is not an edit to the paragraph, and reflowing its
+ * whitespace would say it was. */
+function emitAs(el: HTMLElement, html: string): string {
+  const probe = el.cloneNode(false) as HTMLElement
+  probe.innerHTML = html
+  const memo = blockMemo.get(el)
+  if (memo) blockMemo.set(probe, memo)
+  return emitBlockTex(probe)
+}
+
+function blockSpanOfNeighbour(doc: Doc, el: HTMLElement, dir: -1 | 1): Span | null {
+  const other = neighbourBlock(doc, el, dir)
+  return other ? blockSpan(doc, other) : null
 }
 
 /** replace an element's text content (role text editing).
