@@ -40,6 +40,7 @@ import { mountDocView, activateDoc, deactivateDoc, scrollToBlock } from './docvi
 import { activatePages, deactivatePages, mountPagesView } from './pagesview'
 import { installBlockMirror, mirrorOn, setMirrorOn } from '../doc/blockmirror'
 import { installBibliography } from '../doc/bibliography'
+import { installAuxNumbers } from '../doc/auxnumbers'
 import { mountOutline, showOutline } from './outline'
 import { mountComments } from '../doc/commentrail'
 import { activateSource, deactivateSource, jumpToLine, mountSourceView } from './source'
@@ -632,6 +633,7 @@ export function mountEditor(host: HTMLElement): void {
   installContextMenu(canvasHost)
   installBlockMirror()
   installBibliography()
+  installAuxNumbers()
   installAutoCompile()
   mountThemePicker(pickerSlot)
   mountTypePicker(pickerSlot)
