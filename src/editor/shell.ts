@@ -32,7 +32,8 @@ import { focusedSlide, openSlideFocus, slidesInLogicalOrder } from '../studio/fo
 import { buildSlideTree } from './tree'
 import { openCompare } from './compare'
 import {
-  bootFromCli, exportPptxAction, exportTexAction, openDeck, pptxExportAvailable,
+  bootFromCli, confirmReplace, exportPptxAction, exportTexAction, newDeck, newDocument,
+  openDeck, pptxExportAvailable,
   PPTX_EXPORT_HINT, PPTX_EXPORT_OFFLINE_HINT, presentDeck, presentDoc, saveDeck, saveDoc,
 } from './slides'
 import { mountDocView, activateDoc, deactivateDoc, scrollToBlock } from './docview'
@@ -217,8 +218,33 @@ export function mountEditor(host: HTMLElement): void {
   }
   function setSourceMode(on: boolean): void { setView(on ? 'source' : 'native') }
 
-  const btnOpen = dnButton('open', () => { void openDeck(canvasHost) })
+  /* open is a split button, the way save is: the button opens (the frequent
+   * act), the caret holds the file doors that are not "open the one I have"
+   * — starting a deck or a document from scratch. A deck and a document are
+   * different kinds of FILE (the mode is fixed at open time), so "new" asks
+   * which, rather than toggling the open one. */
+  const btnOpen = segButton('open', () => { void doOpen() })
   btnOpen.title = 'open any HTML deck — diastil files load directly; foreign decks convert through review'
+  const btnOpenMore = segButton('▾', () => {
+    const r = btnOpenMore.getBoundingClientRect()
+    openMenu(r.right - 196, r.bottom + 4, [
+      { label: 'open…', run: () => { void doOpen() } },
+      SEP,
+      {
+        label: 'new deck',
+        run: () => doNew('deck'),
+        hint: 'a cover and one content slide in the default theme',
+      },
+      {
+        label: 'new document',
+        run: () => doNew('doc'),
+        hint: 'a LaTeX article starter — the same one `dia new --doc` writes',
+      },
+    ])
+  })
+  btnOpenMore.title = 'open & new…'
+  const openSplit = h('span', 'dn-seg dn-split')
+  openSplit.append(btnOpen, btnOpenMore)
 
   // save is a split button: the button saves (the frequent act), the caret
   // opens save & export — exporters live in the menu, not the toolbar
@@ -381,7 +407,7 @@ export function mountEditor(host: HTMLElement): void {
   }
   onCompileState(renderTexChip)
 
-  topbar.append(brand, respreview, crumbs, h('div', 'de-spacer'), viewSeg, seg, btnOpen, saveSplit, pickerSlot, texChip, status)
+  topbar.append(brand, respreview, crumbs, h('div', 'de-spacer'), viewSeg, seg, openSplit, saveSplit, pickerSlot, texChip, status)
 
   /* ---------- layout ---------- */
 
@@ -747,6 +773,24 @@ export function mountEditor(host: HTMLElement): void {
     }
     state.setCurrentSlide(state.currentSlide + d)
     scrollToSlide(state.currentSlide, 'smooth')
+  }
+
+  /* ----- file doors: open, new deck, new document ----- */
+
+  /* Each one REPLACES what is loaded, and only the shell knows whether that
+   * costs anything (tick vs savedTick), so the guard lives here — one gate
+   * in front of every door, rather than a door that quietly discards. */
+
+  async function doOpen(): Promise<void> {
+    if (!confirmReplace(tick !== savedTick, 'Open another file?')) return
+    await openDeck(canvasHost)
+  }
+
+  function doNew(kind: 'deck' | 'doc'): void {
+    if (!confirmReplace(tick !== savedTick,
+      kind === 'doc' ? 'Start a new document?' : 'Start a new deck?')) return
+    if (kind === 'doc') newDocument(canvasHost)
+    else newDeck(canvasHost)
   }
 
   async function doSave(): Promise<void> {
