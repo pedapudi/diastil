@@ -42,6 +42,7 @@ import { installBibliography } from '../doc/bibliography'
 import { mountOutline, showOutline } from './outline'
 import { mountComments } from '../doc/commentrail'
 import { activateSource, deactivateSource, jumpToLine, mountSourceView } from './source'
+import { closeDocFind, docFindOwnsKey, mountDocFind, openDocFind } from './docfind'
 import { openMenu, SEP, type Entry } from './menu'
 import {
   autoCompileOn, compileNow, compileState, exportPdfAction, grantFolderAndRecompile,
@@ -196,11 +197,17 @@ export function mountEditor(host: HTMLElement): void {
   viewSeg.append(segNative, segPages, segSource)
 
   type DocView = 'native' | 'pages' | 'source'
+  // which doc view is showing — the find bar's Ctrl+F belongs to the native
+  // surface only (the source view runs its own find, the pages view shows
+  // pictures of type there is no DOM text to search)
+  let docView: DocView = 'native'
   function setView(view: DocView): void {
     if (!state.doc) return
+    docView = view
     segNative.classList.toggle('dn-on', view === 'native')
     segPages.classList.toggle('dn-on', view === 'pages')
     segSource.classList.toggle('dn-on', view === 'source')
+    if (view !== 'native') closeDocFind()
     deactivateSource() // commits when dirty; harmless when already closed
     deactivateDoc()
     deactivatePages()
@@ -581,6 +588,7 @@ export function mountEditor(host: HTMLElement): void {
     scrollToBlock(block)
   })
   mountSourceView(main)
+  mountDocFind(main, () => docView === 'native')
   mountProblems(main)
 
   // "edit LaTeX here" requests (island dblclick, error rows in source
@@ -612,6 +620,19 @@ export function mountEditor(host: HTMLElement): void {
       e.preventDefault()
       void doSave()
       return
+    }
+    // find/replace: the conventional keys, but only when the DOCUMENT
+    // surface is the thing with the keystroke. docFindOwnsKey reads the same
+    // composedPath the typing exemption below reads, one notch finer — a
+    // contenteditable inside the article is still the document, a rail input
+    // or the source view is not — and it answers false with no document
+    // open, which leaves the browser's own find alone.
+    if (mod && (e.key === 'f' || e.key === 'F' || e.key === 'h' || e.key === 'H')) {
+      if (docFindOwnsKey(e)) {
+        e.preventDefault()
+        openDocFind(e.key === 'h' || e.key === 'H')
+        return
+      }
     }
     const inField = e.composedPath().some((t) =>
       t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable))
@@ -689,9 +710,11 @@ export function mountEditor(host: HTMLElement): void {
     commentsTab.btn.hidden = !on
     if (!on && commentsTab.pane.classList.contains('de-on')) tabs[0].btn.click()
     if (!on) toggleProblems(false)
+    closeDocFind()
     if (on) {
       deactivateTable()
       // a fresh doc always opens in the native view
+      docView = 'native'
       segNative.classList.add('dn-on')
       segPages.classList.remove('dn-on')
       segSource.classList.remove('dn-on')

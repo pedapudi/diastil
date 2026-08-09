@@ -1,6 +1,6 @@
 /* Raw LaTeX source view — first-party: a transparent-text textarea over a
- * highlight layer, with a line-number gutter and a find bar. No soft wrap
- * (wrapping is where overlay alignment dies); long lines scroll sideways.
+ * highlight layer, with a line-number gutter and a find/replace bar. No soft
+ * wrap (wrapping is where overlay alignment dies); long lines scroll sideways.
  * While this view is open the native surface is inert — exactly one
  * writer. Leaving the view (or Ctrl+S) commits ONE setDocSource op; the
  * reconcile keeps unchanged blocks' identity, so comment anchors and
@@ -12,9 +12,16 @@
 
 import { state } from '../state'
 import { commitSourceEdit, topBlockOf } from '../doc/sync'
+import { findInText, replaceAllIn, type FindOpts, type Hit } from './docfind'
 import { highlightLine } from './texhl'
 
 const HIGHLIGHT_OFF_LINES = 10000
+
+/** the raw view searches BYTES: no whitespace collapsing, because here a
+ * newline is a newline (the overlay mark is a run on one line, and a match
+ * that spanned a line break could not be drawn) and because the user is
+ * looking at the source, not at prose */
+const SRC_FIND: FindOpts = { collapseSpace: false }
 
 let container: HTMLElement | null = null
 let ta!: HTMLTextAreaElement
@@ -23,27 +30,45 @@ let gutter!: HTMLElement
 let findBar!: HTMLElement
 let findInput!: HTMLInputElement
 let findCount!: HTMLElement
+let replaceRow!: HTMLElement
+let replaceInput!: HTMLInputElement
+let caseBtn!: HTMLButtonElement
+let wordBtn!: HTMLButtonElement
 let raf = 0
 let lastLines: string[] = []
 let lastHtml: string[] = []
-let findMatches: number[] = []
+let findMatches: Hit[] = []
 let findAt = -1
+let findOpts: FindOpts = { ...SRC_FIND }
 let onExit: (() => void) | null = null
 
 export function mountSourceView(mainEl: HTMLElement): void {
   container = document.createElement('div')
   container.className = 'de-src'
   container.hidden = true
+  // a fresh bar's toggles are drawn off, so the options it reads start off
+  // too — the two must not disagree
+  findOpts = { ...SRC_FIND }
 
   findBar = document.createElement('div')
   findBar.className = 'de-src-find'
   findBar.hidden = true
+  const findRow = document.createElement('div')
+  findRow.className = 'de-src-findrow'
   findInput = document.createElement('input')
   findInput.className = 'dn-input'
   findInput.placeholder = 'find in source'
   findInput.setAttribute('spellcheck', 'false')
   findCount = document.createElement('span')
   findCount.className = 'de-src-findcount'
+  caseBtn = togBtn('Aa', 'match case', () => {
+    findOpts = { ...findOpts, caseSensitive: !findOpts.caseSensitive }
+    syncToggles()
+  })
+  wordBtn = togBtn('ab', 'whole word', () => {
+    findOpts = { ...findOpts, wholeWord: !findOpts.wholeWord }
+    syncToggles()
+  })
   const prev = navBtn('‹', -1)
   const next = navBtn('›', 1)
   const close = document.createElement('button')
@@ -51,13 +76,35 @@ export function mountSourceView(mainEl: HTMLElement): void {
   close.className = 'dn-btn'
   close.textContent = '✕'
   close.addEventListener('click', () => closeFind())
-  findBar.append(findInput, findCount, prev, next, close)
+  findRow.append(findInput, findCount, caseBtn, wordBtn, prev, next, close)
+
+  replaceRow = document.createElement('div')
+  replaceRow.className = 'de-src-findrow'
+  replaceRow.hidden = true
+  replaceInput = document.createElement('input')
+  replaceInput.className = 'dn-input'
+  replaceInput.placeholder = 'replace with'
+  replaceInput.setAttribute('spellcheck', 'false')
+  const one = actBtn('replace', 'replace this match', () => replaceCurrent())
+  const all = actBtn('all', 'replace every match', () => replaceAll())
+  replaceRow.append(replaceInput, one, all)
+  findBar.append(findRow, replaceRow)
+
   findInput.addEventListener('input', () => runFind())
-  findInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); stepFind(e.shiftKey ? -1 : 1) }
-    if (e.key === 'Escape') { e.preventDefault(); closeFind() }
-    e.stopPropagation()
-  })
+  for (const field of [findInput, replaceInput]) {
+    field.addEventListener('keydown', (e) => {
+      const mod = e.metaKey || e.ctrlKey
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        if (field === replaceInput) replaceCurrent()
+        else stepFind(e.shiftKey ? -1 : 1)
+      }
+      if (e.key === 'Escape') { e.preventDefault(); closeFind() }
+      if (mod && (e.key === 'f' || e.key === 'F')) { e.preventDefault(); findInput.focus(); findInput.select() }
+      if (mod && (e.key === 'h' || e.key === 'H')) { e.preventDefault(); openFind(true) }
+      e.stopPropagation()
+    })
+  }
 
   const body = document.createElement('div')
   body.className = 'de-src-body'
@@ -93,6 +140,10 @@ export function mountSourceView(mainEl: HTMLElement): void {
     if ((e.metaKey || e.ctrlKey) && (e.key === 'f' || e.key === 'F')) {
       e.preventDefault()
       openFind()
+    }
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'h' || e.key === 'H')) {
+      e.preventDefault()
+      openFind(true)
     }
     if (e.key === 'Tab') {
       // Tab types two spaces instead of leaving the field
@@ -229,53 +280,86 @@ function syncScroll(): void {
 
 /* ---------- find ---------- */
 
-function openFind(): void {
+function openFind(replace = false): void {
   findBar.hidden = false
-  findInput.focus()
-  findInput.select()
+  if (replace) replaceRow.hidden = false
+  const field = replace && findInput.value ? replaceInput : findInput
+  field.focus()
+  field.select()
   runFind()
 }
 
 function closeFind(): void {
   findBar.hidden = true
+  replaceRow.hidden = true
   findMatches = []
   findAt = -1
   findMark = null
   if (container && !container.hidden) render()
+  ta.focus()
 }
 
-function runFind(): void {
+function syncToggles(): void {
+  caseBtn.classList.toggle('is-on', !!findOpts.caseSensitive)
+  wordBtn.classList.toggle('is-on', !!findOpts.wholeWord)
+  runFind(findAt)
+}
+
+/** re-run the search; `keep` is the hit to land on (the step after a
+ * replace, where the hit under the cursor has just disappeared) */
+function runFind(keep = -1): void {
   const term = findInput.value
-  findMatches = []
+  findMatches = term.length > 0 ? findInText(ta.value, term, findOpts) : []
   findAt = -1
-  if (term.length > 0) {
-    const text = ta.value
-    let at = text.indexOf(term)
-    while (at >= 0 && findMatches.length < 5000) {
-      findMatches.push(at)
-      at = text.indexOf(term, at + term.length)
-    }
-  }
   findCount.textContent = findMatches.length ? `${findMatches.length}` : (term ? '0' : '')
-  if (findMatches.length) stepFind(1)
+  if (!findMatches.length) {
+    findMark = null
+    if (container && !container.hidden) render()
+    return
+  }
+  findAt = keep >= 0 ? Math.min(keep, findMatches.length - 1) - 1 : -1
+  stepFind(1)
 }
 
 function stepFind(dir: 1 | -1): void {
   if (!findMatches.length) return
   findAt = (findAt + dir + findMatches.length) % findMatches.length
-  const at = findMatches[findAt]
-  const term = findInput.value
+  const { start, end } = findMatches[findAt]
   // mark in the overlay and scroll; focus stays in the find input so Enter
   // keeps cycling
-  const before = ta.value.slice(0, at)
+  const before = ta.value.slice(0, start)
   const line = before.split('\n').length - 1
-  const col = at - (before.lastIndexOf('\n') + 1)
-  findMark = { line, col, len: term.length }
+  const col = start - (before.lastIndexOf('\n') + 1)
+  findMark = { line, col, len: end - start }
   render()
   const lineHeight = parseFloat(getComputedStyle(ta).lineHeight) || 18
   ta.scrollTop = Math.max(0, line * lineHeight - ta.clientHeight / 3)
   syncScroll()
   findCount.textContent = `${findAt + 1}/${findMatches.length}`
+}
+
+/* Replacing here is a TEXTAREA edit, not an op: the source view's whole
+ * session commits as one setDocSource op when it closes (or on Ctrl+S), so
+ * a replace-all undoes with the rest of the session — coarse, but it is the
+ * granularity this view has always had, and splitting it would mean two
+ * competing writers on one buffer. */
+
+function replaceCurrent(): void {
+  if (findAt < 0 || !findMatches.length) return
+  const { start, end } = findMatches[findAt]
+  const landing = findAt
+  ta.value = ta.value.slice(0, start) + replaceInput.value + ta.value.slice(end)
+  render()
+  runFind(landing)
+}
+
+function replaceAll(): void {
+  if (!findMatches.length) return
+  const r = replaceAllIn(ta.value, findInput.value, replaceInput.value, findOpts)
+  if (r.count === 0) return
+  ta.value = r.text
+  render()
+  runFind()
 }
 
 function navBtn(label: string, dir: 1 | -1): HTMLButtonElement {
@@ -284,5 +368,25 @@ function navBtn(label: string, dir: 1 | -1): HTMLButtonElement {
   b.className = 'dn-btn'
   b.textContent = label
   b.addEventListener('click', () => stepFind(dir))
+  return b
+}
+
+function actBtn(label: string, title: string, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement('button')
+  b.type = 'button'
+  b.className = 'dn-btn de-src-findact'
+  b.textContent = label
+  b.title = title
+  b.addEventListener('click', onClick)
+  return b
+}
+
+function togBtn(label: string, title: string, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement('button')
+  b.type = 'button'
+  b.className = 'dn-btn de-find-tog'
+  b.textContent = label
+  b.title = title
+  b.addEventListener('click', onClick)
   return b
 }
