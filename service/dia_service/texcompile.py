@@ -272,13 +272,20 @@ def biblatex_bibtex_backend_finding(
 # synctex
 # ---------------------------------------------------------------------------
 
-# `(1,23:4736286,42000000` — type, tag, line, x, y (+ optional w,h,d)
-_SYNCTEX_REC = re.compile(
-    r"^[\[\(hvxkg\$]"
+# `(1,23:4736286,42000000` — tag, line, x, y (+ optional w,h,d)
+_REC_BODY = (
     r"(?P<tag>\d+),(?P<line>\d+)"
     r":(?P<x>-?\d+),(?P<y>-?\d+)"
     r"(?::(?P<w>-?\d+),(?P<h>-?\d+),(?P<d>-?\d+))?"
 )
+# the scroll-target scan's record types: boxes (`[`, `(`), void boxes (`h`,
+# `v`), the current point (`x`), kerns, glue and math shifts
+_SYNCTEX_REC = re.compile(r"^[\[\(hvxkg\$]" + _REC_BODY)
+# the box tree's, which adds one type the scroll-target scan never wanted:
+# `r`, a rule. A rule sets ink with no glyphs in it (a \hrule, a table's
+# separators, the bar of a \frac) and the box holding it has to know, but as
+# a scroll TARGET a rule is worthless — it names no place in the text.
+_SYNCTEX_ANY_REC = re.compile(r"^(?P<type>[\[\(hvxkgr\$])" + _REC_BODY)
 _SP_PER_PT = 65536.0
 
 # What `y` in parse_synctex's `lines` means, verified against a real tectonic
@@ -290,15 +297,30 @@ SYNCTEX_Y_SEMANTICS = "topDownPt"
 # /compile/{id}/synctex so a client cropping a column never has to guess
 # whether x is measured from the paper edge or from TeX's 1in origin.
 SYNCTEX_X_SEMANTICS = "leftPt"
+# …and for the `boxes` list's rectangles, verified the same way (see
+# parse_boxes). `x, y` is the box's REFERENCE POINT, not a corner: the box
+# covers x .. x+w across and y-h .. y+d down, in the axes the two constants
+# above declare. Saying so out loud is the same discipline as the axis
+# labels: a client that read `y` as the box's top would hang every crop one
+# box-height too low, and nothing in the numbers themselves would say so.
+SYNCTEX_BOX_SEMANTICS = "refPointPt"
 
 
 def parse_synctex(path: str | Path) -> dict[str, Any]:
-    """Coarse source-line → page/position map from a `.synctex[.gz]` file.
+    """Source-line → page/position map from a `.synctex[.gz]` file.
 
-    `{pages: [{n, w, h}], lines: [{line, page, x, y, w?}], xSemantics,
-    ySemantics}`, positions in points from the top-left. Coarse is the
-    point: v1 only needs "which page, how far down, and which column", and
-    the full synctex box tree is a lot of machinery for a scroll target.
+    `{pages: [{n, w, h}], lines: [{line, page, x, y, w?}], boxes: [...],
+    inputs: [...], mainTag, xSemantics, ySemantics, boxSemantics}`,
+    positions in points from the top-left.
+
+    TWO ANSWERS, ONE FILE. `lines` is one point per (line, page) — which
+    page, how far down, which column — and that is all a SCROLL TARGET has
+    ever needed. `boxes` is the box tree itself, every rectangle the engine
+    set and what source line's material stands in it, which is what a client
+    that has to CROP the render needs (see parse_boxes). The point map came
+    first and stayed: it is small, every consumer of it still wants exactly
+    it, and re-deriving it from the tree would be a rewrite of a thing that
+    works. Nothing reads both.
 
     Y AXIS — verified empirically, not inferred (see tests/test_pages.py,
     `test_synctex_y_is_top_down_points`). A 200x400pt document was compiled
@@ -396,38 +418,26 @@ def parse_synctex(path: str | Path) -> dict[str, Any]:
     SyncTeX is an enhancement, and a compile that produced a PDF is a
     success whatever its synctex looks like.
     """
-    empty = {"pages": [], "lines": [],
-             "xSemantics": SYNCTEX_X_SEMANTICS, "ySemantics": SYNCTEX_Y_SEMANTICS}
-    p = Path(path)
-    try:
-        raw = p.read_bytes()
-    except OSError:
+    empty = {"pages": [], "lines": [], "boxes": [], "inputs": [], "mainTag": None,
+             "xSemantics": SYNCTEX_X_SEMANTICS, "ySemantics": SYNCTEX_Y_SEMANTICS,
+             "boxSemantics": SYNCTEX_BOX_SEMANTICS}
+    text = _synctex_text(path)
+    if text is None:
         return dict(empty)
-    if raw[:2] == b"\x1f\x8b":
-        try:
-            raw = gzip.decompress(raw)
-        except OSError:
-            return dict(empty)
-    text = raw.decode("utf-8", "replace")
 
+    inputs = synctex_inputs(text)
     # SyncTeX tags every record with the input FILE it came from; a .bbl or
     # an \input'd chapter reuses the same line numbers as main.tex, and
     # merging tags attributed the BIBLIOGRAPHY's boxes to body paragraphs
     # (measured: 10k of 54k records in a real paper were the .bbl). Only
     # main.tex's tag speaks for the document the editor is mapping.
     main_tag: str | None = None
-    for m in re.finditer(r"^Input:(\d+):(.*)$", text, re.M):
-        if m.group(2).strip().endswith("main.tex"):
-            main_tag = m.group(1)
+    for entry in inputs:
+        if entry["path"].endswith("main.tex"):
+            main_tag = str(entry["tag"])
             break
 
-    unit = 1.0
-    m = re.search(r"^Unit:([0-9.]+)", text, re.M)
-    if m:
-        try:
-            unit = float(m.group(1)) or 1.0
-        except ValueError:
-            unit = 1.0
+    unit = _synctex_unit(text)
 
     def to_pt(value: int) -> float:
         return round(value * unit / _SP_PER_PT, 2)
@@ -512,9 +522,279 @@ def parse_synctex(path: str | Path) -> dict[str, Any]:
     return {
         "pages": [{"n": n, "w": extents[n][0], "h": extents[n][1]} for n in order],
         "lines": lines,
+        "boxes": parse_boxes(text, unit),
+        "inputs": inputs,
+        "mainTag": int(main_tag) if main_tag is not None else None,
         "xSemantics": SYNCTEX_X_SEMANTICS,
         "ySemantics": SYNCTEX_Y_SEMANTICS,
+        "boxSemantics": SYNCTEX_BOX_SEMANTICS,
     }
+
+
+def _synctex_text(path: str | Path) -> str | None:
+    """The file's text, gunzipped if it needs it. None when it cannot be
+    read at all — SyncTeX is an enhancement, never a compile failure."""
+    p = Path(path)
+    try:
+        raw = p.read_bytes()
+    except OSError:
+        return None
+    if raw[:2] == b"\x1f\x8b":
+        try:
+            raw = gzip.decompress(raw)
+        except OSError:
+            return None
+    return raw.decode("utf-8", "replace")
+
+
+def _synctex_unit(text: str) -> float:
+    """The file's `Unit:` scale — every position is this many scaled points
+    (65536 to the point). Missing or unreadable means 1, which is what every
+    engine in ENGINES actually writes."""
+    m = re.search(r"^Unit:([0-9.]+)", text, re.M)
+    if m:
+        try:
+            return float(m.group(1)) or 1.0
+        except ValueError:
+            return 1.0
+    return 1.0
+
+
+def synctex_inputs(text: str) -> list[dict[str, Any]]:
+    """Every input FILE the engine recorded, as `{tag, path, name}`.
+
+    Reported out loud (rather than kept as this module's private business)
+    because a tag is the only thing that tells one file's line 40 from
+    another's, and a client mapping a document assembled from `\\input`s
+    needs to key by (tag, line) rather than by line alone. Tectonic leaves
+    the NAME blank for files it pulled out of its bundle — a `.bbl` written
+    by the compile itself came back as `Input:84:` on a real paper — so an
+    unnamed tag is reported with an empty path rather than dropped: a client
+    still has to be able to say "these boxes are not mine".
+    """
+    out: list[dict[str, Any]] = []
+    for m in re.finditer(r"^Input:(\d+):(.*)$", text, re.M):
+        path = m.group(2).strip()
+        out.append({"tag": int(m.group(1)), "path": path,
+                    "name": path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]})
+    return out
+
+
+# `x` — the "current point" record — is the one material type that does NOT
+# stand for a node. It is emitted when the shipout's current tag/line
+# changes, so it carries the AMBIENT context, which for a paragraph's line
+# boxes is the line `\par` fired on. Measured on llama.tex p2: the box
+# holding lines 163-165 of a paragraph reports `x1,166` (line 166 is blank)
+# at 95.77pt, between two kerns that correctly say 163. Crediting it would
+# hand every block that begins where a paragraph ended the paragraph's last
+# lines. Kerns, glue, rules, void boxes and math shifts are real nodes and
+# say what they mean.
+_AMBIENT_REC = "x"
+
+
+def parse_boxes(text: str, unit: float) -> list[dict[str, Any]]:
+    """Every rectangle the engine set, and whose source line's material is
+    in it — the whole answer parse_synctex's `lines` throws away.
+
+    One entry per box:
+
+        {page, x, y, w, h, d, src: [[tag, line], ...], parent}
+
+    `parent` indexes back into this same list (-1 at a page's outermost
+    box), so a client can ask what encloses what — which column a line box
+    stands in, which text block a column belongs to — without inferring it
+    from positions. Boxes come out in the order the engine shipped them,
+    so a parent always precedes its children.
+
+    THE RECTANGLE. `x, y` is TeX's reference point, `w, h, d` the box's
+    width, height and depth, all in the axes SYNCTEX_X_SEMANTICS and
+    SYNCTEX_Y_SEMANTICS declare: the box covers x .. x+w across and
+    y-h .. y+d down. Verified against a real compile rather than inferred,
+    the same discipline the axis labels get — llama.tex's paragraph on
+    source lines 163-165 unions to x[71.13, 290.22] y[343.61, 489.52], and
+    pdftoppm at 150dpi puts that paragraph's ink at x[71.04, 290.40]
+    y[343.20, 487.68]: the box is the ink, to within the half-pixel the
+    rasterizer rounds by and the fraction of a point a glyph's outline
+    overshoots its metric height. The page's own outermost box confirms the
+    origin from the other side — 72.27pt down and across, which is TeX's
+    1 inch, so these are paper coordinates and not text-block ones.
+
+    WHOSE MATERIAL. SyncTeX tags a BOX with the input line that was current
+    when the box was built, and for a paragraph's line boxes that is the
+    line `\\par` fired on — the blank line AFTER the paragraph, or the
+    `\\section` that ended it. Taking that at face value is what made the
+    old point map unusable for cropping. But the box's CONTENTS are tagged
+    one node at a time, and those tags are the real thing: the kerns and
+    glue inside llama.tex's line boxes say 163, 164, 165 while the boxes
+    themselves say 166. So a box is credited with the lines of the nodes
+    that stand DIRECTLY in it, and a block's crop is the union of the boxes
+    its own lines' nodes are in.
+
+    Three rules make that hold, each against a measured failure:
+
+      - `x` records are not nodes and never credit anything (see
+        _AMBIENT_REC above).
+      - a node that declares an extent must HAVE one. A zero-width rule is
+        a strut, and struts carry the line of the macro that defined them:
+        llama.tex's figure caption holds `r1,316:...:0,692380,141880`,
+        which credited the caption's rectangle to source line 316 — a
+        paragraph eight pages later.
+      - a box that holds other boxes is credited only by its own direct
+        nodes, never by the fallback below. A frame — a column, a text
+        block, a page — must not inherit a line, because its rectangle is
+        every line's and cropping to it shows the whole column.
+
+    And one fallback, for the leaf that ends up with no node witness at all
+    (64 boxes in llama.tex's 3594 — a lone linked word, a `$x$`): its `x`
+    records, then failing those its own tag and line. On every one of those
+    64 the box's own line was already the right answer; the ladder is there
+    so the LEAF case degrades to the old attribution instead of vanishing.
+
+    ALL TAGS, not just main.tex's. A box from a `.bbl` or an `\\input`
+    chapter is reported with that file's tag, so a client keyed by
+    (tag, line) can crop it too — and one that only understands main.tex
+    can ignore everything else by tag rather than by guessing. Boxes with
+    no extent, and boxes that end up enclosing no credited box at all, are
+    dropped: they are the 1in origin marker, the empty running head, and
+    the leaders and struts that mark places rather than ink.
+    """
+
+    def to_pt(value: int) -> float:
+        return round(value * unit / _SP_PER_PT, 2)
+
+    page: int | None = None
+    # one entry per open box: its index in `built`, or None for a box whose
+    # record would not parse (its `)` still has to be counted, or every box
+    # after it is credited to the wrong parent)
+    stack: list[int | None] = []
+    built: list[dict[str, Any]] = []
+    # per box, and kept off the wire: the witnesses it collected while open
+    nodes: list[set[tuple[int, int]]] = []
+    ambient: list[set[tuple[int, int]]] = []
+    kids: list[int] = []
+    own: list[tuple[int, int]] = []
+
+    for raw in text.splitlines():
+        if not raw:
+            continue
+        c = raw[0]
+        if c == "{" and raw[1:].strip().isdigit():
+            page = int(raw[1:].strip())
+            stack.clear()  # a truncated page must not leak into the next
+            continue
+        if c == "}":
+            page = None
+            stack.clear()
+            continue
+        if page is None:
+            continue
+        if c in ")]":
+            if stack:
+                stack.pop()
+            continue
+        opening = c in "(["
+        rec = _SYNCTEX_ANY_REC.match(raw)
+        if rec is None:
+            if opening:
+                stack.append(None)
+            continue
+        w = h = d = None
+        if rec.group("w") is not None:
+            w = to_pt(int(rec.group("w")))
+            h = to_pt(int(rec.group("h")))
+            d = to_pt(int(rec.group("d")))
+        tag = int(rec.group("tag"))
+        src = int(rec.group("line"))
+
+        if opening:
+            parent = next((i for i in reversed(stack) if i is not None), -1)
+            if parent >= 0:
+                kids[parent] += 1
+            stack.append(len(built))
+            built.append({"page": page,
+                          "x": to_pt(int(rec.group("x"))), "y": to_pt(int(rec.group("y"))),
+                          "w": w or 0.0, "h": h or 0.0, "d": d or 0.0,
+                          "parent": parent})
+            nodes.append(set())
+            ambient.append(set())
+            kids.append(0)
+            own.append((tag, src))
+            continue
+
+        host = next((i for i in reversed(stack) if i is not None), -1)
+        if host < 0:
+            continue
+        if c == _AMBIENT_REC:
+            ambient[host].add((tag, src))
+        elif w is None or (w > 0 and (h or 0.0) + (d or 0.0) > 0):
+            nodes[host].add((tag, src))
+
+    # credit, then keep only what is ink or a frame around ink
+    witnesses: list[set[tuple[int, int]]] = []
+    for i, box in enumerate(built):
+        # a box with no rectangle is never anyone's ink, whatever stands in
+        # it. TeX writes plenty of them and they are all markers: the 1in
+        # origin box (w=0), the empty running head (h+d=0), the zero-width
+        # struts a `\vphantom` leaves down a column, and beamer's negative-
+        # width overlay boxes (measured: `w=-56.91` on every frame of
+        # beamer.tex). Credited, each becomes a crop of nothing — 65 of
+        # llama.tex's boxes and 57 of beamer.tex's.
+        if not (box["w"] > 0 and box["h"] + box["d"] > 0):
+            witnesses.append(set())
+            continue
+        witness = nodes[i]
+        if not witness and kids[i] == 0:
+            witness = ambient[i] or {own[i]}
+        witnesses.append(set(witness))
+
+    # CONTAINMENT DECIDES. A box that holds other boxes is a frame unless
+    # everything inside it belongs to the same source lines it does. TeX
+    # attributes the boxes it opens at page shipout to whatever line was
+    # current then — on llama.tex page 1 that is `\section{Approach}`, and
+    # the boxes so attributed are the PAGE'S TEXT BLOCK and both of its
+    # columns, each of them holding real glue that says 152 in so many
+    # words. Cropping that section heading to its own credited boxes would
+    # have shown the whole page. What tells it from a real one is that its
+    # descendants speak for other lines: a heading's own line box holds
+    # nothing but the box of its section NUMBER, credited to the very same
+    # line, and stays. Same rule keeps a .bbl's column vbox (credited to a
+    # bibliography line by its baselineskip glue, holding 85 entries) from
+    # standing for one entry.
+    below: list[set[tuple[int, int]]] = [set() for _ in built]
+    for i in range(len(built) - 1, -1, -1):
+        parent = built[i]["parent"]
+        if parent >= 0:
+            below[parent] |= below[i] | witnesses[i]
+    keep: set[int] = set()
+    credited: list[list[list[int]]] = []
+    for i in range(len(built)):
+        witness = witnesses[i]
+        if kids[i] > 0 and not below[i] <= witness:
+            witness = set()
+        credited.append([[t, l] for t, l in sorted(witness)])
+        if witness:
+            keep.add(i)
+    frontier = list(keep)
+    while frontier:
+        parent = built[frontier.pop()]["parent"]
+        if parent >= 0 and parent not in keep:
+            keep.add(parent)
+            frontier.append(parent)
+
+    out: list[dict[str, Any]] = []
+    index: dict[int, int] = {}
+    for i, box in enumerate(built):
+        if i not in keep:
+            continue
+        parent = box["parent"]
+        # a dropped ancestor is skipped over, never renumbered away: the
+        # chain still has to reach the frame that survived
+        while parent >= 0 and parent not in index:
+            parent = built[parent]["parent"]
+        index[i] = len(out)
+        out.append({**box, "parent": index.get(parent, -1) if parent >= 0 else -1,
+                    "src": credited[i]})
+    return out
 
 
 # ---------------------------------------------------------------------------

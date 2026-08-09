@@ -4,13 +4,17 @@
  *
  * The live cycle for tuning the compiled mirror is: rebuild, restart the
  * daemon, recompile a real paper, wait for the mirror pass, inspect in the
- * browser — 4-6 minutes per try. Everything the crop math actually reads is
- * two things: the synctex records (source line -> page/x/y/w) and each
- * page's ink (which points hold marks, at which device rows). Both are
- * sitting in the daemon's workdir the moment a compile finishes. This
- * script freezes them into one JSON fixture so `npm test` can replay the
- * real pipeline (src/doc/blockmirror.ts's cutDocument) against a paper in
- * milliseconds, no daemon, no browser, no canvas.
+ * browser — 4-6 minutes per try. Two things go in the fixture and they
+ * play opposite roles. The synctex BOX TREE (page, rectangle, and whose
+ * source line's material stands in it) is the crop math's whole input.
+ * Each page's INK (which points hold marks, at which device rows) is the
+ * ORACLE: nothing in production reads it, and the fixture test uses it to
+ * check that a crop holds all of its block's ink and none of a neighbour's
+ * — an answer computed a completely different way from the one under test.
+ * Both are sitting in the daemon's workdir the moment a compile finishes.
+ * This script freezes them into one JSON fixture so `npm test` can replay
+ * the real pipeline (src/doc/blockmirror.ts's cutDocument) against a paper
+ * in milliseconds, no daemon, no browser, no canvas.
  *
  * Usage:
  *   node scripts/capture-mirror-fixture.mjs --workdir /tmp/dia-tex-xxxx \
@@ -28,12 +32,11 @@
  * interlaced, greyscale/RGB/RGBA — a few dozen lines cover it, and node's
  * built-in zlib does the actual inflate. No new dependency, dev or runtime.
  *
- * Ink is scanned with the EXACT rule pageInkOf uses in the browser — sum of
+ * Ink is scanned with the same rule the oracle applies in the test — sum of
  * channel diffs from the page's own top-left pixel, thresholded at
- * blockmirror.ts's exported `INK` — so a captured fixture is provably the
- * same ink pageInkOf would have read off the same PNG. That threshold is
- * duplicated here (this script has no TypeScript loader to import it with);
- * if it ever moves, recapture. */
+ * src/doc/pageink.ts's `INK`. That threshold is duplicated here (this
+ * script has no TypeScript loader to import it with); if it ever moves,
+ * recapture. */
 
 import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
@@ -43,7 +46,7 @@ import { fileURLToPath } from 'node:url'
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 
-// kept in sync by hand with blockmirror.ts's exported `INK` — see the file
+// kept in sync by hand with src/doc/pageink.ts's exported `INK` — see the file
 // header above
 const INK_THRESHOLD = 24
 
@@ -189,7 +192,7 @@ function decodePng(buf) {
   return { width, height, channels, data: out }
 }
 
-/* ---------- 4. ink: the same scan pageInkOf does, over real pixels ---------- */
+/* ---------- 4. ink: the oracle's scan, over real pixels ---------- */
 
 function pageInkFromPng(png, wPt, hPt) {
   const scale = png.width / wPt
@@ -253,7 +256,20 @@ const fixture = {
   paper,
   capturedAt: new Date().toISOString(),
   inkThreshold: INK_THRESHOLD,
-  synctex: { xSemantics: synctex.xSemantics, ySemantics: synctex.ySemantics, lines: synctex.lines },
+  // `boxes` is what the mirror actually crops from — the engine's own
+  // rectangles. `lines` (the point-per-source-line scroll map) rides along
+  // because the PDF panel still reads it and a fixture is the cheapest
+  // place to hold its shape down. `pages` is synctex's per-page TEXT BLOCK,
+  // which is the measure every crop's width is divided by.
+  synctex: {
+    xSemantics: synctex.xSemantics,
+    ySemantics: synctex.ySemantics,
+    boxSemantics: synctex.boxSemantics,
+    mainTag: synctex.mainTag,
+    lines: synctex.lines,
+    boxes: synctex.boxes,
+    pages: synctex.pages,
+  },
   pages,
 }
 

@@ -12,7 +12,7 @@ Endpoints:
   POST /compile                 -> {jobId} (LaTeX -> PDF, runs a real engine)
   GET  /compile/{id}/events     -> SSE stream of phase/log/done frames
   GET  /compile/{id}/pdf        -> the compiled PDF (404 until the job is ok)
-  GET  /compile/{id}/synctex    -> coarse source-line -> page/x/y map
+  GET  /compile/{id}/synctex    -> source-line -> page/x/y map, plus the box tree
   GET  /compile/{id}/bbl        -> raw .bbl text (404 when there is none)
   GET  /compile/{id}/pages      -> {available, tool, count, pages, ySemantics}
   GET  /compile/{id}/page/{n}.png?dpi= -> one page rasterized by poppler
@@ -744,19 +744,33 @@ async def compile_pdf(job_id: str) -> Response:
 
 @app.get("/compile/{job_id}/synctex")
 async def compile_synctex(job_id: str) -> dict[str, Any]:
-    """`{pages, lines: [{line, page, x, y, w?}], xSemantics, ySemantics}`.
+    """`{pages, lines, boxes, inputs, mainTag, xSemantics, ySemantics,
+    boxSemantics}` — two answers to two different questions.
 
-    `x` and `y` are points from the top-left of the PAPER and `w` is the
-    width of the box the line typeset — the column's, for body text — so a
-    client can crop a block to the column it is in rather than to the full
-    page width. `w` is absent for a line that typeset nothing on the page.
-    parse_synctex documents which of a line's boxes is reported and why."""
+    `lines: [{line, page, x, y, w?}]` is one point per source line: which
+    page, how far down, which column. That is what a SCROLL TARGET wants,
+    and the PDF panel is what reads it.
+
+    `boxes: [{page, x, y, w, h, d, src, parent}]` is the engine's own box
+    tree: every rectangle it set, the `[tag, line]` pairs whose material
+    stands in it, and the index of the box that encloses it. That is what a
+    client CROPPING the render wants — the compiled mirror unions the boxes
+    for a block's source lines and gets its rectangle exactly, instead of
+    reconstructing one from a point. `inputs` names each tag's file and
+    `mainTag` says which is main.tex, so a document assembled from
+    `\\input`s can be keyed by (tag, line) rather than by line alone.
+
+    All positions are points from the top-left of the PAPER. `boxSemantics`
+    says what a box's `x, y` means — the reference point, not a corner —
+    and parse_boxes documents how that was verified against a real
+    compile."""
     job = _job_or_404(job_id)
     path = job.synctex_path
     if path is None:
-        return {"pages": [], "lines": [],
+        return {"pages": [], "lines": [], "boxes": [], "inputs": [], "mainTag": None,
                 "xSemantics": texcompile.SYNCTEX_X_SEMANTICS,
-                "ySemantics": texcompile.SYNCTEX_Y_SEMANTICS}
+                "ySemantics": texcompile.SYNCTEX_Y_SEMANTICS,
+                "boxSemantics": texcompile.SYNCTEX_BOX_SEMANTICS}
     return texcompile.parse_synctex(path)
 
 
