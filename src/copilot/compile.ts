@@ -9,12 +9,13 @@ import { state } from '../state'
 import { slidesInLogicalOrder } from '../studio/focus'
 import { batch } from '../model/ops'
 import {
-  insertEl, moveEl, moveSceneNode, removeEl, setAttr, setInlineHtml,
-  setStyleProp, setText, setToken,
+  insertBlockOp, insertEl, moveBlockOp, moveEl, moveSceneNode, removeBlockOp,
+  removeEl, setAttr, setInlineHtml, setStyleProp, setText, setToken,
 } from '../model/ops'
 import { findNode, renderNodeShape, routeEdge } from '../scene/route'
 import { setEdgeLabelOp, setNodeLabelOp, setShapeOp } from '../scene/interact'
-import { syncedDocOp, topBlockOf } from '../doc/sync'
+import { docBlockFromTex, docBlocks, lateDocOp, syncedDocOp, topBlockOf } from '../doc/sync'
+import { emitBlockTex } from '../latex/emit'
 import { mathToMathml } from '../latex/render'
 import { lex } from '../latex/lex'
 import { parseLatex } from '../latex/parse'
@@ -285,7 +286,9 @@ function retargetEdgeOp(scene: SVGSVGElement, edge: SVGGElement, value: string, 
  * outside a block, or that has no source-patchable shape yet (moving or
  * removing whole blocks), is SKIPPED with a reason the model can act on. */
 
-interface DocEntry { block: HTMLElement | null; ops: Op[]; label: string }
+/** `make` is a STRUCTURAL entry: the op is built when it runs, because its
+ * source offsets are only valid once the ops before it have landed */
+interface DocEntry { block: HTMLElement | null; ops: Op[]; label: string; make?: (step: number) => Op | null }
 type DocOutcome = DocEntry | { skip: string }
 
 function compileDocOps(proposed: ProposedOp[]): CompileResult {
@@ -315,7 +318,9 @@ function compileDocOps(proposed: ProposedOp[]): CompileResult {
     }
   }
   const ops = order.map((e) =>
-    e.block ? syncedDocOp(doc, e.block, e.ops, e.label, BY) : batch(e.label, e.ops, BY))
+    e.make ? lateDocOp(doc, e.label, BY, e.make)
+      : e.block ? syncedDocOp(doc, e.block, e.ops, e.label, BY)
+        : batch(e.label, e.ops, BY))
   return { ops, skipped }
 }
 
@@ -378,9 +383,7 @@ function compileDocOne(p: ProposedOp, doc: Doc): DocOutcome {
       if (!parent || p.value === undefined) {
         return { skip: `target "${p.target}" did not resolve, or no value was given` }
       }
-      if (parent === doc.article) {
-        return { skip: 'adding whole blocks is not supported in documents yet — write them in the source view' }
-      }
+      if (parent === doc.article) return insertDocBlockOutcome(p, doc)
       const el = parseFragment(p.value)
       if (!el) return { skip: 'the value is not one parseable element' }
       const index = clampIndex(num(p.extra?.index), parent.children.length)
@@ -390,8 +393,11 @@ function compileDocOne(p: ProposedOp, doc: Doc): DocOutcome {
     case 'remove': {
       const el = findDocEl(p.target, doc)
       if (!el) return { skip: `target "${p.target}" did not resolve in the document` }
+      // a whole block leaves with its source slice and one separator; a
+      // fragment inside one is the ordinary paired edit
       if (topBlockOf(doc, el) === el) {
-        return { skip: 'removing a whole block is not supported in documents yet — delete it in the source view' }
+        if (docBlocks(doc).length < 2) return { skip: 'this is the document\'s only block — removing it would leave an empty body' }
+        return { block: null, ops: [], label: p.label, make: (step) => step > 0 ? null : removeBlockOp(doc, el, p.label, BY) }
       }
       return inBlock(el, () => [removeEl(el, p.label, BY)])
     }
@@ -399,14 +405,68 @@ function compileDocOne(p: ProposedOp, doc: Doc): DocOutcome {
     case 'set-style':
       return { skip: 'inline styles are not part of the LaTeX source — restyle with set-token, or edit the preamble in the source view' }
 
-    case 'move-el':
-      return { skip: 'moving blocks is not supported in documents yet — reorder them in the source view' }
+    case 'move-el': {
+      const el = findDocEl(p.target, doc)
+      if (!el) return { skip: `target "${p.target}" did not resolve in the document` }
+      if (topBlockOf(doc, el) !== el) {
+        return { skip: 'only whole top-level blocks move in a document — a fragment moves by editing the two blocks that hold it' }
+      }
+      if (str(p.extra?.parent) !== undefined) {
+        return { skip: 'a document block has one parent, the document — move-el takes extra.index only' }
+      }
+      const to = num(p.extra?.index)
+      if (!Number.isFinite(to)) return { skip: 'move-el in a document needs extra.index — the block position to move to' }
+      // one hop per step, each read off the source as it stands after the
+      // last, so the run of swaps relocates slices instead of rewriting them
+      return {
+        block: null,
+        ops: [],
+        label: p.label,
+        make: () => {
+          const blocks = docBlocks(doc)
+          const from = blocks.indexOf(el)
+          const target = clampIndex(to, blocks.length - 1)
+          if (from < 0 || from === target) return null
+          return moveBlockOp(doc, el, from < target ? 1 : -1, p.label, BY)
+        },
+      }
+    }
 
     case 'add-slide':
       return { skip: 'this is a document, not a deck — it has no slides' }
 
     default:
       return { skip: `"${p.action}" is a deck action; documents take set-text, set-inline-html, set-tex, set-attr, set-token, insert-html and remove` }
+  }
+}
+
+/** A whole new top-level block. The proposal carries HTML, but a document
+ * is its LaTeX: the markup is emitted to tex and then RENDERED BACK, so
+ * what lands is what the source says — a value that does not survive that
+ * round trip is refused here rather than rendered as a block the source
+ * could never reproduce. extra.index is the block position; omitted, the
+ * block goes last. */
+function insertDocBlockOutcome(p: ProposedOp, doc: Doc): DocOutcome {
+  const el = parseFragment(p.value ?? '')
+  if (!(el instanceof HTMLElement)) return { skip: 'the value is not one parseable element' }
+  const tex = emitBlockTex(el).trim()
+  if (!tex) return { skip: 'that block carries no content to write into the source' }
+  if (!docBlockFromTex(tex)) {
+    return { skip: `that block does not survive the trip through LaTeX (it became "${tex.slice(0, 60)}") — write it in the dialect vocabulary a block can carry` }
+  }
+  const index = num(p.extra?.index)
+  return {
+    block: null,
+    ops: [],
+    label: p.label,
+    make: (step) => {
+      if (step > 0) return null
+      const blocks = docBlocks(doc)
+      const at = clampIndex(index, blocks.length)
+      const ref = blocks[at] ?? blocks[blocks.length - 1] ?? null
+      const made = docBlockFromTex(tex)
+      return made ? insertBlockOp(doc, made, tex, ref, blocks[at] ? 'before' : 'after', p.label, BY) : null
+    },
   }
 }
 
@@ -509,6 +569,11 @@ export function resolveDocTarget(
   } catch { /* a target with quotes is never an id — keep resolving */ }
 
   const blocks = [...article.children].filter((c): c is HTMLElement => c instanceof HTMLElement)
+
+  // the document itself — the only "parent" a whole new top-level block can
+  // be inserted into, and unreachable by selector (querySelector looks at
+  // descendants, and the article is nobody's descendant here)
+  if (/^(document|article|body)$/i.test(t)) return article
 
   // "block N" — the raw top-level address, ordinal in flow order
   const blockForm = /^block\s*#?(\d+)$/i.exec(t)

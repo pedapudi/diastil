@@ -4,11 +4,12 @@
  * recovered from composedPath(). Clicks inside svg.dia-scene are ignored —
  * the scene module owns those. */
 
+import type { Doc } from '../model/doc'
 import { state } from '../state'
-import { batch, insertEl, setAttr, setInlineHtml } from '../model/ops'
+import { batch, insertEl, neighbourBlock, setAttr, setInlineHtml } from '../model/ops'
 import { renderTex } from './math'
 import { mathToMathml } from '../latex/render'
-import { commitDocEdit, topBlockOf } from '../doc/sync'
+import { commitDocEdit, insertDocBlock, joinDocBlocks, removeDocBlock, splitDocBlock, topBlockOf } from '../doc/sync'
 import { showToast as showEditToast } from '../scene/overlay'
 
 const ROLE_SELECTOR = '.dia-title, .dia-kicker, .dia-body, .dia-caption'
@@ -197,6 +198,22 @@ export function insertTextOnSlide(slide: HTMLElement): HTMLElement {
   return el
 }
 
+/** insert a document block after `block` and open it for typing — the doc
+ * twin of insertTextOnSlide, placeholder text and all */
+export function insertDocBlockAfter(doc: Doc, block: HTMLElement, kind: 'paragraph' | 'section'): HTMLElement | null {
+  const el = insertDocBlock(
+    doc,
+    kind === 'section' ? '\\section{New section}' : 'New paragraph',
+    block, 'after',
+    kind === 'section' ? 'Insert section' : 'Insert paragraph',
+  )
+  if (!el) return null
+  state.selection = { kind: 'block', block: el }
+  const leaf = docEditableFor(doc.article, el)
+  if (leaf) startEdit(leaf)
+  return el
+}
+
 function beginEdit(el: HTMLElement): void {
   // capture prev BEFORE editing starts, so the op's inverse is the original.
   // innerHTML, not textContent: leaves may carry inline markup (strong/em/…)
@@ -220,12 +237,145 @@ function onEditKey(e: KeyboardEvent): void {
   if (e.key === 'Enter') {
     e.preventDefault()
     e.stopPropagation()
+    // a document is prose: Enter is authoring, and a paragraph splits into
+    // two real blocks. A deck role has no such structure — there Enter has
+    // always meant "done", and it still does.
+    if (splitEditingParagraph()) return
     commitEdit()
+  } else if (e.key === 'Backspace') {
+    // only at the very start of a block, where there is no character to
+    // delete: anywhere else Backspace is ordinary typing and must stay so
+    if (joinEditingParagraph()) {
+      e.preventDefault()
+      e.stopPropagation()
+    }
   } else if (e.key === 'Escape') {
     e.preventDefault()
     e.stopPropagation()
     cancelEdit()
   }
+}
+
+/* ---------- document-mode structure keys ---------- */
+
+/** the block being edited, when it is a top-level paragraph with source
+ * bytes of its own — the only shape whose split/join is a block operation.
+ * A heading's source carries a star, a short title and a \label that a
+ * split has no meaning for; a nested <p> belongs to its parent block, which
+ * re-emits as a whole through the ordinary paired edit. */
+function editingParagraph(): { doc: Doc; el: HTMLElement; original: string } | null {
+  const doc = state.doc
+  if (!doc || !editing || editing.math) return null
+  const { el, original } = editing
+  if (!el.matches('p') || topBlockOf(doc, el) !== el) return null
+  const id = el.getAttribute('data-dia-id')
+  if (!id || !doc.source.spanOf(id)) return null
+  return { doc, el, original }
+}
+
+function splitEditingParagraph(): boolean {
+  const ctx = editingParagraph()
+  if (!ctx) return false
+  const parts = splitHtmlAtCaret(ctx.el)
+  if (!parts) return false
+  cleanupEdit(ctx.el)
+  // the op captures the PRE-edit children as its inverse, exactly as the
+  // text commit does — restore them before building it, or undo would leave
+  // the typing behind while the source went back
+  ctx.el.innerHTML = ctx.original
+  const tail = splitDocBlock(ctx.doc, ctx.el, docifyInlineMath(parts.head), docifyInlineMath(parts.tail), 'Split paragraph')
+  if (!tail) return false
+  state.selection = { kind: 'block', block: tail }
+  beginEdit(tail)
+  collapseToStart(tail)
+  return true
+}
+
+function joinEditingParagraph(): boolean {
+  const ctx = editingParagraph()
+  if (!ctx || !caretAtStart(ctx.el)) return false
+  const typed = ctx.el.innerHTML
+  const prev = neighbourBlock(ctx.doc, ctx.el, -1)
+  if (prev?.matches('p')) {
+    cleanupEdit(ctx.el)
+    ctx.el.innerHTML = ctx.original
+    const at = (prev.textContent ?? '').length
+    if (!joinDocBlocks(ctx.doc, prev, ctx.el, prev.innerHTML + typed, 'Join paragraphs')) return false
+    beginEdit(prev)
+    collapseTo(prev, at)
+    return true
+  }
+  // nothing above to join into: an empty block still deletes (the way to
+  // undo an Enter you did not mean), a block with words does nothing
+  if ((ctx.el.textContent ?? '').trim() !== '') return false
+  cleanupEdit(ctx.el)
+  ctx.el.innerHTML = ctx.original
+  return removeDocBlock(ctx.doc, ctx.el, 'Delete empty paragraph')
+}
+
+/** the element's inline content either side of the caret; a non-collapsed
+ * selection is replaced by the split, the way typing would replace it */
+function splitHtmlAtCaret(el: HTMLElement): { head: string; tail: string } | null {
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0) return null
+  const r = sel.getRangeAt(0)
+  if (!el.contains(r.startContainer) || !el.contains(r.endContainer)) return null
+  const head = document.createRange()
+  head.selectNodeContents(el)
+  head.setEnd(r.startContainer, r.startOffset)
+  const tail = document.createRange()
+  tail.selectNodeContents(el)
+  tail.setStart(r.endContainer, r.endOffset)
+  return { head: htmlOf(head), tail: htmlOf(tail) }
+}
+
+function htmlOf(range: Range): string {
+  const box = document.createElement('div')
+  box.append(range.cloneContents())
+  return box.innerHTML
+}
+
+/** is the caret before every character AND every element in the block? */
+function caretAtStart(el: HTMLElement): boolean {
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0) return false
+  const r = sel.getRangeAt(0)
+  if (!r.collapsed || !el.contains(r.startContainer)) return false
+  const before = document.createRange()
+  before.selectNodeContents(el)
+  before.setEnd(r.startContainer, r.startOffset)
+  return htmlOf(before) === ''
+}
+
+function collapseToStart(el: HTMLElement): void {
+  collapseTo(el, 0)
+}
+
+/** put the caret `chars` characters into the element's text */
+function collapseTo(el: HTMLElement, chars: number): void {
+  const r = document.createRange()
+  r.selectNodeContents(el)
+  r.collapse(true)
+  let left = chars
+  for (const node of textNodesOf(el)) {
+    const len = (node.textContent ?? '').length
+    if (left <= len) { r.setStart(node, left); break }
+    left -= len
+  }
+  r.collapse(true)
+  const sel = window.getSelection()
+  sel?.removeAllRanges()
+  sel?.addRange(r)
+}
+
+function textNodesOf(el: HTMLElement): Text[] {
+  const out: Text[] = []
+  const walk = (node: Node): void => {
+    if (node.nodeType === Node.TEXT_NODE) out.push(node as Text)
+    else for (const child of node.childNodes) walk(child)
+  }
+  walk(el)
+  return out
 }
 
 function onEditBlur(): void {

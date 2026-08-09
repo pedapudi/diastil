@@ -747,3 +747,24 @@
 .de-src-findrow[hidden] { display: none; }
 .de-src-findrow .dn-input { width: 240px; }
 .de-src-findact { flex: none; }
+/* ---------- doc block rail (structural verbs beside the block) ---------- */
+/* The gutter's manners, not its shape: quiet until you are near it, and out
+ * of the text's way. The scroller is its containing block, so the rail is
+ * placed in CONTENT coordinates and rides the scroll on its own. */
+.de-docscroll { position: relative; }
+.de-docrail {
+  position: absolute; z-index: 5; display: flex; flex-direction: column; gap: 2px;
+  opacity: .28; transition: opacity .15s ease;
+}
+.de-docrail[hidden] { display: none; }
+.de-docrail:hover, .de-docscroll:hover .de-docrail { opacity: 1; }
+.de-docrail button {
+  width: 22px; height: 22px; padding: 0;
+  border: 1px solid var(--rule-soft); border-radius: 3px;
+  background: var(--panel); color: var(--ink-soft);
+  font-family: var(--sans); font-size: calc(11px * var(--dt-font-scale, 1));
+  line-height: 1; cursor: pointer;
+}
+.de-docrail button:hover { color: var(--accent); border-color: var(--accent); }
+.de-docrail button:disabled { opacity: .35; cursor: default; }
+.de-docrail button:disabled:hover { color: var(--ink-soft); border-color: var(--rule-soft); }

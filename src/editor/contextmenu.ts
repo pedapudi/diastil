@@ -6,15 +6,17 @@
  * through EXISTING actions (ops, studio, textedit, compare) — the menu is
  * a faster path, never a second implementation. */
 
+import type { Doc } from '../model/doc'
 import { state } from '../state'
 import { insertEl, removeEl } from '../model/ops'
+import { canMoveDocBlock, moveDocBlock, removeDocBlock, topBlockOf } from '../doc/sync'
 import { canStudio, isSceneArt, openStudio, studioSession, type StudioSession } from '../studio/studio'
 import { newDrawingOnSlide } from '../studio/svgimport'
 import {
   deletePicked, duplicatePicked, enterGroup, groupPicked, hitOf, isNodeEl,
   isPlainGroup, pick, refreshAll, reorderPicked, ungroupPicked,
 } from '../studio/tools'
-import { insertTextOnSlide, startEdit } from './textedit'
+import { docEditableFor, insertDocBlockAfter, insertTextOnSlide, startEdit } from './textedit'
 import { openCompare } from './compare'
 import {
   assignFreshIds, exportPptxAction, pptxExportAvailable,
@@ -33,6 +35,15 @@ export function installContextMenu(host: HTMLElement): void {
   host.addEventListener('contextmenu', (e) => {
     const target = e.composedPath()[0]
     if (!(target instanceof Element)) return
+    if (state.doc) {
+      // outside a source-backed block — the derived header, the margins —
+      // the native menu stays, exactly as it does outside a slide
+      const block = topBlockOf(state.doc, target)
+      if (!block) return
+      e.preventDefault()
+      openMenu(e.clientX, e.clientY, docEntries(state.doc, target, block))
+      return
+    }
     const slide = target.closest<HTMLElement>('section.dia-slide')
     if (!slide) return // outside a slide the native menu stays
     e.preventDefault()
@@ -122,6 +133,50 @@ function deckEntries(target: Element, slide: HTMLElement): Entry[] {
     items.push(SEP, { label: 'delete slide', run: () => remove(slide), danger: true })
   }
   return items
+}
+
+/* ---------- environment: the document surface ---------- */
+
+/** A document has no slides, no studio and no scenes — the verbs are the
+ * block's own. Same ordering as the deck menu (what is under the pointer,
+ * then what to add, then the destructive verb last) so the two surfaces
+ * read alike, and the same rule: every entry routes through an existing
+ * action (doc/sync's paired ops), never a second implementation. */
+export function docEntries(doc: Doc, target: Element, block: HTMLElement): Entry[] {
+  const items: Entry[] = []
+  const el = target instanceof HTMLElement ? target : target.parentElement
+  // docEditableFor JUMPS to the source view for a LaTeX island — it is raw
+  // source, not prose — and a menu must not act while it is being built
+  const editable = el && !el.closest('.dia-tex-island') ? docEditableFor(doc.article, el) : null
+  if (editable) {
+    items.push({
+      label: editable.classList.contains('dia-math') ? 'edit latex' : 'edit text',
+      run: () => startEdit(editable),
+    }, SEP)
+  }
+  items.push(
+    { label: '+ paragraph', run: () => insertDocBlockAfter(doc, block, 'paragraph') },
+    { label: '+ section', run: () => insertDocBlockAfter(doc, block, 'section') },
+    SEP,
+    moveEntry(doc, block, -1),
+    moveEntry(doc, block, 1),
+  )
+  // the last block standing has nowhere to leave from — deleting it would
+  // empty the body, and there would be no anchor left to write a new one
+  if (canMoveDocBlock(doc, block, -1) || canMoveDocBlock(doc, block, 1)) {
+    items.push(SEP, { label: 'delete block', run: () => { removeDocBlock(doc, block) }, danger: true })
+  }
+  return items
+}
+
+function moveEntry(doc: Doc, block: HTMLElement, dir: -1 | 1): Entry {
+  const can = canMoveDocBlock(doc, block, dir)
+  return {
+    label: dir < 0 ? 'move block up' : 'move block down',
+    run: () => { moveDocBlock(doc, block, dir) },
+    disabled: !can,
+    hint: can ? undefined : `nothing ${dir < 0 ? 'above' : 'below'} to trade places with`,
+  }
 }
 
 /* ---------- environment: a slide in the studio ---------- */
