@@ -5,6 +5,8 @@
  * paragraph or in the wrong one. */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { DocSource } from '../latex/source'
+import type { Doc } from '../model/doc'
 import { loadDocFromTex } from '../model/doc'
 import { blockForLine, idForLine, mountProblems, problemsOpen, toggleProblems } from './problems'
 import { compileNow, compileState, resetCompileState } from './doccompile'
@@ -169,6 +171,130 @@ describe('the problems drawer', () => {
     const row = main.querySelector('.de-prob-row')
     expect(row?.classList.contains('is-flat')).toBe(true)
     expect(row?.getAttribute('title')).toContain('geometry.sty')
+  })
+})
+
+/* ---------- a finding inside an \input'd chapter ---------- */
+
+/* The line number the daemon reports is counted in the file it names, not in
+ * the main file. These pin the two halves of that: the right chapter's
+ * source is what the line is looked up in, and a line the engine could NOT
+ * place stays put in a document that has more than one file. */
+
+/** a document whose blocks render into one article but whose bytes live in
+ * two sources — the multi-file shape, built by hand so this file does not
+ * depend on the project model landing */
+function chapterDoc(): { doc: Doc; chapter: DocSource; id: string } {
+  const doc = docOf()
+  // the third paragraph is the one we relocate into a chapter file
+  const el = [...doc.article.querySelectorAll<HTMLElement>('[data-dia-id]')]
+    .find((e) => (e.textContent ?? '').includes('The third paragraph')) as HTMLElement
+  const id = el.getAttribute('data-dia-id') as string
+  const chapterTex = '\\section{Method}\n\nThe third paragraph lives under the second heading.\n'
+  const chapter = new DocSource(chapterTex)
+  chapter.bind(id, { start: chapterTex.indexOf('The third'), end: chapterTex.length })
+  doc.source.drop(id)
+  ;(doc as unknown as { project: unknown }).project = {
+    multiFile: true,
+    sourceOfCompilePath: (file: string): DocSource | null =>
+      file === 'chapters/method.tex' ? chapter
+        : file === 'main.tex' ? doc.source : null,
+  }
+  return { doc, chapter, id }
+}
+
+describe('a finding inside an \\input\'d chapter', () => {
+  afterEach(() => { vi.unstubAllGlobals(); resetCompileState(); state.doc = null })
+
+  it('resolves the line against the CHAPTER, not against the main file', () => {
+    const { doc, chapter, id } = chapterDoc()
+    // line 3 of the chapter; line 3 of the main file is `\begin{document}`
+    expect(blockForLine(doc, 3, undefined, chapter)?.getAttribute('data-dia-id')).toBe(id)
+    expect(blockForLine(doc, 3)?.getAttribute('data-dia-id')).not.toBe(id)
+  })
+
+  it('clicking the row jumps to the chapter’s block', async () => {
+    const main = document.createElement('div')
+    document.body.append(main)
+    mountProblems(main)
+    stubFailingService([{
+      level: 'error', file: 'chapters/method.tex', line: 3,
+      message: 'Undefined control sequence.',
+    }])
+    const { doc, id } = chapterDoc()
+    state.doc = doc
+    await compileNow(doc)
+
+    const row = main.querySelector('.de-prob-row') as HTMLElement
+    expect(row.classList.contains('is-flat')).toBe(false)
+    // the whole project-relative path, not just the basename: `method.tex`
+    // alone is not something an author can check against their own tree
+    expect(row.textContent).toContain('chapters/method.tex:3')
+    row.click()
+    expect(doc.article.querySelector(`[data-dia-id="${id}"]`)?.classList
+      .contains('de-doc-flash')).toBe(true)
+  })
+
+  it('a main-file finding in a multi-file document still jumps to the main file', async () => {
+    const main = document.createElement('div')
+    document.body.append(main)
+    mountProblems(main)
+    // the daemon names the root once a document has chapters — a preamble
+    // error must not be collateral damage of chapter attribution
+    stubFailingService([{ level: 'error', file: 'main.tex', line: 6, message: 'boom' }])
+    const { doc } = chapterDoc()
+    state.doc = doc
+    await compileNow(doc)
+
+    const row = main.querySelector('.de-prob-row') as HTMLElement
+    expect(row.classList.contains('is-flat')).toBe(false)
+    row.click()
+    expect(doc.article.querySelector('.de-doc-flash')?.textContent)
+      .toContain('The first paragraph')
+  })
+
+  it('a line the engine could not place stays put in a multi-file document', async () => {
+    const main = document.createElement('div')
+    document.body.append(main)
+    mountProblems(main)
+    stubFailingService([{ level: 'error', file: null, line: 6, message: 'Undefined control sequence.' }])
+    const { doc } = chapterDoc()
+    state.doc = doc
+    await compileNow(doc)
+
+    const row = main.querySelector('.de-prob-row')
+    expect(row?.classList.contains('is-flat')).toBe(true)
+    expect(row?.getAttribute('title')).toContain('not which file')
+  })
+
+  it('the same unplaced line still jumps in a SINGLE-file document', async () => {
+    const main = document.createElement('div')
+    document.body.append(main)
+    mountProblems(main)
+    stubFailingService([{ level: 'error', file: null, line: 6, message: 'Undefined control sequence.' }])
+    const doc = docOf()
+    state.doc = doc
+    await compileNow(doc)
+
+    const row = main.querySelector('.de-prob-row') as HTMLElement
+    expect(row.classList.contains('is-flat')).toBe(false)
+    row.click()
+    expect(doc.article.querySelector('.de-doc-flash')?.textContent)
+      .toContain('The first paragraph')
+  })
+
+  it('a chapter the project does not have is named but not jumped to', async () => {
+    const main = document.createElement('div')
+    document.body.append(main)
+    mountProblems(main)
+    stubFailingService([{ level: 'error', file: 'chapters/nope.tex', line: 3, message: 'boom' }])
+    const { doc } = chapterDoc()
+    state.doc = doc
+    await compileNow(doc)
+
+    const row = main.querySelector('.de-prob-row')
+    expect(row?.classList.contains('is-flat')).toBe(true)
+    expect(row?.getAttribute('title')).toContain('chapters/nope.tex')
   })
 })
 

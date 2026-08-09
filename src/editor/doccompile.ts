@@ -23,6 +23,11 @@ import { grantFolderAccess, summarizeSkips, type FolderGrantResult } from './fol
 /** one finding from the engine's log, as the daemon's parse_log emits it */
 export interface TexError {
   level: 'error' | 'warning'
+  /** The file `line` is counted in, as a PROJECT-RELATIVE path
+   * (`chapters/method.tex`) — the same key the asset map and /project/file
+   * use, never a path into the daemon's temp workdir. null means the log
+   * did not say which file with enough confidence to name one, which in a
+   * multi-file document is not the same as "the main file". */
   file: string | null
   line: number | null
   message: string

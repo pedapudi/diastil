@@ -40,6 +40,16 @@ if os.path.exists("passes"):
     runs = int(open("passes").read() or 0)
 open("passes", "w").write(str(runs + 1))
 
+# Replay a captured real-engine log through the whole job. A golden .log
+# fixture is only worth keeping if the code that CONSUMES it runs against
+# it, workdir and all, and not just parse_log in isolation.
+replay = os.environ.get("DIA_FAKE_LOG")
+if replay:
+    log = open(replay, encoding="utf-8").read()
+    open("main.log", "w", encoding="utf-8").write(log)
+    sys.stdout.write(log)
+    sys.exit(1)
+
 if "%HANG" in src:
     print("fake-tex: pretending to think")
     sys.stdout.flush()
