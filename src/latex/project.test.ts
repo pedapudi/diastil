@@ -310,6 +310,60 @@ describe('the raw source view', () => {
       .find((el) => (el.textContent ?? '').includes('The opening paragraph'))!
     expect(doc.project.fileOfId(p.getAttribute('data-dia-id') as string)).toBe('chapters/intro.tex')
   })
+
+  it('undoing a source edit leaves the chapters still writable', async () => {
+    // the re-compose clears every file's bindings; an undo that restored
+    // only main.tex's would leave chapter blocks on screen, looking
+    // editable, with their edits reaching no source at all
+    const doc = mount(MAIN, FILES)
+    const { commitSourceEdit } = await import('../doc/sync')
+    commitSourceEdit(doc, MAIN.replace('The end.', 'The very end.'))
+    state.undo()
+
+    const p = [...doc.article.querySelectorAll('p')]
+      .find((el) => (el.textContent ?? '').includes('The opening paragraph'))!
+    expect(commitDocEdit(doc, p, [setInlineHtml(p, 'Still writable.')], 'Edit text')).toBe(true)
+    expect(doc.project.sourceOfPath('chapters/intro.tex')?.text).toContain('Still writable.')
+    expect(doc.source.text).toBe(MAIN)
+  })
+})
+
+describe('an \\input the composition cannot splice', () => {
+  /* Only TOP-LEVEL \input blocks are spliced — one buried inside an
+   * environment shares a span with that environment's other content, and a
+   * chapter spliced under a span it does not own is exactly the corruption
+   * this whole layer exists to prevent. It still SHIPS and still exports,
+   * so the compile is complete even where the native view is not. */
+  const WRAPPED = `\\documentclass{article}
+\\begin{document}
+
+\\begin{center}
+\\input{chapters/intro}
+\\end{center}
+
+\\end{document}
+`
+
+  it('leaves the \\input as its own source, but keeps the file whole', () => {
+    const doc = mount(WRAPPED, { 'chapters/intro.tex': INTRO })
+    // the command shows as itself; nothing pretends the chapter is here
+    expect(doc.article.textContent).toContain('\\input{chapters/intro}')
+    expect(doc.article.textContent).not.toContain('The opening paragraph')
+    // but the file is in the project: exported, and shipped to the compiler
+    expect(doc.project.includedTexts()).toEqual({ 'chapters/intro.tex': INTRO })
+    expect(exportTexFiles(doc)).toEqual([
+      { path: 'main.tex', text: WRAPPED },
+      { path: 'chapters/intro.tex', text: INTRO },
+    ])
+  })
+
+  it('has no blocks, so nothing can write a partial version of it', () => {
+    const doc = mount(WRAPPED, { 'chapters/intro.tex': INTRO })
+    expect(doc.project.changedPaths()).toEqual([])
+    const ids = [...doc.article.querySelectorAll('[data-dia-id]')]
+      .map((el) => doc.project.fileOfId(el.getAttribute('data-dia-id') as string))
+    expect(ids.every((f) => f === null || f === 'main.tex')).toBe(true)
+  })
 })
 
 /* ---------- reading a project ---------- */

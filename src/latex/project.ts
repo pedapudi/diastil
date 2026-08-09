@@ -104,6 +104,12 @@ export function resolveInputPath(arg: string): string | null {
 
 export interface ProjectFile { path: string; source: DocSource }
 
+/** every file's span map plus the block-id → file map, as one value */
+export interface ProjectBindings {
+  owner: Map<string, string>
+  spans: Map<string, Map<string, { start: number; end: number }>>
+}
+
 /** An \input the composition could not turn into content, and why — the
  * honest degrade, surfaced on the island itself. */
 export interface UnresolvedInput {
@@ -221,6 +227,24 @@ export class DocProject {
   clearBindings(): void {
     for (const f of this.files()) f.source.clearBindings()
     this.owner.clear()
+  }
+
+  /** Bindings for EVERY file, for an undo that has to put the whole
+   * composition back. The main file's own snapshot is not enough: a
+   * re-compose clears the chapters' spans and the owner map too, and an
+   * undo that restores only main leaves every chapter block bound to
+   * nothing — its edits stop reaching the source, quietly. */
+  snapshotBindings(): ProjectBindings {
+    return {
+      owner: new Map(this.owner),
+      spans: new Map(this.files().map((f) => [f.path, f.source.snapshotBindings()])),
+    }
+  }
+
+  restoreBindings(snapshot: ProjectBindings): void {
+    this.owner.clear()
+    for (const [id, path] of snapshot.owner) this.owner.set(id, path)
+    for (const [path, spans] of snapshot.spans) this.sourceOfPath(path)?.restoreBindings(spans)
   }
 
   /** true when this project is more than its main file — the cheap check

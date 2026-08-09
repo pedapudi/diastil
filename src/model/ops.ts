@@ -222,7 +222,11 @@ export function setEdgeVia(scene: SVGSVGElement, edge: SVGGElement, via: string 
 export function setDocSource(doc: Doc, newText: string, by?: 'you' | 'copilot'): Op {
   const prevText = doc.source.text
   const prevChildren = [...doc.article.children]
-  const prevSpans = doc.source.snapshotBindings()
+  // the WHOLE project's bindings: applySourceText re-composes, which clears
+  // every file's spans and the owner map. Restoring only the main file's
+  // would leave the chapter blocks bound to nothing — still on screen,
+  // still editable-looking, their edits silently reaching no source
+  const prevSpans = doc.project.snapshotBindings()
   const label = 'Edit source'
   return {
     label,
@@ -235,7 +239,7 @@ export function setDocSource(doc: Doc, newText: string, by?: 'you' | 'copilot'):
         author: author(by),
         apply() {
           doc.source.text = prevText
-          doc.source.restoreBindings(prevSpans)
+          doc.project.restoreBindings(prevSpans)
           doc.article.replaceChildren(...prevChildren)
         },
         invert: redo,
