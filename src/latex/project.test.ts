@@ -149,6 +149,46 @@ describe('composition', () => {
   })
 })
 
+/* ---------- what the compile calls a file vs. what the project does ---------- */
+
+describe('fileOfCompilePath', () => {
+  it('reads the workdir job name as the root, whatever the user calls it', () => {
+    const doc = mount(MAIN, FILES, 'thesis.tex')
+    expect(doc.project.mainPath).toBe('thesis.tex')
+    // the compile always names the root main.tex — the job's name, not the
+    // user's. Missing this makes every root-source error unjumpable.
+    expect(doc.project.fileOfCompilePath('main.tex')).toBe('thesis.tex')
+    expect(doc.project.fileOfCompilePath('./main.tex')).toBe('thesis.tex')
+    expect(doc.project.fileOfCompilePath('thesis.tex')).toBe('thesis.tex')
+    expect(doc.project.sourceOfCompilePath('main.tex')?.text).toBe(MAIN)
+  })
+
+  it('passes an included file through — the asset name IS the project path', () => {
+    const doc = mount(MAIN, FILES, 'thesis.tex')
+    expect(doc.project.fileOfCompilePath('chapters/intro.tex')).toBe('chapters/intro.tex')
+    expect(doc.project.fileOfCompilePath('./chapters/intro.tex')).toBe('chapters/intro.tex')
+    expect(doc.project.sourceOfCompilePath('chapters/intro.tex')?.text).toBe(INTRO)
+  })
+
+  it('names nothing for a file the project does not hold', () => {
+    const doc = mount(MAIN, FILES, 'thesis.tex')
+    for (const f of ['neurips.sty', 'book.cls', 'chapters/nope.tex', '/usr/share/texmf/x.tex']) {
+      expect(doc.project.fileOfCompilePath(f), f).toBeNull()
+    }
+  })
+
+  it('a chapter line resolves to a block in the one shared article', () => {
+    // the whole point for the problems drawer: file + line -> element
+    const doc = mount(MAIN, FILES, 'thesis.tex')
+    const source = doc.project.sourceOfCompilePath('chapters/intro.tex')!
+    const line = INTRO.split('\n').findIndex((l) => l.includes('The second paragraph')) + 1
+    const id = source.idAt(source.offsetOfLine(line))
+    expect(id).not.toBeNull()
+    const el = doc.article.querySelector(`[data-dia-id="${id}"]`)
+    expect(el?.textContent).toContain('The second paragraph of the first chapter.')
+  })
+})
+
 /* ---------- the offline degrade ---------- */
 
 describe('an \\input that cannot be read', () => {

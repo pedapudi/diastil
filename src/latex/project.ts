@@ -218,6 +218,33 @@ export class DocProject {
     return this.owner.get(id) ?? null
   }
 
+  /** A project path from a file name as the COMPILE names it, or null when
+   * it names nothing this project holds (a .sty, a class, a font).
+   *
+   * The two namings genuinely differ and the difference is invisible at
+   * the call site, which is why it is normalized here once rather than
+   * guessed at by each consumer. The workdir always calls the root source
+   * `main.tex` — that is the job's name, not the user's, whose file is
+   * `thesis.tex`. Included files keep their own paths, because the asset
+   * name we ship IS the project path (`chapters/intro.tex`), so those need
+   * only `./` and separator tidying.
+   *
+   * `main.tex` reads as the ROOT even in the rare project that also holds
+   * a file of that name: the compile only ever means the job by it, and
+   * the daemon refuses to write a root-level main.tex asset at all. */
+  fileOfCompilePath(file: string): string | null {
+    const clean = file.replace(/\\/g, '/').replace(/^\.\//, '')
+    if (clean === 'main.tex' || clean === this.mainPath) return this.mainPath
+    return this.included.has(clean) ? clean : null
+  }
+
+  /** the DocSource behind a compile-reported file name — line numbers in a
+   * chapter's log record index THAT file, never the main one */
+  sourceOfCompilePath(file: string): DocSource | null {
+    const path = this.fileOfCompilePath(file)
+    return path === null ? null : this.sourceOfPath(path)
+  }
+
   sourceOfId(id: string): DocSource | null {
     const path = this.owner.get(id)
     return path === undefined ? null : this.sourceOfPath(path)
