@@ -51,3 +51,29 @@ api_key_env = "DIA_API_KEY"
 # Seconds before a compile is killed. The default is generous because
 # tectonic's FIRST run downloads the packages the document asks for.
 # timeout_s = 180
+
+# ---- browser access control (issue #25) ------------------------------
+# The daemon binds to 127.0.0.1, but a LOCAL browser page on another
+# origin can still reach it, so a CORS allowlist bounds which pages may.
+# The default is the Vite dev server on both loopback spellings; the
+# editor the CLI serves at /editor is same-origin and needs no entry.
+
+# [service]
+# allow_origins = ["http://localhost:5199", "http://127.0.0.1:5199"]
+#
+# "null" is the origin of a file:// page — the hand-opened standalone
+# dist/diastil.html. It is DELIBERATELY not in the default, because it is
+# ALSO the opaque origin ANY website mints with <iframe sandbox>: adding
+# it lets a drive-by page you visit preflight your /skills/* endpoints and
+# spend your model tokens. The standalone editor reads and writes files
+# through the browser's file picker, not the daemon, so it does not need
+# this. Add "null" only if you specifically want a file:// page to reach
+# the model skills, and understand any site can then reach them too:
+#   allow_origins = ["http://localhost:5199", "null"]
+# The /file and /project/file disk bridges refuse "null" regardless of
+# this list — they are CLI-only and the CLI serves the editor same-origin.
+#
+# Extra Host names /mcp will answer, if you front it with an
+# authenticating reverse proxy. Loopback-only by default so a name that
+# resolves to 127.0.0.1 cannot DNS-rebind onto it.
+# mcp_allow_hosts = ["127.0.0.1", "localhost"]

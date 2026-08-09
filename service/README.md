@@ -37,10 +37,23 @@ $EDITOR config.toml
 ```
 
 The service binds to `127.0.0.1:8317` and accepts browser requests only
-from the local editor origins: the dev server (`localhost:5199`), its own
-origin (the CLI mounts the built editor at `/editor`), and `null` — a
-`file://` page, i.e. the standalone `diastil.html`. Override the list
-with `[service] allow_origins = [...]` in `config.toml`.
+from the local editor origins: the dev server (`localhost:5199`) and its
+own origin (the CLI mounts the built editor at `/editor`, which is
+same-origin and needs no entry). Override the list with
+`[service] allow_origins = [...]` in `config.toml`.
+
+The standalone `file://` `diastil.html` reads and writes through the
+browser's file picker, not the daemon, so its `null` origin is **not** in
+the default allowlist (issue #25): `null` is also the opaque origin any
+site mints with `<iframe sandbox>`, and allowing it lets a drive-by page
+you visit spend your model tokens via `/skills/*`. To let a `file://`
+page reach the model skills anyway, add `"null"` to `allow_origins`
+yourself, knowing any site can then reach them too. The `/file` and
+`/project/file` disk bridges refuse `null` regardless of that list — they
+are CLI-only, and the CLI serves the editor same-origin. All local
+endpoints that act (disk bridges, `/skills/*`, `/mcp`) also require a
+loopback `Host`, so a name that resolves to `127.0.0.1` cannot reach them
+by DNS rebinding.
 
 ## The `dia` CLI
 

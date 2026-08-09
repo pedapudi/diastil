@@ -61,20 +61,30 @@ CONFIG = agents.load_config()
 
 app = FastAPI(title="dia service", version="0.1.0")
 
-# Browser origins allowed to call the service. "null" is a file:// page —
-# the standalone single-file editor (dist/diastil.html). The service binds
-# to 127.0.0.1 regardless, so this list only restrains which LOCAL browser
+# Browser origins allowed to call the service. The service binds to
+# 127.0.0.1 regardless, so this list only restrains which LOCAL browser
 # pages may call it; native local processes were never restrained by CORS.
 # The editor served by THIS process (/editor mount) needs no entry at all:
 # the client uses relative URLs there (src/service/client.ts), so those
 # calls are same-origin whatever hostname the user typed. Keep this list
-# narrow — any origin added here can reach the /file bridge and spend
-# model tokens via /skills/*.
-# Override with  [service] allow_origins = [...]  in config.toml.
+# narrow — any origin added here can spend model tokens via /skills/*.
+#
+# "null" is DELIBERATELY absent (issue #25). A file:// page's origin is
+# "null" — but so is the opaque origin ANY website mints with
+# <iframe sandbox>, so allowing it here hands a drive-by page a preflight
+# pass to /skills/* (token burn) and, before its own gate, the /file disk
+# bridge. The disk bridge is a CLI-only feature and the CLI serves the
+# editor same-origin (/editor), so the "null" caller was never the real
+# editor — it was only ever the hand-opened standalone dist/diastil.html,
+# which reads and writes through the file PICKER, not the daemon. A user
+# who genuinely wants a file:// page to reach /skills opts in explicitly:
+#   [service] allow_origins = ["http://localhost:5199", "null"]
+# with the drive-by risk understood (documented in config.example.toml).
+# Even then /file stays shut: _local_caller_refused declines "null" on its
+# own, no matter the CORS list.
 _DEFAULT_ORIGINS = [
     "http://localhost:5199",
     "http://127.0.0.1:5199",
-    "null",  # file:// — the standalone editor
 ]
 app.add_middleware(
     CORSMiddleware,
@@ -82,6 +92,59 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ---------------------------------------------------------------------------
+# local file-bridge gate — CORS answers who may READ a response, never who
+# may ACT, so the endpoints that touch disk check the caller themselves.
+# ---------------------------------------------------------------------------
+
+# Loopback names a same-origin request may legitimately carry in Host. Fixed,
+# not config-driven: the file bridge is a local CLI feature and has no reverse-
+# proxy story to relax it (unlike /mcp, whose mcp_allow_hosts exists for one).
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
+
+
+def _rebinding_host_refused(request: Request) -> str | None:
+    """None when the Host is loopback, else why the caller is refused.
+
+    DNS rebinding makes the attacker's own domain resolve to 127.0.0.1, at
+    which point the request is same-origin and carries no cross-origin Origin
+    at all — Origin checks never see it. A loopback service must therefore
+    also insist it was addressed as loopback. This is the /mcp defence, reused
+    for every local endpoint that ACTS (touches disk, or spends model tokens).
+    Legitimate callers all address the daemon as loopback: the same-origin
+    editor, the dev server's cross-origin fetch (its target Host is 127.0.0.1),
+    and the standalone file:// page alike.
+    """
+    host = (request.headers.get("host") or "").rsplit(":", 1)[0]
+    if host and host not in _LOOPBACK_HOSTS:
+        return (f"this endpoint answers only a loopback Host, not {host!r} — a "
+                "name that resolves to 127.0.0.1 is how DNS rebinding reaches "
+                "a local service.")
+    return None
+
+
+def _local_caller_refused(request: Request) -> str | None:
+    """None when a caller may reach a local disk bridge, else why it may not.
+
+    Two independent checks, the same pairing /mcp uses, because each catches
+    what the other misses:
+
+      Origin — an opaque origin is spelled "null": what a sandboxed iframe on
+        ANY site gets, and any drive-by page can mint one. The bridge reads
+        and writes disk, so it declines that caller outright (issue #25). The
+        real editor is same-origin and sends its loopback Origin; a native
+        caller sends none. Neither is "null", so neither is touched — and this
+        holds even if a config re-adds "null" to allow_origins for /skills.
+      Host — see _rebinding_host_refused.
+    """
+    origin = request.headers.get("origin")
+    if origin is not None and origin.strip().lower() == "null":
+        return ("this endpoint does not answer an opaque origin — any page can "
+                "mint one with a sandboxed iframe, and it reads and writes "
+                "files. Use the editor the daemon serves at /editor.")
+    return _rebinding_host_refused(request)
 
 
 # ---------------------------------------------------------------------------
@@ -459,7 +522,10 @@ LIFT_IMAGE_NOTE = (
 
 
 @app.post("/skills/translate-slide")
-async def translate_slide(req: TranslateRequest) -> dict[str, str]:
+async def translate_slide(req: TranslateRequest, request: Request) -> dict[str, str]:
+    refused = _rebinding_host_refused(request)
+    if refused is not None:
+        raise HTTPException(status_code=403, detail=refused)
     prompt = (
         "<token-css>\n" + req.tokensCss + "\n</token-css>\n\n"
         "<source-slide>\n" + req.sourceHtml + "\n</source-slide>"
@@ -472,7 +538,10 @@ async def translate_slide(req: TranslateRequest) -> dict[str, str]:
 
 
 @app.post("/skills/repair-fidelity")
-async def repair_fidelity(req: RepairRequest) -> dict[str, str]:
+async def repair_fidelity(req: RepairRequest, request: Request) -> dict[str, str]:
+    refused = _rebinding_host_refused(request)
+    if refused is not None:
+        raise HTTPException(status_code=403, detail=refused)
     prompt = (
         "<token-css>\n" + req.tokensCss + "\n</token-css>\n\n"
         "<converted-slide>\n" + req.candidateHtml + "\n</converted-slide>\n\n"
@@ -487,7 +556,10 @@ async def repair_fidelity(req: RepairRequest) -> dict[str, str]:
 
 
 @app.post("/skills/lift-diagram")
-async def lift_diagram(req: LiftRequest) -> dict[str, str]:
+async def lift_diagram(req: LiftRequest, request: Request) -> dict[str, str]:
+    refused = _rebinding_host_refused(request)
+    if refused is not None:
+        raise HTTPException(status_code=403, detail=refused)
     prompt = req.svgHtml + (LIFT_IMAGE_NOTE if req.images else "") + _feedback_block(req.feedback)
     out, thinking = await _run_html_skill("lift-diagram", prompt, req.images, "svg")
     return {"sceneHtml": out, "thinking": thinking}
@@ -510,7 +582,10 @@ def _resolve_opened(path: str) -> Path:
 
 
 @app.get("/file")
-async def read_file(path: str) -> dict[str, Any]:
+async def read_file(path: str, request: Request) -> dict[str, Any]:
+    refused = _local_caller_refused(request)
+    if refused is not None:
+        raise HTTPException(status_code=403, detail=refused)
     p = _resolve_opened(path)
     if not p.is_file():
         raise HTTPException(status_code=404, detail="file not found")
@@ -524,7 +599,10 @@ async def read_file(path: str) -> dict[str, Any]:
 
 
 @app.put("/file")
-async def write_file(req: FileWrite) -> dict[str, Any]:
+async def write_file(req: FileWrite, request: Request) -> dict[str, Any]:
+    refused = _local_caller_refused(request)
+    if refused is not None:
+        raise HTTPException(status_code=403, detail=refused)
     p = _resolve_opened(req.path)
     p.write_text(req.html, encoding="utf-8")
     return {"mtime": p.stat().st_mtime}
@@ -548,25 +626,6 @@ async def write_file(req: FileWrite) -> dict[str, Any]:
 # hand back any file beside the document is a different, larger promise.
 
 
-def _project_caller_ok(request: Request) -> str | None:
-    """None when this caller may reach /project/file, else why not.
-
-    An opaque origin — what a sandboxed iframe on ANY site gets — is spelled
-    "null", and CORS allows it here so the standalone file:// editor can talk
-    to the daemon. That is a capability a drive-by page can mint, and this
-    endpoint WRITES: refusing it keeps the reach of a hostile page at the one
-    file the CLI opened (/file, issue #25) instead of every .tex under that
-    file's directory. A same-origin editor sends its real loopback origin and
-    a native caller sends none, so neither is affected.
-    """
-    origin = request.headers.get("origin")
-    if origin is not None and origin.strip().lower() == "null":
-        return ("/project/file does not answer an opaque origin — any page can "
-                "mint one with a sandboxed iframe, and this endpoint writes "
-                "files. Use the editor the daemon serves at /editor.")
-    return None
-
-
 def _project_file(main_path: str, rel: str) -> Path:
     main = _resolve_opened(main_path)
     if not rel.lower().endswith(".tex"):
@@ -583,7 +642,7 @@ def _project_file(main_path: str, rel: str) -> Path:
 
 @app.get("/project/file")
 async def read_project_file(main: str, path: str, request: Request) -> dict[str, Any]:
-    refused = _project_caller_ok(request)
+    refused = _local_caller_refused(request)
     if refused is not None:
         raise HTTPException(status_code=403, detail=refused)
     target = _project_file(main, path)
@@ -600,7 +659,7 @@ class ProjectFileWrite(BaseModel):
 
 @app.put("/project/file")
 async def write_project_file(req: ProjectFileWrite, request: Request) -> dict[str, Any]:
-    refused = _project_caller_ok(request)
+    refused = _local_caller_refused(request)
     if refused is not None:
         raise HTTPException(status_code=403, detail=refused)
     target = _project_file(req.main, req.path)
@@ -905,10 +964,10 @@ async def tex_refresh() -> dict[str, Any]:
 #   Origin — a browser attaches it to every cross-origin fetch, and native
 #     MCP clients (stdio proxies, desktop hosts, curl) never do. Presence
 #     alone therefore means "a web page is calling", and the answer is no.
-#     Relying on the CORS list instead would not do: it allows "null" for
-#     the file:// standalone editor, and ANY site can mint an opaque
-#     origin with <iframe sandbox> — verified writing a file from an
-#     ordinary third-party page before this gate existed.
+#     Relying on the CORS list instead would not do: a config may re-add
+#     "null" to allow_origins for the file:// standalone, and ANY site can
+#     mint an opaque origin with <iframe sandbox> — verified writing a file
+#     from an ordinary third-party page before this gate existed.
 #   Host — DNS rebinding sidesteps Origin entirely by making the attacker's
 #     own domain resolve to 127.0.0.1, at which point the request is
 #     same-origin and carries no cross-origin Origin at all. A loopback
