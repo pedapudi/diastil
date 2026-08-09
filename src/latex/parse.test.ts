@@ -99,6 +99,39 @@ describe('parseLatex structure', () => {
     expect(tab.rows[0].cells).toHaveLength(2)
   })
 
+  it('loose prose inside a float parses as body, so it can be seen and edited', () => {
+    const [fig] = body(DOC('\\begin{figure}\n\\centering\n\\includegraphics{fig.png}\nA descriptive note that lives inside the float.\n\\caption{The caption.}\n\\label{fig:x}\n\\end{figure}'))
+    const f = fig as Extract<LxBlock, { kind: 'float' }>
+    expect(f.graphics[0].path).toBe('fig.png')
+    const para = f.body.find((b) => b.kind === 'para') as Extract<LxBlock, { kind: 'para' }>
+    expect(para, 'the note is a body paragraph').toBeTruthy()
+    // the span covers the prose and NOTHING around it: not the graphic
+    // before it, not the \caption after it (the surrounding whitespace rides
+    // along exactly as a top-level paragraph's does — emission re-seats it)
+    const text = DOC('\\begin{figure}\n\\centering\n\\includegraphics{fig.png}\nA descriptive note that lives inside the float.\n\\caption{The caption.}\n\\label{fig:x}\n\\end{figure}')
+    const slice = text.slice(para.span.start, para.span.end)
+    expect(slice.trim()).toBe('A descriptive note that lives inside the float.')
+    expect(slice).not.toContain('\\includegraphics')
+    expect(slice).not.toContain('\\caption')
+  })
+
+  it('float furniture stays out of the body — only prose-bearing runs become blocks', () => {
+    // \centering, sizing declarations, comments and a \subfloat's bracketed
+    // caption are not float-level prose: parsing them as paragraphs would
+    // island their command bytes back onto the surface as visible junk
+    const [fig] = body(DOC('\\begin{figure}\n\\centering\n\\small\n% a comment\n\\subfloat[Left panel]{\\includegraphics{a.png}}\n\\caption{C}\n\\end{figure}'))
+    const f = fig as Extract<LxBlock, { kind: 'float' }>
+    expect(f.body).toHaveLength(0)
+  })
+
+  it('float body prose keeps its inline structure', () => {
+    const [fig] = body(DOC('\\begin{figure}\n\\includegraphics{f.png}\nNote with \\textbf{bold} and \\ref{tab:x}.\n\\caption{C}\n\\end{figure}'))
+    const f = fig as Extract<LxBlock, { kind: 'float' }>
+    const para = f.body.find((b) => b.kind === 'para') as Extract<LxBlock, { kind: 'para' }>
+    expect(para.inline.some((n) => n.kind === 'style')).toBe(true)
+    expect(para.inline.some((n) => n.kind === 'ref')).toBe(true)
+  })
+
   it('tabular strips rule commands from cells and keeps them on the row', () => {
     const [tbl] = body(DOC('\\begin{tabular}{ll}\\toprule a & b \\\\ \\midrule c & d \\\\ \\bottomrule\\end{tabular}'))
     const t = tbl as Extract<LxBlock, { kind: 'tabular' }>

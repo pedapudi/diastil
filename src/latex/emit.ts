@@ -159,10 +159,10 @@ function emitItemBody(host: HTMLElement): string {
   return parts.join('\n')
 }
 
-/** floats reconstruct surgically: the caption and any embedded tabular are
- * the natively editable parts in v1, so patch the \caption group and splice
- * any edited table's own reconstruction into the original slice, leaving
- * everything else (placement, centering, graphics, sizing) byte-intact.
+/** floats reconstruct surgically: patch the \caption group, then splice
+ * every EDITED child's own reconstruction into the original slice, leaving
+ * everything else (placement, centering, graphics, sizing, \subfloat
+ * wrappers, comments, anything the parser islanded) byte-intact.
  *
  * A caption is only touched when IT changed (captionMemo, cell-grain-style)
  * — a float whose ONLY edit is a sibling table cell must leave the caption's
@@ -187,7 +187,7 @@ function emitFloat(el: HTMLElement, slice: string | null): string {
         if (at >= 0) out = `${out.slice(0, at)}\\caption{${capTex}}\n${out.slice(at)}`
       }
     }
-    return spliceEditedTables(el, out)
+    return spliceEditedChildren(el, out)
   }
   const env = el.getAttribute('data-dia-float') ?? 'figure'
   const label = el.getAttribute('data-dia-label')
@@ -207,21 +207,70 @@ function emitFloat(el: HTMLElement, slice: string | null): string {
   return lines.join('\n')
 }
 
-/** an edited table's own reconstruction replaces its ORIGINAL bytes inside
- * the float's slice — found by a plain text search, safe because a table's
- * memo slice is disjoint from the caption group the step above may have
- * just patched. An unedited table (or one with no memo — a fresh insert
- * outside any parse) is left as whatever the slice already carries. */
-function spliceEditedTables(el: HTMLElement, slice: string): string {
+/** an edited child's own reconstruction replaces its ORIGINAL bytes inside
+ * the float's slice. Every rendered block carries a memo (render.ts), child
+ * blocks included, so a child is found by searching for its memo slice —
+ * safe because a child's span is disjoint from the caption group the step
+ * above may have just patched (\caption's group is consumed at float level,
+ * so nothing inside it is ever a body block).
+ *
+ * The search runs a CURSOR forward across the children in DOM order, which
+ * is source order for a float's body: two identical siblings (the same
+ * one-line \includegraphics island twice, a repeated note) would otherwise
+ * both resolve to the first one's bytes and the wrong panel would change.
+ * Unedited children advance the cursor without being touched.
+ *
+ * The walk descends through elements that carry NO memo of their own — a
+ * list's <li>, a table's <tr>, the <figcaption> — so a block nested inside
+ * one is still reached at its own grain. An edited child with no memo (a
+ * fresh insert that never came from a parse) has no bytes to replace and is
+ * left alone; the source view is the escape hatch, as for structural table
+ * edits. */
+function spliceEditedChildren(host: HTMLElement, slice: string): string {
   let out = slice
-  for (const table of el.querySelectorAll<HTMLElement>('table')) {
-    const tmemo = blockMemo.get(table)
-    if (!tmemo || cleanOuter(table) === tmemo.html) continue
-    const at = out.indexOf(tmemo.slice)
-    if (at < 0) continue
-    out = out.slice(0, at) + emitTabular(table) + out.slice(at + tmemo.slice.length)
+  let from = 0
+  const visit = (parent: HTMLElement) => {
+    for (const child of parent.children) {
+      if (!(child instanceof HTMLElement) || child.classList.contains('dia-editor-artifact')) continue
+      const memo = blockMemo.get(child)
+      if (!memo) { visit(child); continue }
+      const at = out.indexOf(memo.slice, from)
+      if (at < 0) continue
+      if (cleanOuter(child) === memo.html) { from = at + memo.slice.length; continue }
+      const tex = reseat(memo.slice, emitEditedChild(child, memo.slice))
+      out = out.slice(0, at) + tex + out.slice(at + memo.slice.length)
+      from = at + tex.length
+    }
   }
+  visit(host)
   return out
+}
+
+/** an edited child's LaTeX. A container whose own emitter REBUILDS its
+ * interior (a wrapper's, a list's — children re-joined with fresh blank
+ * lines) gets the float's treatment first: patch only the edited
+ * descendants' spans inside the container's own original bytes, so an edit
+ * two levels down costs nothing above it. The rebuild is the fallback for
+ * an edit that is NOT confined to memoized descendants — a container's own
+ * loose text, an added or removed child. Every other block kind emits
+ * itself surgically already (a table by cell, a nested float by caption). */
+function emitEditedChild(child: HTMLElement, slice: string): string {
+  if (child.matches('div.dia-wrap, section.dia-abstract, ul, ol, dl')) {
+    const patched = spliceEditedChildren(child, slice)
+    if (patched !== slice) return patched
+  }
+  return emitBlockTex(child)
+}
+
+/** put a reconstruction back in the whitespace its original span carried —
+ * the same rule model/ops reseated() applies to a top-level block, for the
+ * same reason: a block's span starts and ends where its TOKENS do, so a
+ * paragraph inside a float owns the newline before \caption. Emitting the
+ * reconstruction raw would glue the two into one line. */
+function reseat(slice: string, emitted: string): string {
+  const lead = /^\s*/.exec(slice)?.[0] ?? ''
+  const tail = /\s*$/.exec(slice.slice(lead.length))?.[0] ?? ''
+  return lead + emitted.replace(/^\s+/, '').replace(/\s+$/, '') + tail
 }
 
 /** tabular reconstruction is cell-grain: an unedited cell — a row's rule
