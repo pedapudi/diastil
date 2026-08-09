@@ -99,7 +99,10 @@ def _clean(message: str) -> str:
 # tectonic 0.15.0 and kept verbatim as service/tests/logs/
 # multifile-chapter-error.log: a broken control sequence on line 29 of
 # chapters/method.tex came back as `line: 29, file: None`, and line 29 of
-# the 16-line main file does not exist at all.
+# the 16-line main file does not exist at all. It is not only errors:
+# compiling corpus/tex/multifile clean (multifile-warnings.log) puts every
+# `on input line NN` warning in a chapter too, and mapped against the main
+# file those land on whatever happens to be there.
 #
 # The one thing a log always says about file identity is TeX's own
 # bookkeeping: `(chapters/method` when it opens a file, `)` when it closes

@@ -17,7 +17,6 @@
 
 import type { DocSource } from '../latex/source'
 import type { Doc } from '../model/doc'
-import type { DocProject } from '../latex/project'
 import { state } from '../state'
 import { grantFolderAndRecompile, onCompileState, type CompileState, type TexError } from './doccompile'
 import { flashBlock, scrollToBlock } from './docview'
@@ -165,39 +164,30 @@ function rowFor(f: TexError, doc: Doc | null): HTMLElement {
     row.title = declineReason(doc, f)
   } else {
     row.title = 'jump to the block this line is in'
-    row.addEventListener('click', () => jumpTo(doc as Doc, target.source, target.line))
+    row.addEventListener('click', () => {
+      const el = blockForLine(doc as Doc, target.line, undefined, target.source)
+      if (!el) return
+      scrollToBlock(el)
+      flashBlock(el)
+    })
   }
   return row
 }
 
-/** the daemon compiles the root source as `main.tex`; that is the name it
- * reports for it, whatever the document is called on disk */
-function isMainSource(file: string): boolean {
-  return /(^|[\\/])main\.tex$/.test(file)
-}
-
-/* The multi-file document model owns the map from a compile-reported path to
- * the source that counts those lines. This arrived duck-typed because the
- * branch it was written on predated latex/project.ts; the real import is the
- * honest form now that DocProject exists. */
-function projectOf(doc: Doc): DocProject | null {
-  return doc.project ?? null
-}
-
 /** The source a finding's line number is counted in, or null when nothing
- * in this document can honestly claim it. */
+ * in this document can honestly claim it. The project owns the map from a
+ * compile path to a file (`main.tex` is the job's name for the root, and
+ * only the job's — the user's file is `thesis.tex`); the drawer only asks. */
 export function sourceForFile(doc: Doc, file: string | null): DocSource | null {
-  const project = projectOf(doc)
   if (file === null) {
     // The engine said a line but not a file. In a one-file document that is
     // not ambiguous — there is one file. In a multi-file one it is: measured
     // on a real tectonic run, an undefined control sequence inside
     // chapters/method.tex reported line 29 with no file, and the main file
     // it would have been mapped against is sixteen lines long.
-    return project?.multiFile === true ? null : doc.source
+    return doc.project.multiFile ? null : doc.source
   }
-  if (project !== null) return project.sourceOfCompilePath(file)
-  return isMainSource(file) ? doc.source : null
+  return doc.project.sourceOfCompilePath(file)
 }
 
 /** a path this document owns stays whole — `chapters/method.tex:29` is the
@@ -209,10 +199,19 @@ function displayFile(doc: Doc | null, file: string): string {
   return tail || file
 }
 
+/** The source and line a row would jump to, or null when there is nothing
+ * to jump to. The block is probed HERE as well as looked up again on click:
+ * naming a file correctly is not the same as having it on screen, and a row
+ * that looks clickable and then does nothing reads as a broken drawer. The
+ * element is not held across the render — an edit re-renders the article,
+ * and a stale node would flash nothing. */
 function jumpTarget(doc: Doc, f: TexError): { source: DocSource; line: number } | null {
   if (f.line === null) return null
   const source = sourceForFile(doc, f.file)
-  return source === null ? null : { source, line: f.line }
+  if (source === null) return null
+  return blockForLine(doc, f.line, undefined, source) === null
+    ? null
+    : { source, line: f.line }
 }
 
 /** why this row does not jump. A dead row with no explanation reads as a
@@ -220,17 +219,26 @@ function jumpTarget(doc: Doc, f: TexError): { source: DocSource; line: number } 
  * and "this is broken". */
 function declineReason(doc: Doc | null, f: TexError): string {
   if (f.line === null) return 'no line to jump to'
-  if (f.file !== null) return `reported in ${f.file} — not one of this document's files`
-  return doc !== null && projectOf(doc)?.multiFile === true
-    ? 'the engine gave a line but not which file it is in, and this document is more than one file — jumping would be a guess'
-    : 'no line to jump to'
-}
-
-function jumpTo(doc: Doc, source: DocSource, line: number): void {
-  const el = blockForLine(doc, line, undefined, source)
-  if (!el) return
-  scrollToBlock(el)
-  flashBlock(el)
+  const source = doc === null ? null : sourceForFile(doc, f.file)
+  if (source === null) {
+    if (f.file !== null) return `reported in ${f.file} — not one of this document's files`
+    return doc !== null && doc.project.multiFile
+      ? 'the engine gave a line but not which file it is in, and this document is more than one file — jumping would be a guess'
+      : 'no line to jump to'
+  }
+  // The file is genuinely this document's and the line is genuinely in it,
+  // and still nothing on screen is bound to it. An \input that is not a
+  // top-level block — nested in an environment, or in the preamble — is
+  // read, compiled and exported, but its content is NOT spliced into the
+  // view: binding a chapter's blocks under a span that belongs to the
+  // enclosing environment is the corruption the project layer exists to
+  // prevent. So the compile is right, the resolver is right, and there is
+  // simply no block here. Verified against a real nested \input: the
+  // resolved DocSource carries the chapter's exact text and zero bindings.
+  if (f.file !== null && source !== doc?.source && source.snapshotBindings().size === 0) {
+    return `${f.file} is part of this document, but it is \\input from somewhere the editor does not splice (inside an environment, or the preamble) — open that file itself to edit it`
+  }
+  return `nothing in the view covers line ${f.line}${f.file === null ? '' : ` of ${f.file}`}`
 }
 
 /** The mapping the whole drawer rests on: a 1-based source line to the block

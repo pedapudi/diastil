@@ -223,6 +223,32 @@ def test_a_warning_inside_a_chapter_carries_the_chapter():
         [("chapters/method.tex", 12), ("main.tex", None)]
 
 
+def test_real_warnings_land_in_the_chapter_that_raised_them():
+    """multifile-warnings.log is the whole 395-line log of the corpus
+    fixture compiling clean under the managed tectonic 0.15.0 — reproduce
+    it by compiling corpus/tex/multifile/multifile.tex with its three
+    chapters as assets. `on input line NN` is a line in whatever file is
+    open, and each of these was checked against the fixture by hand:
+    intro.tex:11 is the \\cite, results.tex:35 is the other one."""
+    corpus = SourceMap(
+        lines={"main.tex": 45, "chapters/intro.tex": 32,
+               "chapters/method.tex": 55, "chapters/results.tex": 35},
+        multi_file=True,
+    )
+    findings = parse_log(read("multifile-warnings.log"), corpus)
+    assert [(f.file, f.line) for f in findings] == [
+        # the engine's own note about the document's \usepackage, raised
+        # before any file of the project was open
+        (None, None),
+        ("chapters/intro.tex", 11),
+        ("chapters/results.tex", 35),
+        # inside the .bbl, which is not a source the editor can jump into
+        (None, 3),
+        ("main.tex", None),
+    ]
+    assert all(f.level == "warning" for f in findings)
+
+
 def test_a_file_line_error_prefix_is_rewritten_to_the_project_key():
     """Hand-written: no -file-line-error engine is installed on this machine
     to measure it against. pdflatex, xelatex and latexmk get the flag (see

@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DocSource } from '../latex/source'
 import type { Doc } from '../model/doc'
 import { loadDocFromTex } from '../model/doc'
-import { blockForLine, idForLine, mountProblems, problemsOpen, toggleProblems } from './problems'
+import { blockForLine, idForLine, mountProblems, problemsOpen, sourceForFile, toggleProblems } from './problems'
 import { compileNow, compileState, resetCompileState } from './doccompile'
 import { state } from '../state'
 
@@ -181,36 +181,53 @@ describe('the problems drawer', () => {
  * source is what the line is looked up in, and a line the engine could NOT
  * place stays put in a document that has more than one file. */
 
-/** a genuine multi-file document: a main file that \\input's a chapter, with
- * both files' blocks rendered into the one article.
- *
- * This was hand-built against a fake project object while latex/project.ts
- * lived on another branch. The fake carried only the two members this file
- * read, and doccompile asks a multi-file document for includedTexts() when it
- * ships assets — so the fake made every compile in this suite throw the moment
- * both landed. The real model costs nothing here and cannot drift. */
-function chapterDoc(): { doc: Doc; chapter: DocSource; id: string } {
-  const mainTex = '\\documentclass{article}\n\\begin{document}\n\n'
-    + 'The first paragraph of the main file.\n\n'
-    + '\\input{chapters/method}\n\n\\end{document}\n'
-  const chapterTex = '\\section{Method}\n\nThe third paragraph lives under the second heading.\n'
+/* A real two-file project, small enough that every line number below can be
+ * counted by eye. Note the main file is `thesis.tex`, not main.tex: the
+ * daemon calls the root `main.tex` because that is what the compile job
+ * names it, and the two have to be kept apart. */
+const MAIN_TEX = `\\documentclass{article}
+\\begin{document}
+
+A paragraph that lives in the main file.
+
+\\input{chapters/method}
+
+\\end{document}
+`
+const METHOD_TEX = `\\section{Method}
+
+The chapter paragraph, which lives in its own file.
+`
+
+function chapterDoc(): Doc {
   const host = document.createElement('div')
   document.body.appendChild(host)
-  const doc = loadDocFromTex(mainTex, host, 'paper.tex', { 'chapters/method.tex': chapterTex })
-  const chapter = doc.project.sourceOfPath('chapters/method.tex') as DocSource
-  const el = [...doc.article.querySelectorAll<HTMLElement>('[data-dia-id]')]
-    .find((e) => (e.textContent ?? '').includes('The third paragraph')) as HTMLElement
-  return { doc, chapter, id: el.getAttribute('data-dia-id') as string }
+  return loadDocFromTex(MAIN_TEX, host, 'thesis.tex', { 'chapters/method.tex': METHOD_TEX })
+}
+
+/** the block the chapter's line 3 is in, found the long way for comparison */
+function chapterBlock(doc: Doc): HTMLElement {
+  return [...doc.article.querySelectorAll<HTMLElement>('[data-dia-id]')]
+    .find((e) => (e.textContent ?? '').includes('The chapter paragraph')) as HTMLElement
 }
 
 describe('a finding inside an \\input\'d chapter', () => {
   afterEach(() => { vi.unstubAllGlobals(); resetCompileState(); state.doc = null })
 
+  it('the fixture really is two files', () => {
+    const doc = chapterDoc()
+    expect(doc.project.multiFile).toBe(true)
+    expect(chapterBlock(doc)).toBeTruthy()
+  })
+
   it('resolves the line against the CHAPTER, not against the main file', () => {
-    const { doc, chapter, id } = chapterDoc()
-    // line 3 of the chapter; line 3 of the main file is `\begin{document}`
+    const doc = chapterDoc()
+    const chapter = doc.project.sourceOfCompilePath('chapters/method.tex') as DocSource
+    const id = chapterBlock(doc).getAttribute('data-dia-id')
+    // line 3 of the chapter is its paragraph; line 3 of the main file is
+    // blank, and resolves forward to the MAIN file's paragraph instead
     expect(blockForLine(doc, 3, undefined, chapter)?.getAttribute('data-dia-id')).toBe(id)
-    expect(blockForLine(doc, 3)?.getAttribute('data-dia-id')).not.toBe(id)
+    expect(blockForLine(doc, 3)?.textContent).toContain('lives in the main file')
   })
 
   it('clicking the row jumps to the chapter’s block', async () => {
@@ -221,7 +238,7 @@ describe('a finding inside an \\input\'d chapter', () => {
       level: 'error', file: 'chapters/method.tex', line: 3,
       message: 'Undefined control sequence.',
     }])
-    const { doc, id } = chapterDoc()
+    const doc = chapterDoc()
     state.doc = doc
     await compileNow(doc)
 
@@ -231,8 +248,7 @@ describe('a finding inside an \\input\'d chapter', () => {
     // alone is not something an author can check against their own tree
     expect(row.textContent).toContain('chapters/method.tex:3')
     row.click()
-    expect(doc.article.querySelector(`[data-dia-id="${id}"]`)?.classList
-      .contains('de-doc-flash')).toBe(true)
+    expect(chapterBlock(doc).classList.contains('de-doc-flash')).toBe(true)
   })
 
   it('a main-file finding in a multi-file document still jumps to the main file', async () => {
@@ -241,9 +257,8 @@ describe('a finding inside an \\input\'d chapter', () => {
     mountProblems(main)
     // the daemon names the root once a document has chapters — a preamble
     // error must not be collateral damage of chapter attribution
-    // line 4 of the main file is its own paragraph; line 6 is the \input
     stubFailingService([{ level: 'error', file: 'main.tex', line: 4, message: 'boom' }])
-    const { doc } = chapterDoc()
+    const doc = chapterDoc()
     state.doc = doc
     await compileNow(doc)
 
@@ -251,15 +266,15 @@ describe('a finding inside an \\input\'d chapter', () => {
     expect(row.classList.contains('is-flat')).toBe(false)
     row.click()
     expect(doc.article.querySelector('.de-doc-flash')?.textContent)
-      .toContain('The first paragraph')
+      .toContain('lives in the main file')
   })
 
   it('a line the engine could not place stays put in a multi-file document', async () => {
     const main = document.createElement('div')
     document.body.append(main)
     mountProblems(main)
-    stubFailingService([{ level: 'error', file: null, line: 6, message: 'Undefined control sequence.' }])
-    const { doc } = chapterDoc()
+    stubFailingService([{ level: 'error', file: null, line: 3, message: 'Undefined control sequence.' }])
+    const doc = chapterDoc()
     state.doc = doc
     await compileNow(doc)
 
@@ -289,13 +304,144 @@ describe('a finding inside an \\input\'d chapter', () => {
     document.body.append(main)
     mountProblems(main)
     stubFailingService([{ level: 'error', file: 'chapters/nope.tex', line: 3, message: 'boom' }])
-    const { doc } = chapterDoc()
+    const doc = chapterDoc()
     state.doc = doc
     await compileNow(doc)
 
     const row = main.querySelector('.de-prob-row')
     expect(row?.classList.contains('is-flat')).toBe(true)
     expect(row?.getAttribute('title')).toContain('chapters/nope.tex')
+  })
+})
+
+/* ---------- a chapter the view does not hold ---------- */
+
+/* Only a TOP-LEVEL \input is spliced into the view. One nested inside an
+ * environment is read, compiled and exported, but its blocks are never
+ * bound — binding them under the enclosing environment's span is the
+ * corruption the project layer exists to prevent. So the compile is
+ * complete, the log genuinely names the chapter, and there is still nothing
+ * on screen to jump to. That is a legitimate state, not a broken resolver,
+ * and the drawer has to say so rather than offer a click that does nothing. */
+const NESTED_MAIN = `\\documentclass{article}
+\\begin{document}
+
+A top-level paragraph.
+
+\\begin{center}
+\\input{chapters/intro}
+\\end{center}
+
+\\end{document}
+`
+const NESTED_INTRO = '\\section{Introduction}\n\nThe chapter paragraph.\n'
+
+function nestedDoc(): Doc {
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  return loadDocFromTex(NESTED_MAIN, host, 'thesis.tex', { 'chapters/intro.tex': NESTED_INTRO })
+}
+
+describe('a chapter the view does not hold', () => {
+  afterEach(() => { vi.unstubAllGlobals(); resetCompileState(); state.doc = null })
+
+  it('the resolver still returns the chapter’s source, with no blocks bound in it', () => {
+    const doc = nestedDoc()
+    const chapter = doc.project.sourceOfCompilePath('chapters/intro.tex')
+    expect(chapter).not.toBeNull()
+    // the right text — the file WAS read and would be compiled and exported
+    expect(chapter?.text).toBe(NESTED_INTRO)
+    // and nothing bound in it, so no line of it maps to a block
+    expect(chapter?.snapshotBindings().size).toBe(0)
+    expect(blockForLine(doc, 3, undefined, chapter as DocSource)).toBeNull()
+  })
+
+  it('the row declines and says the file is not spliced, rather than clicking into nothing', async () => {
+    const main = document.createElement('div')
+    document.body.append(main)
+    mountProblems(main)
+    stubFailingService([{
+      level: 'error', file: 'chapters/intro.tex', line: 3, message: 'Undefined control sequence.',
+    }])
+    const doc = nestedDoc()
+    state.doc = doc
+    await compileNow(doc)
+
+    const row = main.querySelector('.de-prob-row')
+    // still NAMED — the engine was right and the author can go open it
+    expect(row?.textContent).toContain('chapters/intro.tex:3')
+    expect(row?.classList.contains('is-flat')).toBe(true)
+    expect(row?.getAttribute('title')).toContain('does not splice')
+  })
+
+  it('a line that lands in no block at all declines too, in any document', async () => {
+    const main = document.createElement('div')
+    document.body.append(main)
+    mountProblems(main)
+    // line 400 of a fourteen-line document: real file, no block
+    stubFailingService([{ level: 'error', file: null, line: 400, message: 'boom' }])
+    const doc = docOf()
+    state.doc = doc
+    await compileNow(doc)
+
+    const row = main.querySelector('.de-prob-row')
+    expect(row?.classList.contains('is-flat')).toBe(true)
+    expect(row?.getAttribute('title')).toContain('nothing in the view covers line 400')
+  })
+})
+
+/* ---------- the daemon/project vocabulary, as a contract ---------- */
+
+/* The seam: parse_log EMITS these strings and DocProject ACCEPTS them.
+ * Neither side can see the other, so the set is written out here once, on
+ * the consuming side, with the producer's rules quoted beside it. The
+ * matching producer half is service/tests/test_parse_log.py — if that file
+ * grows a shape this table does not have, this test is the one that should
+ * have failed first.
+ *
+ * parse_log's rules, from texcompile.py's `SourceMap`:
+ *   - a chapter is its project-relative posix path, extension included
+ *   - the root is `main.tex` — the JOB's name for it — and is emitted only
+ *     when the document really \input's another of its own sources
+ *   - an engine with -file-line-error may prefix `./`
+ *   - anything it cannot place with confidence is null, never a guess */
+describe('what the daemon emits, the project resolves', () => {
+  it('every shape parse_log can emit lands on the right source, or on none', () => {
+    const doc = chapterDoc()
+    const root = doc.source
+    const chapter = doc.project.sourceOfCompilePath('chapters/method.tex')
+    expect(chapter).not.toBeNull()
+    expect(chapter).not.toBe(root)
+
+    const table: Array<[string | null, unknown]> = [
+      // what parse_log emits for a chapter
+      ['chapters/method.tex', chapter],
+      // the root, named only in a multi-file document
+      ['main.tex', root],
+      // -file-line-error engines prefix the path they resolved
+      ['./main.tex', root],
+      ['./chapters/method.tex', chapter],
+      // the user's own name for the root also resolves, though the daemon
+      // does not emit it — the job always calls the root main.tex
+      ['thesis.tex', root],
+      // never placed: a bundle file, a chapter this project does not have,
+      // and the honest "the log did not say"
+      ['geometry.sty', null],
+      ['article.cls', null],
+      ['chapters/nope.tex', null],
+      [null, null],
+    ]
+    for (const [file, expected] of table) {
+      expect(sourceForFile(doc, file), `file: ${file}`).toBe(expected)
+    }
+  })
+
+  it('a single-file document takes the unplaced line, because there is only one file', () => {
+    const doc = docOf()
+    expect(doc.project.multiFile).toBe(false)
+    expect(sourceForFile(doc, null)).toBe(doc.source)
+    // and still refuses a file that is not its own
+    expect(sourceForFile(doc, 'geometry.sty')).toBeNull()
   })
 })
 
