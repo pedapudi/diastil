@@ -339,6 +339,25 @@ describe('block structure', () => {
     expect(tail.isConnected).toBe(false)
   })
 
+  it('a paragraph created empty takes edits like any other — twice', () => {
+    // the block a split leaves behind has NO source bytes yet, so its span
+    // is empty and sits exactly on the boundary of its own first patch.
+    // Left alone, the second edit inserted a second copy beside the first
+    // and the source stopped being the document.
+    const doc = mount(SAMPLE)
+    const p = firstPara(doc)
+    const tail = splitDocBlock(doc, p, p.innerHTML, '')!
+    commitDocEdit(doc, tail, [setInlineHtml(tail, 'Typed once.')], 'Edit text')
+    expect(exportTex(doc)).toContain('odd whitespace.\n\nTyped once.\n\n\\begin{equation}')
+    commitDocEdit(doc, tail, [setInlineHtml(tail, 'Typed twice.')], 'Edit text')
+    expect(exportTex(doc)).toContain('odd whitespace.\n\nTyped twice.\n\n\\begin{equation}')
+    expect(exportTex(doc)).not.toContain('Typed once.')
+    state.undo()
+    state.undo()
+    state.undo()
+    expect(exportTex(doc)).toBe(SAMPLE)
+  })
+
   it('joining two paragraphs merges their text and their source', () => {
     const doc = mount('\\documentclass{article}\n\\begin{document}\n\nAlpha one.\n\nBeta two.\n\n\\end{document}\n')
     const [a, b] = [...doc.article.querySelectorAll('p')]

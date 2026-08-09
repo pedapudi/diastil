@@ -142,6 +142,23 @@ describe('Enter in a document', () => {
     expect(doc.source.text).toContain('Alphabeta.')
   })
 
+  it('the new paragraph takes typing, twice, and the source stays the document', () => {
+    const doc = mount()
+    const p = doc.article.querySelector<HTMLElement>('p')!
+    startEdit(p)
+    caret(p, 'end')
+    press(p, 'Enter')
+    const tail = doc.article.querySelectorAll<HTMLElement>('p')[1]
+    tail.innerHTML = 'Typed once.'
+    tail.dispatchEvent(new Event('blur'))
+    expect(exportTex(doc)).toContain('odd whitespace.\n\nTyped once.\n\nSecond paragraph.')
+    startEdit(tail)
+    tail.innerHTML = 'Typed twice.'
+    tail.dispatchEvent(new Event('blur'))
+    expect(exportTex(doc)).toContain('odd whitespace.\n\nTyped twice.\n\nSecond paragraph.')
+    expect(exportTex(doc)).not.toContain('Typed once.')
+  })
+
   it('keeps the typing that preceded it', () => {
     const doc = mount('\\documentclass{article}\n\\begin{document}\n\nOne.\n\n\\end{document}\n')
     const p = doc.article.querySelector<HTMLElement>('p')!

@@ -43,8 +43,19 @@ export function syncedBlockOp(doc: Doc, blockEl: HTMLElement, domOps: Op[], labe
       for (const o of domOps) o.apply()
       const id = blockEl.getAttribute('data-dia-id')
       const span = id ? doc.source.spanOf(id) : null
-      if (span) doc.source.patch(span.start, span.end, reseated(doc, span, emitBlockTex(blockEl)))
-      else console.error('dia-doc: edited block has no bound source span — source not updated')
+      if (!span) {
+        console.error('dia-doc: edited block has no bound source span — source not updated')
+        return
+      }
+      const text = reseated(doc, span, emitBlockTex(blockEl))
+      doc.source.patch(span.start, span.end, text)
+      // A block with an EMPTY span — a paragraph a split created, before
+      // anything was typed into it — sits exactly ON the boundary of its
+      // own patch, and patch reads a span ending there as ending BEFORE the
+      // change (the rule that keeps the block above from swallowing this
+      // one). It would stay empty, and the next edit would insert a second
+      // copy beside the first: the source would stop being the document.
+      if (id && span.start === span.end) doc.source.bind(id, { start: span.start, end: span.start + text.length })
     },
     invert() {
       const inverses = [...domOps].reverse().map((o) => o.invert())
