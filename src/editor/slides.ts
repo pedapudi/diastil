@@ -230,13 +230,27 @@ export function isDialectHtml(html: string): boolean {
 }
 
 /** Which dialect kind is this HTML — a deck, a LaTeX-backed document, or
- * foreign (null)? */
+ * foreign (null)?
+ *
+ * The version stamp on <html> is the file DECLARING what it is, so it
+ * outranks anything in the body. Structure only speaks for a file that
+ * declared nothing. Checking `article.dia-doc` first cost us a real class of
+ * misread: a deck teaching the document grammar with LIVE markup — which is
+ * what this project's own what-is-dia.html would be the day its examples
+ * stop being escaped inside <pre> — carries a stamp saying "deck" and a body
+ * containing a document, and opened as a document. A nested element is
+ * content; the root attribute is the claim.
+ *
+ * A file stamped BOTH is malformed, not ambiguous: validate.ts raises
+ * doc/version-exclusive on it. Reading it as a document is the safer half of
+ * that error — the LaTeX source block is the truth it would otherwise lose. */
 export function dialectKind(html: string): 'deck' | 'doc' | null {
   const doc = new DOMParser().parseFromString(html, 'text/html')
-  if (doc.documentElement.hasAttribute('data-dia-doc-version') ||
-    doc.querySelector('article.dia-doc') !== null) return 'doc'
-  if (doc.documentElement.hasAttribute('data-dia-version') ||
-    doc.querySelector('section.dia-slide') !== null) return 'deck'
+  const root = doc.documentElement
+  if (root.hasAttribute('data-dia-doc-version')) return 'doc'
+  if (root.hasAttribute('data-dia-version')) return 'deck'
+  if (doc.querySelector('article.dia-doc') !== null) return 'doc'
+  if (doc.querySelector('section.dia-slide') !== null) return 'deck'
   return null
 }
 
