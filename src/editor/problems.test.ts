@@ -314,6 +314,82 @@ describe('a finding inside an \\input\'d chapter', () => {
   })
 })
 
+/* ---------- a chapter the view does not hold ---------- */
+
+/* Only a TOP-LEVEL \input is spliced into the view. One nested inside an
+ * environment is read, compiled and exported, but its blocks are never
+ * bound — binding them under the enclosing environment's span is the
+ * corruption the project layer exists to prevent. So the compile is
+ * complete, the log genuinely names the chapter, and there is still nothing
+ * on screen to jump to. That is a legitimate state, not a broken resolver,
+ * and the drawer has to say so rather than offer a click that does nothing. */
+const NESTED_MAIN = `\\documentclass{article}
+\\begin{document}
+
+A top-level paragraph.
+
+\\begin{center}
+\\input{chapters/intro}
+\\end{center}
+
+\\end{document}
+`
+const NESTED_INTRO = '\\section{Introduction}\n\nThe chapter paragraph.\n'
+
+function nestedDoc(): Doc {
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  return loadDocFromTex(NESTED_MAIN, host, 'thesis.tex', { 'chapters/intro.tex': NESTED_INTRO })
+}
+
+describe('a chapter the view does not hold', () => {
+  afterEach(() => { vi.unstubAllGlobals(); resetCompileState(); state.doc = null })
+
+  it('the resolver still returns the chapter’s source, with no blocks bound in it', () => {
+    const doc = nestedDoc()
+    const chapter = doc.project.sourceOfCompilePath('chapters/intro.tex')
+    expect(chapter).not.toBeNull()
+    // the right text — the file WAS read and would be compiled and exported
+    expect(chapter?.text).toBe(NESTED_INTRO)
+    // and nothing bound in it, so no line of it maps to a block
+    expect(chapter?.snapshotBindings().size).toBe(0)
+    expect(blockForLine(doc, 3, undefined, chapter as DocSource)).toBeNull()
+  })
+
+  it('the row declines and says the file is not spliced, rather than clicking into nothing', async () => {
+    const main = document.createElement('div')
+    document.body.append(main)
+    mountProblems(main)
+    stubFailingService([{
+      level: 'error', file: 'chapters/intro.tex', line: 3, message: 'Undefined control sequence.',
+    }])
+    const doc = nestedDoc()
+    state.doc = doc
+    await compileNow(doc)
+
+    const row = main.querySelector('.de-prob-row')
+    // still NAMED — the engine was right and the author can go open it
+    expect(row?.textContent).toContain('chapters/intro.tex:3')
+    expect(row?.classList.contains('is-flat')).toBe(true)
+    expect(row?.getAttribute('title')).toContain('does not splice')
+  })
+
+  it('a line that lands in no block at all declines too, in any document', async () => {
+    const main = document.createElement('div')
+    document.body.append(main)
+    mountProblems(main)
+    // line 400 of a fourteen-line document: real file, no block
+    stubFailingService([{ level: 'error', file: null, line: 400, message: 'boom' }])
+    const doc = docOf()
+    state.doc = doc
+    await compileNow(doc)
+
+    const row = main.querySelector('.de-prob-row')
+    expect(row?.classList.contains('is-flat')).toBe(true)
+    expect(row?.getAttribute('title')).toContain('nothing in the view covers line 400')
+  })
+})
+
 /* ---------- the daemon/project vocabulary, as a contract ---------- */
 
 /* The seam: parse_log EMITS these strings and DocProject ACCEPTS them.
