@@ -257,8 +257,7 @@ compile's errors, and a render of the section as an image.
 
 ### Actions that apply to documents
 
-`set-text`, `set-inline-html`, `set-attr`, `set-token`, `insert-html`
-(into an existing block), `remove` (something INSIDE a block), and:
+`set-text`, `set-inline-html`, `set-attr`, `set-token`, and:
 
 - `set-tex` — replace the LaTeX of one math block or one island.
   `target`: the `.dia-math` or `.dia-tex-island`. `value`: the tex —
@@ -266,12 +265,24 @@ compile's errors, and a render of the section as an image.
   environment is already recorded); for an island, the complete raw
   source it stands for. Tex that will not render (math) or does not
   balance (islands) is refused with a reason instead of applied.
+- `insert-html` — into an existing block, as in decks; or, with
+  `target: "document"`, a WHOLE NEW top-level block (a paragraph, a
+  heading, an equation). `extra.index` is then the 0-based block
+  position — omit it to append at the end. The html is turned into
+  LaTeX and rendered back, so a value that cannot survive that trip is
+  refused with the tex it became.
+- `remove` — something inside a block, or a whole top-level block (it
+  leaves with its source slice and one blank line). The document's last
+  remaining block is refused: an empty body has no anchor left.
+- `move-el` — reorder a whole top-level block. `target`: the block.
+  `extra.index`: the 0-based position to move it to. A document block
+  has one parent, so `extra.parent` does not apply, and only whole
+  blocks move — a fragment moves by editing the two blocks that hold it.
 
 Skipped in documents, with a reason on the card: `set-style` (inline
-styles are not LaTeX — retoken instead), `move-el`, `add-slide`, every
-scene action, removing or adding whole top-level blocks. Structural
-rewrites belong in the source view; say so plainly instead of proposing
-an op that cannot land.
+styles are not LaTeX — retoken instead), `add-slide`, and every scene
+action. Preamble edits (packages, macros, `\title`) belong in the source
+view; say so plainly instead of proposing an op that cannot land.
 
 ### Keep it LaTeX
 
