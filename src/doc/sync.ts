@@ -163,9 +163,15 @@ export function splitDocBlock(
   return tailEl
 }
 
-/** join `second` into `first` — the Backspace-at-the-start path */
-export function joinDocBlocks(doc: Doc, first: HTMLElement, second: HTMLElement, label = 'Join blocks'): boolean {
-  const op = joinBlocksOp(doc, first, second, label)
+/** join `second` into `first` — the Backspace-at-the-start path. The merged
+ * content is passed IN rather than read off the two elements: a join can
+ * carry the edit the user typed before pressing the key, while both
+ * elements still hold their pristine children for the op to invert to. */
+export function joinDocBlocks(
+  doc: Doc, first: HTMLElement, second: HTMLElement,
+  merged = first.innerHTML + second.innerHTML, label = 'Join blocks',
+): boolean {
+  const op = joinBlocksOp(doc, first, second, merged, label)
   if (!op) return false
   state.apply(withStructure(doc, op))
   const sel = state.selection

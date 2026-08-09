@@ -240,7 +240,7 @@ export function splitBlockOp(
 
 /** join a block into the one before it — the inverse shape of a split */
 export function joinBlocksOp(
-  doc: Doc, first: HTMLElement, second: HTMLElement, label: string, by?: 'you' | 'copilot',
+  doc: Doc, first: HTMLElement, second: HTMLElement, merged: string, label: string, by?: 'you' | 'copilot',
 ): Op | null {
   const fid = first.getAttribute('data-dia-id')
   const sid = second.getAttribute('data-dia-id')
@@ -248,7 +248,6 @@ export function joinBlocksOp(
   const ss = blockSpan(doc, second)
   if (!fid || !sid || !fs || !ss || ss.start < fs.end) return null
 
-  const merged = first.innerHTML + second.innerHTML
   const joined = emitAs(first, merged)
   const domOps = [setInlineHtml(first, merged, by), removeEl(second, label, by)]
   return regionOp(doc, domOps, fs.start,
