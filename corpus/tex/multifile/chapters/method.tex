@@ -1,0 +1,55 @@
+\section{Method}
+\label{sec:method}
+
+\subsection{A residency model}
+
+Let \(P\) be the set of hash partitions and \(s_p\) the resident size of
+partition \(p \in P\). A probe batch \(b\) targets exactly one partition,
+written \(\pi(b)\). For a dispatch order \(\sigma\) over a buffer of \(n\)
+batches, the reuse distance of the \(i\)-th batch is the total resident
+size touched since the previous batch with the same target:
+
+\begin{equation}
+\label{eq:reuse}
+d_\sigma(i) = \sum_{j \in R_\sigma(i)} s_{\pi(\sigma_j)},
+\qquad
+R_\sigma(i) = \{\, j < i : \pi(\sigma_j) \neq \pi(\sigma_i) \,\}.
+\end{equation}
+
+A batch hits cache when \(d_\sigma(i) < C\), the effective cache capacity.
+Minimizing misses is therefore minimizing the number of indices whose
+reuse distance exceeds \(C\), which grouping by target achieves exactly:
+consecutive batches with equal targets have reuse distance zero.
+
+\subsection{The scheduler}
+
+The online scheduler holds a bounded buffer of \(n\) batches and always
+dispatches the group with the largest count, breaking ties by arrival
+time so that no batch can be starved. The bound on \(n\) is what keeps
+latency predictable:
+
+\begin{itemize}
+\item A batch waits at most \(n - 1\) dispatch slots.
+\item Output order is restored by the operator's existing sequence
+  numbers, so no downstream operator observes the reordering.
+\end{itemize}
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lrr}
+\toprule
+Buffer \(n\) & Miss rate & Throughput \\
+\midrule
+1 (arrival order) & 0.41 & 1.00 \\
+8 & 0.22 & 1.44 \\
+32 & 0.13 & 1.71 \\
+128 & 0.11 & 1.74 \\
+\bottomrule
+\end{tabular}
+\caption{Buffer size against measured miss rate and normalized
+throughput on the \textsc{tpch-q3} workload.}
+\label{tab:buffer}
+\end{table}
+
+Table~\ref{tab:buffer} shows that the returns flatten by \(n = 32\),
+which is the value used throughout Section~\ref{sec:results}.

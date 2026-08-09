@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseLatex, spansSane, stitch } from './parse'
+import { scanInputPaths } from './project'
 import type { LxBlock } from './parse'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -58,6 +59,13 @@ const ISLAND_CEILINGS: Record<string, number> = {
   'beamer/beamer.tex': 0,
   'biblatex/biblatex.tex': 0.001,
   'theorems/theorems.tex': 0.001,
+  // measured 2026-08-09, multi-file (\input) support. 0.000 is not a
+  // compliment here: an `\input{chapters/intro}` parses as a PARA holding
+  // an island inline, so these block-level numbers read perfectly green
+  // whether or not the chapter was ever opened. That blind spot is exactly
+  // why single-file-only shipped this long — the real ratchet for this
+  // fixture is 'every \input resolves' below.
+  'multifile/multifile.tex': 0.005,
 }
 
 /** minimum recognized structural blocks (sections+paras+lists+floats+math+…) */
@@ -76,6 +84,10 @@ const STRUCTURE_FLOORS: Record<string, number> = {
   'beamer/beamer.tex': 12,
   'biblatex/biblatex.tex': 17,
   'theorems/theorems.tex': 22,
+  // measured 2026-08-09: the main file alone — abstract, 3 \input paras,
+  // conclusion, bibliography furniture. The chapters' own blocks are
+  // counted by the per-file replay below, not here.
+  'multifile/multifile.tex': 8,
 }
 
 function bodyBlocks(blocks: LxBlock[]): LxBlock[] {
@@ -122,6 +134,38 @@ describe('tex corpus', () => {
         const floor = STRUCTURE_FLOORS[file]
         expect(floor, `add a STRUCTURE_FLOORS entry for ${file} (measured ${structural})`).toBeDefined()
         expect(structural).toBeGreaterThanOrEqual(floor)
+      })
+    })
+  }
+
+  /* Every \input a fixture names must be a file that is actually there and
+   * that parses under the same invariants as a main file. This is the
+   * ratchet the island/structure floors above CANNOT be: they read a
+   * multi-file document as perfectly structured whether or not a single
+   * chapter was ever opened, which is how "diastil cannot open a thesis"
+   * survived a green corpus for as long as it did. */
+  for (const file of fixtures) {
+    const src = readFileSync(join(texDir, file), 'utf-8')
+    const inputs = scanInputPaths(src)
+    if (inputs.length === 0) continue
+    describe(`${file} (project)`, () => {
+      const root = dirname(join(texDir, file))
+      it('every \\input resolves to a file that is really there', () => {
+        for (const path of inputs) {
+          expect(existsSync(join(root, path)), `${file} inputs ${path}`).toBe(true)
+        }
+      })
+
+      it('each included file holds the span invariants too', () => {
+        for (const path of inputs) {
+          const text = readFileSync(join(root, path), 'utf-8')
+          const doc = parseLatex(text)
+          expect(spansSane(doc), `${path} spans`).toBe(true)
+          expect(stitch(doc) === text, `${path} stitches`).toBe(true)
+          // an included chapter is body-only: no \begin{document} frame,
+          // and real structure rather than one big island
+          expect(doc.blocks.some((b) => b.kind === 'section'), `${path} sections`).toBe(true)
+        }
       })
     })
   }
