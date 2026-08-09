@@ -219,6 +219,33 @@ describe('block structure', () => {
     expect(exportTex(doc)).toBe(SAMPLE)
   })
 
+  it('seats a block against a comment instead of inside it', () => {
+    // the gap above a block can end in a % comment with no newline after
+    // it; a block pasted there with a fixed "\n\n" in front would become
+    // part of the comment — source that compiles, into a document missing
+    // the paragraph the editor is showing
+    const withNote = '\\documentclass{article}\n\\begin{document}\n\n'
+      + 'Para one.\n\n% a note about the paragraph below\nPara two.\n\n\\end{document}\n'
+    const doc = mount(withNote)
+    const second = [...doc.article.querySelectorAll('p')][1]
+    insertDocBlock(doc, 'Inserted.', second, 'before')
+    expect(doc.source.text).toContain('% a note about the paragraph below\n\nInserted.\n\nPara two.')
+    state.undo()
+    expect(exportTex(doc)).toBe(withNote)
+  })
+
+  it('a removed block gives up whitespace, never a comment', () => {
+    const withNote = '\\documentclass{article}\n\\begin{document}\n\n'
+      + 'Para one.\n\n% a note about the paragraph below\nPara two.\n\n\\end{document}\n'
+    const doc = mount(withNote)
+    const first = doc.article.querySelector<HTMLElement>('p')!
+    removeDocBlock(doc, first)
+    expect(doc.source.text).toContain('% a note about the paragraph below')
+    expect(doc.source.text).toBe(withNote.replace('Para one.\n\n', ''))
+    state.undo()
+    expect(exportTex(doc)).toBe(withNote)
+  })
+
   it('typed specials survive the round trip through the source', () => {
     const doc = mount(SAMPLE)
     const typed = '100% of a_b & c #d $e'

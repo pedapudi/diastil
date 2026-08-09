@@ -131,31 +131,20 @@ export function insertBlockOp(
   if (!id) return null
 
   let at: number
-  let text: string
-  let offset: number
-  const prev = ref && where === 'after' ? ref : ref && neighbourBlock(doc, ref, -1)
-  if (prev) {
-    const span = blockSpan(doc, prev)
-    if (!span) return null
-    at = span.end
-    text = BLOCK_SEP + tex
-    offset = BLOCK_SEP.length
-  } else if (ref) {
-    // nothing above it: the block goes in front of the first block's bytes
+  if (ref) {
+    // the seam is the ref block's own edge, so the gap between two blocks —
+    // whitespace, and any % comment written into it — is never split
     const span = blockSpan(doc, ref)
     if (!span) return null
-    at = span.start
-    text = tex + BLOCK_SEP
-    offset = 0
+    at = where === 'after' ? span.end : span.start
   } else {
     // an empty body — the only anchor left is \begin{document} itself
     const m = /\\begin\{document\}[^\n]*\n?/.exec(doc.source.text)
     if (!m) return null
     at = m.index + m[0].length
-    text = `\n${tex}\n`
-    offset = 1
   }
 
+  const { text, offset } = seated(doc, at, tex)
   const index = ref ? [...doc.article.children].indexOf(ref) + (where === 'after' ? 1 : 0) : doc.article.children.length
   return regionOp(doc, [insertEl(doc.article, index, el, label, by)], at,
     { text: '', binds: [] },
@@ -163,8 +152,34 @@ export function insertBlockOp(
     label, by)
 }
 
+/** A block that is inserted at a seam has to be SEATED there: enough
+ * newlines on each side that it reads as its own paragraph, and no more.
+ *
+ * Two newlines is the separator, but the seam rarely offers a clean one —
+ * a block's span may already carry its leading newline, and the gap above
+ * it may end in a % comment with no newline after it. Pasting a fixed
+ * "\n\n" + block against that comment would make the block PART of the
+ * comment: source that still compiles, into a document missing a paragraph
+ * the editor is showing. So each side is counted and only the missing
+ * newlines are added. */
+function seated(doc: Doc, at: number, tex: string): { text: string; offset: number } {
+  const lead = '\n'.repeat(Math.max(0, 2 - trailingNewlines(doc.source.text.slice(0, at))))
+  const trail = '\n'.repeat(Math.max(0, 2 - leadingNewlines(doc.source.text.slice(at))))
+  return { text: lead + tex + trail, offset: lead.length }
+}
+
+function trailingNewlines(s: string): number {
+  return (/(\n[^\S\n]*)*$/.exec(s)?.[0].match(/\n/g) ?? []).length
+}
+
+function leadingNewlines(s: string): number {
+  return (/^([^\S\n]*\n)*/.exec(s)?.[0].match(/\n/g) ?? []).length
+}
+
 /** remove a whole block, taking ONE separator with it — the blank line a
- * removed block leaves behind would otherwise stack with its neighbour's */
+ * removed block leaves behind would otherwise stack with its neighbour's.
+ * WHITESPACE only: a % comment written in the gap is somebody's note, not
+ * this block's punctuation, and it stays. */
 export function removeBlockOp(doc: Doc, el: HTMLElement, label: string, by?: 'you' | 'copilot'): Op | null {
   const id = el.getAttribute('data-dia-id')
   const span = blockSpan(doc, el)
@@ -172,8 +187,11 @@ export function removeBlockOp(doc: Doc, el: HTMLElement, label: string, by?: 'yo
   let { start, end } = span
   const nextSpan = blockSpanOfNeighbour(doc, el, 1)
   const prevSpan = blockSpanOfNeighbour(doc, el, -1)
-  if (nextSpan && nextSpan.start >= end) end = nextSpan.start
-  else if (prevSpan && prevSpan.end <= start) start = prevSpan.end
+  if (nextSpan && nextSpan.start >= end) {
+    end += (/^\s*/.exec(doc.source.text.slice(end, nextSpan.start)) ?? [''])[0].length
+  } else if (prevSpan && prevSpan.end <= start) {
+    start -= (/\s*$/.exec(doc.source.text.slice(prevSpan.end, start)) ?? [''])[0].length
+  }
   return regionOp(doc, [removeEl(el, label, by)], start,
     { text: doc.source.text.slice(start, end), binds: [{ id, start: span.start - start, end: span.end - start }] },
     { text: '', binds: [] },
