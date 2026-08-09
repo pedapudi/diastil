@@ -25,8 +25,8 @@ import { commitDocEdit } from './sync'
 import { setText } from '../model/ops'
 import {
   attachMirror, boxOwns, clearMirrors, cropBand, cropsFor, encloses, installBlockMirror,
-  isMirrored, lineRangeOf, measureOf, mirrorTargets, normalizeBox, normalizeBoxMap,
-  normalizeRecord, openBlock, pageExtent, padded, pruneMirrors, rectOf, toTopDown,
+  isMirrored, isPeeked, lineRangeOf, measureOf, mirrorTargets, normalizeBox, normalizeBoxMap,
+  normalizeRecord, openBlock, pageExtent, padded, peekBlock, pruneMirrors, rectOf, toTopDown,
   bibliographyPages, isFillerPage, isInklessSectionMarker, isLayoutOnlySlice,
   type Pass, type SynctexBox,
 } from './blockmirror'
@@ -478,6 +478,119 @@ describe('a crop is not part of the document', () => {
     const before = [...para.attributes].map((a) => `${a.name}=${a.value}`).sort()
     attachMirror(doc, para, [{ url: PNG, widthPct: 50 }])
     expect([...para.attributes].map((a) => `${a.name}=${a.value}`).sort()).toEqual(before)
+  })
+})
+
+/* ---------- lending a block its HTML form back ---------- */
+
+/* A find highlight is a Range over the block's HTML text, and the mirror
+ * hides exactly that text — so on a compiled paper the shading landed under
+ * a picture. peekBlock is the loan that fixes it; what it must not do is
+ * cost the document its crop, or its bytes. */
+
+describe('peekBlock', () => {
+  it('reveals the HTML form and hides the crop, both reversibly', () => {
+    const doc = mount()
+    const para = mirrorTargets(doc.article).find((t) => t.matches('p'))!
+    attachMirror(doc, para, [{ url: PNG }])
+    const crop = para.querySelector<HTMLElement>('.de-mirror')!
+
+    expect(peekBlock(para)).toBe(true)
+    // the class the hiding rule keys on is gone, so the block's own children
+    // render; the picture is out of the flow instead
+    expect(para.querySelector('.de-mirror')).toBeNull()
+    expect(para.querySelector('.de-mirror-peeked')).toBe(crop)
+    expect(crop.style.display).toBe('none')
+    expect(isPeeked(para)).toBe(true)
+
+    peekBlock(null)
+    expect(para.querySelector('.de-mirror')).toBe(crop)
+    expect(crop.style.display).toBe('')
+    expect(isPeeked(para)).toBe(false)
+  })
+
+  it('keeps the crop alive across a whole search — no url is revoked', () => {
+    const doc = mount()
+    const para = mirrorTargets(doc.article).find((t) => t.matches('p'))!
+    attachMirror(doc, para, [{ url: PNG }])
+    const crop = para.querySelector<HTMLElement>('.de-mirror')!
+    const img = crop.querySelector('img')!.src
+
+    for (let i = 0; i < 20; i++) { peekBlock(para); peekBlock(null) }
+    expect(para.querySelector('.de-mirror')).toBe(crop)
+    expect(crop.querySelector('img')!.src).toBe(img)
+    expect(isMirrored(para)).toBe(true)
+  })
+
+  it('lends only one block at a time', () => {
+    const doc = mount()
+    const [a, b] = mirrorTargets(doc.article).filter((t) => t.matches('p'))
+    attachMirror(doc, a, [{ url: PNG }])
+    attachMirror(doc, b, [{ url: PNG }])
+    peekBlock(a)
+    peekBlock(b)
+    expect(isPeeked(a)).toBe(false)
+    expect(a.querySelector('.de-mirror')).not.toBeNull()
+    expect(isPeeked(b)).toBe(true)
+  })
+
+  it('a peeked block still emits its exact source bytes and never reaches the file', () => {
+    const doc = mount()
+    const para = mirrorTargets(doc.article).find((t) => t.matches('p'))!
+    const span = doc.source.spanOf(para.getAttribute('data-dia-id')!)!
+    const exact = doc.source.text.slice(span.start, span.end)
+    attachMirror(doc, para, [{ url: PNG }])
+    peekBlock(para)
+
+    expect(emitBlockTex(para)).toBe(exact)
+    const html = serializeDoc(doc)
+    expect(html).not.toContain('de-mirror')
+    expect(html).not.toContain('de-mirror-peeked')
+    expect(html).not.toContain('data:image/png')
+  })
+
+  it('touches nothing on the block itself, mid-peek', () => {
+    const doc = mount()
+    const para = mirrorTargets(doc.article).find((t) => t.matches('p'))!
+    const before = [...para.attributes].map((a) => `${a.name}=${a.value}`).sort()
+    attachMirror(doc, para, [{ url: PNG }])
+    peekBlock(para)
+    expect([...para.attributes].map((a) => `${a.name}=${a.value}`).sort()).toEqual(before)
+  })
+
+  it('a peeked crop is still detached when its source changes', () => {
+    const doc = mount()
+    const para = mirrorTargets(doc.article).find((t) => t.matches('p'))!
+    attachMirror(doc, para, [{ url: 'data:,a' }])
+    peekBlock(para)
+    commitDocEdit(doc, para, [setText(para, 'A rewritten paragraph.')], 'edit text')
+    pruneMirrors()
+    // the renamed picture must go with the ordinary one — matching only
+    // `de-mirror` would leave it hanging over a revoked url
+    expect(para.querySelector('.de-mirror, .de-mirror-peeked')).toBeNull()
+    expect(isPeeked(para)).toBe(false)
+    expect(isMirrored(para)).toBe(false)
+  })
+
+  it('clearMirrors takes the loan back with the crops', () => {
+    const doc = mount()
+    const para = mirrorTargets(doc.article).find((t) => t.matches('p'))!
+    attachMirror(doc, para, [{ url: PNG }])
+    peekBlock(para)
+    clearMirrors()
+    expect(para.querySelector('.de-mirror, .de-mirror-peeked')).toBeNull()
+    expect(isPeeked(para)).toBe(false)
+  })
+
+  it('a block with no crop is not peekable, and asking leaves the last loan closed', () => {
+    const doc = mount()
+    const para = mirrorTargets(doc.article).find((t) => t.matches('p'))!
+    const bare = mirrorTargets(doc.article).filter((t) => t.matches('p'))[1]
+    attachMirror(doc, para, [{ url: PNG }])
+    peekBlock(para)
+    expect(peekBlock(bare)).toBe(false)
+    expect(isPeeked(para)).toBe(false)
+    expect(para.querySelector('.de-mirror')).not.toBeNull()
   })
 })
 

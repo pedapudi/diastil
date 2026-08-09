@@ -55,6 +55,7 @@ import type { Doc } from '../model/doc'
 import { state } from '../state'
 import { batch, setInlineHtml } from '../model/ops'
 import { syncedDocOp, topBlockOf } from '../doc/sync'
+import { peekBlock } from '../doc/blockmirror'
 import { flashBlock } from './docview'
 
 /* ---------- the matcher (pure) ---------- */
@@ -525,6 +526,17 @@ function rangeOf(m: DocMatch): Range | null {
 }
 
 function paint(): void {
+  // A Range shades the text it covers, and a block showing its compiled crop
+  // has that text hidden underneath the picture — so on a compiled document
+  // the shading landed where nobody could see it (131 of llama.tex's 152
+  // blocks were mirrored: the bar said "1 / 5" over a paper with no mark on
+  // it anywhere). Lend the current match's block back its HTML form for as
+  // long as it holds the match; blockmirror's peekBlock argues the swap, and
+  // gives the crop straight back on the next step, on close, and on the
+  // recompile in between. Ahead of the canPaint bail: where the registry is
+  // missing the reader still gets the block's own words under the flash,
+  // which beats a picture with no mark on it.
+  peekBlock(at >= 0 ? hits[at]?.block ?? null : null)
   if (!canPaint || !registry) return
   const rest: Range[] = []
   for (const [i, m] of hits.entries()) {
@@ -541,9 +553,11 @@ function paint(): void {
   set('dia-find-at', cur ? [cur] : [])
 }
 
-/** scroll the current match into view. A block showing its compiled crop
- * has no box around its HTML text (the mirror hides it), so there is
- * nothing to scroll to — land on the block and flash it instead. */
+/** Scroll the current match into view. Called after paint, so a mirrored
+ * block has already been lent its HTML form back and the match has a box of
+ * its own to measure; the block-and-flash fallback is for text with no box
+ * at all — a match the theme or the layout hides for reasons the mirror
+ * knows nothing about. */
 function reveal(m: DocMatch): void {
   const doc = state.doc
   if (!doc) return
