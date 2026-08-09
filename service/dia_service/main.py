@@ -14,6 +14,7 @@ Endpoints:
   GET  /compile/{id}/pdf        -> the compiled PDF (404 until the job is ok)
   GET  /compile/{id}/synctex    -> source-line -> page/x/y map, plus the box tree
   GET  /compile/{id}/bbl        -> raw .bbl text (404 when there is none)
+  GET  /compile/{id}/aux        -> raw .aux text, \newlabel numbering (404 when none)
   GET  /compile/{id}/pages      -> {available, tool, count, pages, ySemantics}
   GET  /compile/{id}/page/{n}.png?dpi= -> one page rasterized by poppler
   DELETE /compile/{id}          -> cancel a running compile
@@ -788,6 +789,25 @@ async def compile_bbl(job_id: str) -> Response:
             detail=f"no bibliography for job {job_id}")
     return Response(
         content=path.read_text(encoding="utf-8"),
+        media_type="text/plain; charset=utf-8")
+
+
+@app.get("/compile/{job_id}/aux")
+async def compile_aux(job_id: str) -> Response:
+    """The raw .aux this compile wrote — every \\newlabel, which is LaTeX's
+    own answer for what \\ref, \\pageref, \\autoref and \\cref print. Root
+    plus any \\@input'd chapter auxes, concatenated (texcompile.aux_text);
+    404 when the engine wrote none, which the client treats as "numbers stay
+    provisional", never as an error. A dumb file read, like /bbl: the parser
+    lives on the client, in one place."""
+    job = _job_or_404(job_id)
+    text = job.aux_text()
+    if text is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"no .aux for job {job_id}")
+    return Response(
+        content=text,
         media_type="text/plain; charset=utf-8")
 
 

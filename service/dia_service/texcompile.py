@@ -1199,6 +1199,83 @@ def write_assets(workdir: Path, assets: dict[str, str]) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# the .aux — the engine's own numbering
+# ---------------------------------------------------------------------------
+#
+# main.aux is where LaTeX writes what it actually numbered:
+#
+#   \newlabel{sec:app}{{A}{1}}                       (no hyperref)
+#   \newlabel{sec:app}{{A}{1}{Appendix}{appendix.A}{}}  (hyperref)
+#
+# — the resolved number, then the PAGE, then (with hyperref) the title and
+# the anchor whose prefix names the label's kind. That is the answer to
+# \ref, \pageref and \autoref, and no counter model on the client can
+# reproduce it: \renewcommand{\thesection}, \setcounter, \appendix and
+# \section* all change the printed number without changing the structure
+# the client can see. The client parses it; this side only reads files,
+# exactly like the .bbl endpoint, so the parser (and its tests) lives in
+# one place.
+#
+# \input'd chapters write their \newlabel into the ROOT aux (verified on
+# corpus/tex/multifile: one main.aux, every chapter's labels in it), but
+# \include'd ones do NOT — measured on a report with \include{chapters/one},
+# the root aux held only `\@input{chapters/one.aux}` and the chapter's
+# labels lived in that separate file. Following \@input here keeps the
+# client's parser a single-text parser for both shapes.
+
+# `\@input{chapters/one.aux}` — the only directive in an aux this cares about
+_AUX_INPUT_RE = re.compile(r"\\@input\{([^{}]*)\}")
+# A cap, not a correctness rule: a runaway or self-referential \@input chain
+# must cost a numbering, never a hung request. Real documents \include on the
+# order of tens of chapters.
+_AUX_MAX_FILES = 200
+
+
+def aux_text(workdir: Path, root: str = "main.aux") -> str | None:
+    """The root .aux and every .aux it \\@input's, concatenated in the order
+    LaTeX would have read them. None when the root does not exist — a
+    compile that failed before the engine wrote one, or a tectonic run
+    without --keep-intermediates (see engine_argv).
+
+    Paths are resolved inside `workdir` and refused outside it: an .aux is
+    engine output, but it is output shaped by the document, and the document
+    is untrusted text."""
+    base = workdir.resolve()
+    root_path = base / root
+    if not root_path.is_file():
+        return None
+    seen: set[Path] = set()
+    parts: list[str] = []
+
+    def visit(path: Path) -> None:
+        if len(seen) >= _AUX_MAX_FILES:
+            return
+        try:
+            resolved = path.resolve()
+        except OSError:
+            return
+        if resolved in seen:
+            return
+        if resolved != base and base not in resolved.parents:
+            return
+        if not resolved.is_file():
+            return
+        seen.add(resolved)
+        try:
+            text = resolved.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return
+        parts.append(text)
+        for m in _AUX_INPUT_RE.finditer(text):
+            name = m.group(1).strip()
+            if name:
+                visit(base / name)
+
+    visit(root_path)
+    return "".join(parts) if parts else None
+
+
+# ---------------------------------------------------------------------------
 # engine argv
 # ---------------------------------------------------------------------------
 
@@ -1209,8 +1286,23 @@ def engine_argv(engine: str, path: str, source: str = "main.tex") -> list[str]:
     if engine == "tectonic":
         # -X selects the v2 CLI; --keep-logs is what makes parse_log possible
         # (tectonic otherwise discards main.log on success).
+        #
+        # --keep-intermediates is what makes main.aux exist. Measured on the
+        # managed tectonic 0.15.0: without it a compile ends with "Skipped
+        # writing 1 intermediate files" and NO main.aux, which is the file
+        # holding every \newlabel — the engine's own answer for what \ref,
+        # \pageref, \autoref and \cref print. It also restores main.bbl:
+        # tectonic counts that as an intermediate too, so before this flag
+        # /compile/{id}/bbl 404'd for every document whose bibliography came
+        # from a real bibtex run (only an arXiv bundle's adopted diarefs.bbl,
+        # a source file, survived). The cost is a handful of small text files
+        # (.aux/.bbl/.out/.toc — 2.4 KiB of .aux on corpus/tex/multifile) in
+        # a per-job temp workdir that cleanup() rmtree's whole, and nothing
+        # reads these paths expecting them to be absent: _adopt_precompiled_
+        # bbl's "is there a main.bbl?" check runs at workdir-prep time, one
+        # fresh mkdtemp before the engine has run at all.
         return [path, "-X", "compile", "--synctex", "--keep-logs",
-                "--outdir", ".", source]
+                "--keep-intermediates", "--outdir", ".", source]
     if engine == "latexmk":
         return [path, "-pdf", "-synctex=1", "-interaction=nonstopmode",
                 "-file-line-error", "-output-directory=.", source]
@@ -1408,6 +1500,13 @@ class CompileJob:
             if p.is_file():
                 return p
         return None
+
+    def aux_text(self) -> str | None:
+        """This compile's .aux text (root plus any \\@input'd chapter auxes),
+        or None when the engine wrote none. Read fresh rather than cached:
+        the job's artifacts are read long after `run` returns, and a stale
+        number presented as current is worse than a provisional one."""
+        return aux_text(self.workdir)
 
     def _source_text(self) -> str:
         """The workdir's main.tex — the adapted copy (see

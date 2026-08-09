@@ -66,7 +66,8 @@ def test_raw_engines_run_twice_and_tectonic_once(engine):
 
 def test_argv_per_engine():
     assert texcompile.engine_argv("tectonic", "/e") == [
-        "/e", "-X", "compile", "--synctex", "--keep-logs", "--outdir", ".", "main.tex"]
+        "/e", "-X", "compile", "--synctex", "--keep-logs", "--keep-intermediates",
+        "--outdir", ".", "main.tex"]
     assert texcompile.engine_argv("latexmk", "/e") == [
         "/e", "-pdf", "-synctex=1", "-interaction=nonstopmode", "-file-line-error",
         "-output-directory=.", "main.tex"]
@@ -76,6 +77,15 @@ def test_argv_per_engine():
             "main.tex"]
     with pytest.raises(texcompile.CompileError):
         texcompile.engine_argv("luatex-but-we-never-said-so", "/e")
+
+
+def test_tectonic_keeps_intermediates_so_the_aux_exists():
+    """The flag that makes GET /compile/{id}/aux possible at all. Measured
+    on the managed tectonic 0.15.0: without --keep-intermediates the run
+    reports "Skipped writing 1 intermediate files" and no main.aux is
+    written, so every \\newlabel the engine resolved is thrown away. Pinned
+    on its own because the reason is not visible from the argv."""
+    assert "--keep-intermediates" in texcompile.engine_argv("tectonic", "/e")
 
 
 def test_events_tell_the_whole_story(engine):
