@@ -374,6 +374,35 @@ describe('a chapter the view does not hold', () => {
     expect(row?.getAttribute('title')).toContain('does not splice')
   })
 
+  /* An empty body has zero bindings in the ROOT source, exactly like an
+   * unspliced chapter — and a brand-new document is now a first-class flow,
+   * so "typo in the preamble, first compile" is a real first run. The root
+   * must not be told it is \input from somewhere: it is the file on screen.
+   * Every spelling the daemon can use for it resolves to the same DocSource,
+   * which is what makes the identity check in declineReason sufficient. */
+  const EMPTY_BODY = '\\documentclass{article}\n\\begin{document}\n\\end{document}\n'
+
+  it.each([null, 'main.tex', './main.tex', 'untitled.tex'])(
+    'an empty document declines with the truthful reason, not the chapter one (file: %s)',
+    async (file) => {
+      const main = document.createElement('div')
+      document.body.append(main)
+      mountProblems(main)
+      stubFailingService([{ level: 'error', file, line: 2, message: 'boom' }])
+      const host = document.createElement('div')
+      document.body.appendChild(host)
+      const doc = loadDocFromTex(EMPTY_BODY, host, 'untitled.tex')
+      // the precondition that makes this test worth having
+      expect(doc.source.snapshotBindings().size).toBe(0)
+      state.doc = doc
+      await compileNow(doc)
+
+      const row = main.querySelector('.de-prob-row')
+      expect(row?.classList.contains('is-flat')).toBe(true)
+      expect(row?.getAttribute('title')).toContain('nothing in the view covers line 2')
+      expect(row?.getAttribute('title')).not.toContain('does not splice')
+    })
+
   it('a line that lands in no block at all declines too, in any document', async () => {
     const main = document.createElement('div')
     document.body.append(main)
