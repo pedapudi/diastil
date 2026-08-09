@@ -480,39 +480,64 @@ function parseList(cur: Cursor, open: number, close: number, env: 'itemize' | 'e
 }
 
 function parseFloatEnv(cur: Cursor, open: number, close: number, env: 'figure' | 'table', starred: boolean, span: Span): LxBlock {
-  let caption: LxInline[] | undefined
-  let label: string | undefined
-  const graphics: LxGraphic[] = []
-  const body: LxBlock[] = []
-
+  const sink: FloatSink = { graphics: [], body: [] }
   let i = open + 1
   const placement = matchBracketGroup(cur, i, close)
   if (placement) i = placement.close + 1
+  scanFloatLevel(cur, i, close, sink, true, 0)
+  return { kind: 'float', span, env, starred, caption: sink.caption, label: sink.label, graphics: sink.graphics, body: sink.body }
+}
 
-  while (i < close) {
+interface FloatSink { caption?: LxInline[]; label?: string; graphics: LxGraphic[]; body: LxBlock[] }
+
+/** how deep a chain of nested brace groups the float scanner will follow.
+ * Real floats bottom out at two or three ({\small \resizebox{w}{h}{…}}); the
+ * limit is only there so a pathological source cannot recurse unboundedly. */
+const FLOAT_GROUP_DEPTH = 6
+
+/** Scan a float's interior for its caption, label, graphics and body blocks.
+ *
+ * Recurses into a depth-0 brace group ONLY when the group carries positive
+ * evidence of content — a \begin{…} or an \includegraphics somewhere inside
+ * it. Skipping every group wholesale (what this did before) made real tables
+ * invisible: llama/palm/palm2 wrap the tabular in a bare `{ … }`, and
+ * bloom/flan/palm2 wrap it in \resizebox{w}{h}{…}. Descending into every
+ * group instead would parse a pgfplots/keyval OPTIONS group, or a layout
+ * command's own argument (\setlength{\tabcolsep}{4pt}), as body — so the
+ * evidence test is the whole discrimination, and it also gets the boxes for
+ * free: \resizebox's {width} and {height} and \scalebox's {factor} hold no
+ * environment and no graphic, so only the LAST argument is ever descended.
+ *
+ * `top` is false inside any descended group, and that is what keeps a nested
+ * \caption (a \subfigure's, an inner box's) from being hoisted onto the outer
+ * float — it belongs to whatever construct encloses it, so below float level
+ * a \caption is left exactly where it was written. */
+function scanFloatLevel(cur: Cursor, lo: number, hi: number, sink: FloatSink, top: boolean, depth: number): void {
+  let i = lo
+  while (i < hi) {
     const t = cur.toks[i]
     if (t.kind === 'envbegin') {
-      const envClose = findEnvEnd(cur.toks, i, close, t.name)
-      if (envClose < 0) { i = close; break }
-      body.push(parseEnv(cur, i, envClose, t.name))
+      const envClose = findEnvEnd(cur.toks, i, hi, t.name)
+      if (envClose < 0) break
+      sink.body.push(parseEnv(cur, i, envClose, t.name))
       i = envClose + 1
       continue
     }
     if (t.kind === 'cs') {
-      if (t.name === 'caption') {
-        const b = matchBracketGroup(cur, i + 1, close)
-        const g = matchBraceGroup(cur, b ? b.close + 1 : i + 1, close)
-        if (g) { caption = parseInline(cur, g.lo, g.hi); i = g.close + 1; continue }
+      if (top && t.name === 'caption') {
+        const b = matchBracketGroup(cur, i + 1, hi)
+        const g = matchBraceGroup(cur, b ? b.close + 1 : i + 1, hi)
+        if (g) { sink.caption = parseInline(cur, g.lo, g.hi); i = g.close + 1; continue }
       }
-      if (t.name === 'label') {
-        const g = matchBraceGroup(cur, i + 1, close)
-        if (g) { label = groupText(cur, g); i = g.close + 1; continue }
+      if (top && t.name === 'label') {
+        const g = matchBraceGroup(cur, i + 1, hi)
+        if (g) { sink.label = groupText(cur, g); i = g.close + 1; continue }
       }
       if (t.name === 'includegraphics') {
-        const b = matchBracketGroup(cur, i + 1, close)
-        const g = matchBraceGroup(cur, b ? b.close + 1 : i + 1, close)
+        const b = matchBracketGroup(cur, i + 1, hi)
+        const g = matchBraceGroup(cur, b ? b.close + 1 : i + 1, hi)
         if (g) {
-          graphics.push({
+          sink.graphics.push({
             span: { start: t.span.start, end: cur.toks[g.close].span.end },
             path: groupText(cur, g).trim(),
             opts: b ? groupText(cur, b) : undefined,
@@ -523,14 +548,30 @@ function parseFloatEnv(cur: Cursor, open: number, close: number, env: 'figure' |
       }
     }
     if (t.kind === 'open') {
-      // skip a balanced group so nested commands aren't misread as float-level
-      const g = matchGroupFrom(cur, i, close)
-      i = g ? g.close + 1 : i + 1
+      const g = matchGroupFrom(cur, i, hi)
+      if (!g) { i++; continue }
+      if (depth < FLOAT_GROUP_DEPTH && groupHoldsContent(cur, g)) {
+        scanFloatLevel(cur, g.lo, g.hi, sink, false, depth + 1)
+      }
+      i = g.close + 1
       continue
     }
     i++
   }
-  return { kind: 'float', span, env, starred, caption, label, graphics, body }
+}
+
+/** does this group hold something that sets content the float should show?
+ * A \begin{…} of ANY environment counts, recognized or not: an unknown one
+ * parses to an island carrying its real source, which is this parser's
+ * honest fallback everywhere else and beats the content vanishing. Key/value
+ * option groups and dimension arguments contain neither. */
+function groupHoldsContent(cur: Cursor, g: Group): boolean {
+  for (let i = g.lo; i < g.hi; i++) {
+    const t = cur.toks[i]
+    if (t.kind === 'envbegin') return true
+    if (t.kind === 'cs' && t.name === 'includegraphics') return true
+  }
+  return false
 }
 
 function parseTabular(cur: Cursor, open: number, close: number, span: Span): LxBlock {
