@@ -274,6 +274,21 @@ describe('round trip', () => {
     expect(again.article.querySelector('.dia-input-unreached')).toBeNull()
   })
 
+  it('drops a smuggled path out of a hostile artifact', () => {
+    // an artifact is just HTML the user may have been handed. Its `files`
+    // keys become write targets on save, so they run through the same
+    // resolveInputPath rejections an \input argument does — and the daemon
+    // checks again on the way to disk.
+    const doc = mount(MAIN, {
+      '../../evil.tex': 'pwn',
+      '/etc/passwd': 'pwn',
+      'chapters/../../out.tex': 'pwn',
+      'chapters/intro.tex': INTRO,
+    })
+    expect(doc.project.includedPaths()).toEqual(['chapters/intro.tex'])
+    expect(exportTexFiles(doc).map((f) => f.path)).toEqual(['main.tex', 'chapters/intro.tex'])
+  })
+
   it('a single-file artifact carries no files key at all', () => {
     const html = serializeDoc(mount('\\documentclass{article}\n\\begin{document}\nHi.\n\\end{document}\n'))
     expect(html).not.toContain('"files"')

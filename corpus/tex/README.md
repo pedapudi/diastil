@@ -46,3 +46,22 @@ environments, overlays). They hold the same ratchets as the arXiv six.
 | beamer/ | beamer | frames, overlays (`\pause`, `\onslide`, `\item<n->`), `\section` nav markup |
 | biblatex/ | biblatex (backend=bibtex) | `\printbibliography`, `\autocite`/`\parencite`/`\textcite` incl. sentence-case |
 | theorems/ | amsthm, amsmath | theorem/lemma/proof environments, numbered display math, `align`/`cases` |
+| multifile/ | article + `\input` chapters | a main file, three `\input{chapters/…}` files, a shared `refs.bib` |
+
+## Why multifile/ is NOT flattened
+
+Every fixture above is a single file — the arXiv six were flattened on the
+way in, and the four authored ones were written that way. That is what hid
+the gap multifile/ exists to hold open: diastil could only open single-file
+documents, and the ratchet read green the whole time.
+
+It still would. Parse `multifile/multifile.tex` alone and its island ratio
+is **0.000** with all three chapters unopened, because `\input{chapters/intro}`
+parses as a paragraph holding an island *inline*, not an island block. A
+block-level floor cannot see a decapitated document.
+
+So this fixture carries a different assertion, in `corpus.test.ts`: every
+`\input` a fixture names must resolve to a file that is really there and
+that holds the same span invariants a main file does. Keep multifile/ as a
+real directory tree — flattening it would delete the only test in the
+corpus that can fail when multi-file support breaks.
