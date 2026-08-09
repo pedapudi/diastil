@@ -534,3 +534,49 @@ describe('the folder-grant offer in the drawer', () => {
     expect(fetchMock).toHaveBeenCalled()
   })
 })
+
+/* ---------- a document with nothing in it yet ---------- */
+
+/* The unspliced-\input decline reads a source that resolved but bound no
+ * blocks. A document with an EMPTY BODY has exactly that shape for its OWN
+ * main file — measured: `\documentclass…\begin{document}\end{document}`
+ * leaves doc.source with zero bindings — so a reason keyed on the binding
+ * count alone would tell someone their main file is "\input from somewhere
+ * the editor does not splice", about the file open in front of them.
+ *
+ * It does not, because the guard is object identity against doc.source
+ * rather than a count. That is worth pinning: `dia new --doc` and the
+ * editor's own "new document" make an empty body a first-class starting
+ * point, so new doc -> preamble typo -> first compile is plausibly the first
+ * message this feature ever shows anyone. A refactor to a path comparison
+ * would regress it silently. */
+describe('an empty-bodied document is not mistaken for an unspliced input', () => {
+  afterEach(() => { vi.unstubAllGlobals(); resetCompileState(); state.doc = null })
+
+  const EMPTY = '\\documentclass{article}\n\\usepackage{nope}\n\\begin{document}\n\\end{document}\n'
+
+  it('names the gap, not a splice the document never had', async () => {
+    const main = document.createElement('div')
+    document.body.append(main)
+    mountProblems(main)
+    stubFailingService([{
+      level: 'error', file: 'main.tex', line: 2, message: 'File `nope.sty\' not found.',
+    }])
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const doc = loadDocFromTex(EMPTY, host, 'paper.tex')
+    state.doc = doc
+    await compileNow(doc)
+
+    const row = main.querySelector('.de-prob-row') as HTMLElement
+    // the finding is still reported and still named — only the jump declines
+    expect(row.textContent).toContain('nope.sty')
+    expect(row.classList.contains('is-flat')).toBe(true)
+    expect(row.getAttribute('title')).toBe('nothing in the view covers line 2 of main.tex')
+    expect(row.getAttribute('title')).not.toContain('does not splice')
+    // and the main source really does have the shape that would fool a
+    // count-based rule
+    expect(doc.source.snapshotBindings().size).toBe(0)
+    expect(doc.project.sourceOfCompilePath('main.tex')).toBe(doc.source)
+  })
+})
