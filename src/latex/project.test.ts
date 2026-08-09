@@ -189,6 +189,47 @@ describe('fileOfCompilePath', () => {
   })
 })
 
+/* ---------- the root source is ONE object ---------- */
+
+describe('root DocSource identity', () => {
+  /* `doc.source` and the project's main file must be the SAME object, not
+   * equal copies. Nothing enforces it but mountDoc handing one DocSource to
+   * both, and the cost of losing it is silent: a main-file block edit routes
+   * through project.sourceOfId -> sourceOfPath(mainPath), while exportTex
+   * and serializeDoc read doc.source.text. Two objects means the edit
+   * patches one and the save reads the other — measured, with the project
+   * stubbed to return a copy: the copy took the edit, the export still said
+   * "The original paragraph." Every main-file edit gone from the saved
+   * file, no error anywhere.
+   *
+   * Asserted here rather than left to convention because the tempting
+   * refactors (a defensive copy, a per-call view, a wrapper that adds
+   * bookkeeping) all look harmless at the call site. */
+
+  it('is the object doc.source is, under every spelling of the root', () => {
+    const doc = mount(MAIN, FILES, 'thesis.tex')
+    expect(doc.project.sourceOfPath(doc.project.mainPath)).toBe(doc.source)
+    for (const spelling of ['main.tex', './main.tex', 'thesis.tex', './thesis.tex']) {
+      expect(doc.project.sourceOfCompilePath(spelling), spelling).toBe(doc.source)
+    }
+  })
+
+  it('and an included file is never that object', () => {
+    const doc = mount(MAIN, FILES, 'thesis.tex')
+    const chapter = doc.project.sourceOfCompilePath('chapters/intro.tex')
+    expect(chapter).not.toBeNull()
+    expect(chapter).not.toBe(doc.source)
+  })
+
+  it('a main-file edit therefore reaches the export', () => {
+    const doc = mount(MAIN, FILES, 'thesis.tex')
+    const p = [...doc.article.querySelectorAll('p')]
+      .find((el) => (el.textContent ?? '').includes('The end.'))!
+    commitDocEdit(doc, p, [setInlineHtml(p, 'A new ending.')], 'Edit text')
+    expect(exportTex(doc)).toContain('A new ending.')
+  })
+})
+
 /* ---------- the offline degrade ---------- */
 
 describe('an \\input that cannot be read', () => {
