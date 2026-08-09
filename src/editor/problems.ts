@@ -235,6 +235,15 @@ function declineReason(doc: Doc | null, f: TexError): string {
   // prevent. So the compile is right, the resolver is right, and there is
   // simply no block here. Verified against a real nested \input: the
   // resolved DocSource carries the chapter's exact text and zero bindings.
+  //
+  // The identity check against doc.source is what keeps this off the ROOT,
+  // which has zero bindings too whenever the body is empty — a brand-new
+  // document, which is now a first-class flow. "It is \input from
+  // somewhere" is nonsense about the file the user is looking at, and the
+  // root reaches the same decline through the truthful sentence below.
+  // sourceOfCompilePath returns the very same DocSource for the root under
+  // every spelling of it (`main.tex`, `./main.tex`, the user's own name),
+  // so identity is the whole test.
   if (f.file !== null && source !== doc?.source && source.snapshotBindings().size === 0) {
     return `${f.file} is part of this document, but it is \\input from somewhere the editor does not splice (inside an environment, or the preamble) — open that file itself to edit it`
   }
