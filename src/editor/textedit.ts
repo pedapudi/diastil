@@ -9,7 +9,7 @@ import { state } from '../state'
 import { batch, insertEl, neighbourBlock, setAttr, setInlineHtml } from '../model/ops'
 import { renderTex } from './math'
 import { mathToMathml } from '../latex/render'
-import { commitDocEdit, joinDocBlocks, removeDocBlock, splitDocBlock, topBlockOf } from '../doc/sync'
+import { commitDocEdit, insertDocBlock, joinDocBlocks, removeDocBlock, splitDocBlock, topBlockOf } from '../doc/sync'
 import { showToast as showEditToast } from '../scene/overlay'
 
 const ROLE_SELECTOR = '.dia-title, .dia-kicker, .dia-body, .dia-caption'
@@ -195,6 +195,22 @@ export function insertTextOnSlide(slide: HTMLElement): HTMLElement {
   state.apply(insertEl(slide, index, el, 'Insert text'))
   state.selection = { kind: 'element', el, slide }
   startEdit(el)
+  return el
+}
+
+/** insert a document block after `block` and open it for typing — the doc
+ * twin of insertTextOnSlide, placeholder text and all */
+export function insertDocBlockAfter(doc: Doc, block: HTMLElement, kind: 'paragraph' | 'section'): HTMLElement | null {
+  const el = insertDocBlock(
+    doc,
+    kind === 'section' ? '\\section{New section}' : 'New paragraph',
+    block, 'after',
+    kind === 'section' ? 'Insert section' : 'Insert paragraph',
+  )
+  if (!el) return null
+  state.selection = { kind: 'block', block: el }
+  const leaf = docEditableFor(doc.article, el)
+  if (leaf) startEdit(leaf)
   return el
 }
 
