@@ -27,6 +27,32 @@ the new floors it prints. To lower a floor: don't — unless a deliberate
 parser change makes structure honestly coarser, in which case lower it in
 the same commit with a comment saying why.
 
+## The two island ratchets
+
+Each fixture holds two ceilings, and they measure different things:
+
+- `ISLAND_CEILINGS` / `islandRatio` — top-level body blocks only. This is the
+  document's **spine**: did the parser find the sections, paragraphs, floats
+  and lists that hang off `\begin{document}`?
+- `RAW_TEX_CEILINGS` / `rawTexRatio` — the **whole tree**, including islands
+  nested inside a wrapper, float or list item, and islands inline inside a
+  paragraph, minus the ones `render.ts` renders quiet (`setsNoType`
+  furniture) or expanded (a known text macro). This is what a reader
+  actually sees as raw mono TeX.
+
+The second exists because the first is blind by construction, and the blind
+spot is where most islanding lives. Measured 2026-08-09: `beamer/` scores
+0.000 on the spine metric while 36% of the deck sits in islanded
+`columns`/`block`/`alertblock` environments one level down, and `cot/` scores
+0.000 while 24% is tikzpicture inside floats and another 11% is prose
+swallowed by inline `\hl{...}` islands. A parser change that turned half of
+every paragraph into inline islands would not move the spine number at all.
+
+Both only move DOWN. When a change improves coverage, re-measure and commit
+the tighter ceilings with a dated comment saying what was measured — the
+entries in `corpus.test.ts` show the expected form. A number that must move
+UP is a regression to explain, not a baseline to update.
+
 ## Authored fixtures (document-family breadth)
 
 The six papers above are all article-class, mostly two-column conference
@@ -55,10 +81,12 @@ way in, and the four authored ones were written that way. That is what hid
 the gap multifile/ exists to hold open: diastil could only open single-file
 documents, and the ratchet read green the whole time.
 
-It still would. Parse `multifile/multifile.tex` alone and its island ratio
-is **0.000** with all three chapters unopened, because `\input{chapters/intro}`
-parses as a paragraph holding an island *inline*, not an island block. A
-block-level floor cannot see a decapitated document.
+It still would. Parse `multifile/multifile.tex` alone and its spine island
+ratio is **0.000** with all three chapters unopened, because
+`\input{chapters/intro}` parses as a paragraph holding an island *inline*,
+not an island block. A block-level floor cannot see a decapitated document.
+(`rawTexRatio` does see those three `\input` islands — but it sees them
+whether the chapters resolve or not, so it is not the guard either.)
 
 So this fixture carries a different assertion, in `corpus.test.ts`: every
 `\input` a fixture names must resolve to a file that is really there and
