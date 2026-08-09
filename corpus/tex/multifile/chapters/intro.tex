@@ -1,0 +1,32 @@
+\section{Introduction}
+\label{sec:intro}
+
+A streaming hash join keeps one side of the join resident as a partitioned
+hash table and probes it with batches arriving from the other side. The
+textbook cost model counts comparisons, which suggests that the operator's
+throughput should be flat in the number of partitions. Measured on real
+hardware it is not: throughput falls by more than a factor of two once the
+resident side outgrows the last-level cache, and the fall is entirely
+attributable to partitions being evicted between the probes that need
+them~\cite{balkesen2013}.
+
+The scheduler is free to choose the order in which buffered probe batches
+are dispatched. A partition-oblivious scheduler dispatches in arrival
+order, which interleaves partitions arbitrarily and evicts each one
+shortly before it is needed again. We show that a scheduler which groups
+buffered batches by target partition, and dispatches whole groups,
+recovers most of that loss.
+
+Our contributions are:
+
+\begin{itemize}
+\item A residency model that predicts, from partition sizes and the
+  buffered batch mix alone, how much reordering can recover
+  (Section~\ref{sec:method}).
+\item A scheduler that applies the model online, with a bounded buffer
+  and no change to output order.
+\item An evaluation on three join workloads showing a
+  \(1.7\times\) mean throughput gain (Section~\ref{sec:results}).
+\end{itemize}
+
+The rest of this paper is organized around those three pieces.

@@ -546,7 +546,10 @@ def _safe_asset_path(workdir: Path, name: str) -> Path:
     root = workdir.resolve()
     if root != target and root not in target.parents:
         raise AssetError(f"asset path escapes the work directory: {name!r}")
-    if target.name in {"main.tex"}:
+    # the workdir's OWN main.tex is the document being compiled; a
+    # `chapters/main.tex` is just a file a multi-file project may honestly
+    # have, and refusing it by bare name refused a real project's chapter
+    if target == root / "main.tex":
         raise AssetError("asset may not overwrite main.tex")
     return target
 
@@ -571,32 +574,62 @@ def _adapt_source_for_engine(tex_source: str, engine: str) -> str:
     )
 
 
-def _link_support_files(workdir: Path, source_dir: Path) -> None:
-    """Symlink the opened document's sibling files (styles, classes,
-    figures…) into the workdir. TEXINPUTS alone is not enough: tectonic has
-    no kpathsea and resolves relative inputs against the CURRENT directory
-    only, so the support files must appear to live beside main.tex. Links
-    are read-only by construction — the engine writes its outputs into the
-    workdir, and a symlinked source file is never an output target. Existing
-    workdir entries (main.tex, client-sent assets) always win."""
+# How far below the opened document's directory the workdir mirror goes.
+# `\input{chapters/intro}` is one level, `\input{parts/two/intro}` two;
+# past that a document is no longer describing a project layout, and an
+# unbounded walk of whatever directory the user happened to open is not
+# something the compile needs. Matches MAX_GRANT_DEPTH on the client, which
+# bounds the same reach through the browser's folder grant.
+MAX_LINK_DEPTH = 3
+
+
+def _link_support_files(workdir: Path, source_dir: Path, depth: int = 0) -> None:
+    """Mirror the opened document's sibling files (styles, classes, figures,
+    and the \\input'd chapters) into the workdir. TEXINPUTS alone is not
+    enough: tectonic has no kpathsea and resolves relative inputs against
+    the CURRENT directory only, so the support files must appear to live
+    beside main.tex. Links are read-only by construction — the engine writes
+    its outputs into the workdir, and a symlinked source file is never an
+    output target. Existing workdir entries (main.tex, client-sent assets)
+    always win.
+
+    SUBDIRECTORIES ARE MIRRORED, not skipped: a multi-file document keeps
+    its chapters in one, and skipping them meant a CLI-opened thesis failed
+    on `File 'chapters/intro.tex' not found` no matter what TEXINPUTS said.
+    They are mirrored as real directories walked FILE BY FILE, never
+    symlinked whole — a symlinked directory hands the engine everything
+    below it in one move and makes MAX_LINK_DEPTH a suggestion instead of a
+    bound. Walking also merges: a subdirectory the client already populated
+    (its edited chapters landed there as assets) keeps those copies and only
+    gains what it lacked, because compiling the bytes on disk when the user
+    has edited them is compiling a document nobody is looking at."""
     try:
         entries = list(source_dir.iterdir())
     except OSError:
         return
     for entry in entries:
         target = workdir / entry.name
+        if entry.is_dir():
+            if depth + 1 >= MAX_LINK_DEPTH:
+                continue
+            try:
+                target.mkdir(exist_ok=True)
+            except OSError:
+                continue
+            _link_support_files(target, entry, depth + 1)
+            continue
         if target.exists() or target.is_symlink():
             continue
         try:
             target.symlink_to(entry.resolve())
         except OSError:
-            # filesystems without symlinks: copy small files, skip dirs
-            if entry.is_file():
-                try:
-                    shutil.copy2(entry, target)
-                except OSError:
-                    pass
-    _adopt_precompiled_bbl(workdir, entries)
+            # filesystems without symlinks: copy the file
+            try:
+                shutil.copy2(entry, target)
+            except OSError:
+                pass
+    if depth == 0:
+        _adopt_precompiled_bbl(workdir, entries)
 
 
 def _adopt_precompiled_bbl(workdir: Path, entries: list[Path]) -> None:

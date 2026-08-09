@@ -8,7 +8,8 @@ import type { Deck } from '../types'
 import { state } from '../state'
 import { loadDeck } from '../model/parse'
 import { serializeDeck } from '../model/serialize'
-import { loadDoc, loadDocFromTex, serializeDoc, exportTex, type Doc } from '../model/doc'
+import { loadDoc, loadDocFromTex, serializeDoc, exportTex, exportTexFiles, type Doc } from '../model/doc'
+import { readProjectFiles } from '../latex/project'
 import { clearPreview } from '../copilot/preview'
 import { closeStudio } from '../studio/studio'
 import { closeSlideFocus } from '../studio/focus'
@@ -156,7 +157,7 @@ export async function bootFromCli(canvasHost: HTMLElement): Promise<boolean> {
     servicePath = path
     serviceMtime = file.mtime
     lastSyncedHtml = file.html
-    loadDocument('tex', file.html, canvasHost, name)
+    loadDocument('tex', file.html, canvasHost, name, await readProjectFromService(path, file.html))
     startWatch(canvasHost)
     return true
   }
@@ -183,6 +184,55 @@ export async function bootFromCli(canvasHost: HTMLElement): Promise<boolean> {
   return true
 }
 
+/** Read a CLI-opened document's \input'd chapters through the daemon.
+ *
+ * Best effort by design: a chapter that will not read is left out, and the
+ * document opens with that \input still an island saying what it could not
+ * reach. The daemon decides what is readable (main file on the CLI's
+ * allowlist, path relative to it, .tex only) — this side only asks for the
+ * paths the source itself names. */
+async function readProjectFromService(mainPath: string, mainText: string): Promise<Record<string, string>> {
+  return readProjectFiles(mainText, async (rel) => {
+    try {
+      const r = await fetch(
+        `${SERVICE_BASE}/project/file?main=${encodeURIComponent(mainPath)}&path=${encodeURIComponent(rel)}`)
+      if (!r.ok) return null
+      return (await r.json() as { tex?: string }).tex ?? null
+    } catch {
+      return null // no daemon: the document opens anyway, visibly incomplete
+    }
+  })
+}
+
+/** Write back the project files whose bytes actually changed.
+ *
+ * Returns the paths that would NOT write. A chapter edit that shows on
+ * screen and never reaches disk is the worst failure this feature can
+ * have, so the caller says so out loud rather than reporting a clean save.
+ * Files the user did not touch are not rewritten at all. */
+async function saveProjectFiles(doc: Doc, mainPath: string): Promise<string[]> {
+  const changed = doc.project.changedPaths()
+  const failed: string[] = []
+  const written: string[] = []
+  for (const path of changed) {
+    const source = doc.project.sourceOfPath(path)
+    if (!source) { failed.push(path); continue }
+    try {
+      const r = await fetch(`${SERVICE_BASE}/project/file`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ main: mainPath, path, tex: source.text }),
+      })
+      if (r.ok) written.push(path)
+      else failed.push(path)
+    } catch {
+      failed.push(path)
+    }
+  }
+  doc.project.markSaved(written)
+  return failed
+}
+
 function startWatch(canvasHost: HTMLElement): void {
   window.clearInterval(watchTimer)
   watchTimer = window.setInterval(() => void pollDisk(canvasHost), 2000)
@@ -203,7 +253,8 @@ async function pollDisk(canvasHost: HTMLElement): Promise<void> {
   lastSyncedHtml = file.html
   if (state.doc) {
     const isTex = /\.tex$/i.test(servicePath)
-    loadDocument(isTex ? 'tex' : 'html', file.html, canvasHost, isTex ? state.doc.texName : state.doc.fileName)
+    const files = isTex ? await readProjectFromService(servicePath, file.html) : {}
+    loadDocument(isTex ? 'tex' : 'html', file.html, canvasHost, isTex ? state.doc.texName : state.doc.fileName, files)
     return
   }
   const deck = loadDeck(file.html, canvasHost, state.deck!.fileName)
@@ -264,11 +315,20 @@ export function openDocumentText(text: string, name: string): void {
   loadDocument(looksLikeTex(text, name) ? 'tex' : 'html', text, host, name)
 }
 
-/** load a document (from artifact html or bare .tex) into the editor */
-function loadDocument(kind: 'html' | 'tex', text: string, canvasHost: HTMLElement, name: string): void {
+/** load a document (from artifact html or bare .tex) into the editor.
+ * `files` carries a multi-file project's \input'd chapters when the caller
+ * could read them; without it the document still opens and every \input it
+ * cannot reach says so (latex/project.ts). */
+function loadDocument(
+  kind: 'html' | 'tex',
+  text: string,
+  canvasHost: HTMLElement,
+  name: string,
+  files: Record<string, string> = {},
+): void {
   setImportReport(null)
   const doc = kind === 'tex'
-    ? loadDocFromTex(text, canvasHost, name)
+    ? loadDocFromTex(text, canvasHost, name, files)
     : loadDoc(text, canvasHost, name)
   state.deck = null
   state.doc = doc
@@ -398,6 +458,17 @@ export async function saveDoc(doc: Doc): Promise<void> {
         const j = await r.json() as { mtime: number }
         serviceMtime = j.mtime
         lastSyncedHtml = payload
+        // the main file is only part of a multi-file document; its edited
+        // chapters go back to their own files, and a chapter that will not
+        // write is said out loud — a save that silently keeps an edit only
+        // on screen is the one failure this must never have
+        if (isTexSession) {
+          const failed = await saveProjectFiles(doc, servicePath)
+          if (failed.length > 0) {
+            alert(`Saved ${doc.texName}, but could NOT write:\n${failed.join('\n')}\n\n` +
+              'Those edits are still in the editor. Export the .tex files before closing.')
+          }
+        }
         return
       }
     } catch {
@@ -417,10 +488,25 @@ export async function saveDoc(doc: Doc): Promise<void> {
   downloadBlob(payload, isTexSession ? doc.texName : doc.fileName, isTexSession ? 'text/x-tex' : 'text/html')
 }
 
-/** export the LaTeX source (with the comments trailer) as a download */
+/** export the LaTeX source (with the comments trailer) as a download.
+ *
+ * A multi-file project does not fit down this pipe: a browser download
+ * cannot recreate `chapters/` beside the file it drops in the download
+ * folder, and chapters exported under flattened names would be a project
+ * whose \input lines no longer resolve — worse than not exporting them.
+ * So the other files are NAMED rather than silently left behind; they are
+ * already whole in the saved .html artifact and, for a CLI session, on
+ * disk in their own files. */
 export function exportTexAction(): void {
   if (!state.doc) return
+  const files = exportTexFiles(state.doc)
   downloadBlob(exportTex(state.doc), state.doc.texName || 'document.tex', 'text/x-tex')
+  if (files.length > 1) {
+    alert(`Downloaded ${state.doc.texName} only.\n\n` +
+      `This document also \\inputs:\n${files.slice(1).map((f) => `  ${f.path}`).join('\n')}\n\n` +
+      'A download cannot recreate those folders. Use Save (which writes every ' +
+      'file back) or the .html artifact, which carries the whole project.')
+  }
 }
 
 /** open the readable artifact in a new tab — a document "presents" as

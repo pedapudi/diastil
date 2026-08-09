@@ -1,0 +1,35 @@
+\section{Results}
+\label{sec:results}
+
+We evaluate on three workloads: \textsc{tpch-q3}, a synthetic uniform
+join, and a skewed join with a Zipfian key distribution. All runs use a
+single core with a 32~MiB last-level cache, and all numbers are the median
+of eleven runs.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+Workload & Arrival order & Grouped & Gain \\
+\midrule
+\textsc{tpch-q3} & 1.00 & 1.71 & \(1.71\times\) \\
+Uniform & 1.00 & 1.66 & \(1.66\times\) \\
+Zipfian & 1.00 & 1.79 & \(1.79\times\) \\
+\bottomrule
+\end{tabular}
+\caption{Normalized throughput by workload, buffer \(n = 32\).}
+\label{tab:main}
+\end{table}
+
+The gain is largest on the skewed workload, which is the case the
+residency model predicts: a skewed key distribution concentrates probes
+on few partitions, so grouping keeps those partitions resident across
+many more batches than a uniform mix does.
+
+\subsection{Where the model is wrong}
+
+The model assumes a partition is either resident or absent. Real caches
+hold partial partitions, so the predicted miss rate is pessimistic by
+roughly four points across every workload we measured; the predicted
+\emph{ordering} of configurations was correct in every case, which is
+what the scheduler actually consumes~\cite{blanas2011}.

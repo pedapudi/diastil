@@ -6,9 +6,9 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  folderGrantAvailable, grantFolderAccess,
+  folderGrantAvailable, grantFolderAccess, acceptNested, descendInto,
   isSupportFile, isTextSupportFile, isValidAssetName, planGrant, summarizeSkips,
-  MAX_FILE_BYTES, MAX_TOTAL_BYTES,
+  MAX_FILE_BYTES, MAX_GRANT_DEPTH, MAX_TOTAL_BYTES,
   type FileStat,
 } from './folderGrant'
 
@@ -23,8 +23,13 @@ describe('isSupportFile', () => {
       expect(isSupportFile(name)).toBe(true)
     }
   })
-  it('rejects everything else — a chapter, an archive, a dotfile', () => {
-    for (const name of ['chapter1.tex', 'notes.zip', '.DS_Store', 'README.md', 'main.tex']) {
+  it('accepts a sibling .tex — a chapter is support, not clutter', () => {
+    // this used to be a rejection. It was the bug: without the chapters a
+    // multi-file document does not render poorly, it fails to compile.
+    expect(isSupportFile('chapter1.tex')).toBe(true)
+  })
+  it('rejects everything else — an archive, a dotfile, a readme', () => {
+    for (const name of ['notes.zip', '.DS_Store', 'README.md']) {
       expect(isSupportFile(name)).toBe(false)
     }
   })
@@ -81,9 +86,14 @@ describe('planGrant', () => {
   })
 
   it('skips a file that is not a support type, and says why', () => {
-    const plan = planGrant([stat('chapter1.tex', 100), stat('refs.bib', 100)])
+    const plan = planGrant([stat('notes.zip', 100), stat('refs.bib', 100)])
     expect(plan.accepted.map((f) => f.name)).toEqual(['refs.bib'])
-    expect(plan.skipped).toEqual([{ name: 'chapter1.tex', reason: 'type' }])
+    expect(plan.skipped).toEqual([{ name: 'notes.zip', reason: 'type' }])
+  })
+
+  it('accepts a nested chapter path — the daemon writes it under the workdir', () => {
+    const plan = planGrant([stat('chapters/intro.tex', 100)])
+    expect(plan.accepted.map((f) => f.name)).toEqual(['chapters/intro.tex'])
   })
 
   it('skips a single file over the per-file cap', () => {
@@ -159,7 +169,14 @@ describe('summarizeSkips', () => {
  * (just an object with a `values()` async iterator, the same shape Chromium's
  * own handle exposes) drives it end to end. */
 
-interface FakeEntry { name: string; kind?: 'file' | 'directory'; content?: string; bytes?: Uint8Array }
+interface FakeEntry {
+  name: string
+  kind?: 'file' | 'directory'
+  content?: string
+  bytes?: Uint8Array
+  /** a directory's own entries — the walk may or may not ask for them */
+  children?: FakeEntry[]
+}
 
 function fakeDir(name: string, entries: FakeEntry[]) {
   return {
@@ -168,7 +185,7 @@ function fakeDir(name: string, entries: FakeEntry[]) {
     async *values() {
       for (const e of entries) {
         if (e.kind === 'directory') {
-          yield { kind: 'directory' as const, name: e.name, values: async function* () { /* not descended into */ } }
+          yield fakeDir(e.name, e.children ?? [])
           continue
         }
         const file = e.bytes
@@ -198,15 +215,29 @@ describe('grantFolderAccess', () => {
     expect(await grantFolderAccess()).toBeNull()
   })
 
-  it('reads a text support file as text and skips a non-support file, reporting why', async () => {
+  it('reads text support files as text and skips a non-support file, reporting why', async () => {
     vi.stubGlobal('showDirectoryPicker', vi.fn(async () => fakeDir('papers', [
       { name: 'neurips_2022.sty', content: '% a style file' },
-      { name: 'chapter1.tex', content: 'not sent' },
+      { name: 'chapter1.tex', content: 'a chapter' },
+      { name: 'notes.zip', content: 'not sent' },
     ])))
     const result = await grantFolderAccess()
     expect(result?.folderName).toBe('papers')
-    expect(result?.assets).toEqual({ 'neurips_2022.sty': '% a style file' })
-    expect(result?.skipped).toEqual([{ name: 'chapter1.tex', reason: 'type' }])
+    expect(result?.assets).toEqual({
+      'neurips_2022.sty': '% a style file',
+      'chapter1.tex': 'a chapter',
+    })
+    expect(result?.skipped).toEqual([{ name: 'notes.zip', reason: 'type' }])
+  })
+
+  it('never ships the open document itself — texSource carries the live copy', async () => {
+    vi.stubGlobal('showDirectoryPicker', vi.fn(async () => fakeDir('papers', [
+      { name: 'thesis.tex', content: 'stale bytes from disk' },
+      { name: 'chapter1.tex', content: 'a chapter' },
+    ])))
+    const result = await grantFolderAccess([], 'thesis.tex')
+    expect(Object.keys(result?.assets ?? {})).toEqual(['chapter1.tex'])
+    expect(result?.skipped).toEqual([{ name: 'thesis.tex', reason: 'name' }])
   })
 
   it('reads a figure as a base64 data URI', async () => {
@@ -217,12 +248,72 @@ describe('grantFolderAccess', () => {
     expect(result?.assets['fig1.png']).toMatch(/^data:application\/octet-stream;base64,/)
   })
 
-  it('does not descend into subdirectories — one level only', async () => {
+  it('does not descend into subdirectories the document never named', async () => {
     vi.stubGlobal('showDirectoryPicker', vi.fn(async () => fakeDir('papers', [
-      { name: 'sub', kind: 'directory' },
+      { name: 'sub', kind: 'directory', children: [{ name: 'private.tex', content: 'nobody asked' }] },
       { name: 'refs.bib', content: '@article{}' },
     ])))
     const result = await grantFolderAccess()
     expect(Object.keys(result?.assets ?? {})).toEqual(['refs.bib'])
+  })
+
+  it('descends for a path the document \\inputs, and reads only that path', async () => {
+    vi.stubGlobal('showDirectoryPicker', vi.fn(async () => fakeDir('thesis', [
+      { name: 'refs.bib', content: '@article{}' },
+      {
+        name: 'chapters',
+        kind: 'directory',
+        children: [
+          { name: 'intro.tex', content: 'the intro' },
+          // in the same directory, but not named by the document: a
+          // wanted directory is a keyhole, not a door
+          { name: 'draft-notes.tex', content: 'private' },
+        ],
+      },
+      { name: 'secrets', kind: 'directory', children: [{ name: 'keys.tex', content: 'no' }] },
+    ])))
+    const result = await grantFolderAccess(['chapters/intro.tex'])
+    expect(Object.keys(result?.assets ?? {}).sort()).toEqual(['chapters/intro.tex', 'refs.bib'])
+    expect(result?.assets['chapters/intro.tex']).toBe('the intro')
+  })
+
+  it('stops at MAX_GRANT_DEPTH even for a named path', async () => {
+    const deep = 'a/b/c/d.tex'
+    vi.stubGlobal('showDirectoryPicker', vi.fn(async () => fakeDir('root', [{
+      name: 'a',
+      kind: 'directory',
+      children: [{
+        name: 'b',
+        kind: 'directory',
+        children: [{ name: 'c', kind: 'directory', children: [{ name: 'd.tex', content: 'too deep' }] }],
+      }],
+    }])))
+    expect(MAX_GRANT_DEPTH).toBe(3)
+    const result = await grantFolderAccess([deep])
+    expect(Object.keys(result?.assets ?? {})).toEqual([])
+  })
+})
+
+describe('descendInto / acceptNested — the walk\'s only way below the top level', () => {
+  const wanted = ['chapters/intro.tex', 'parts/two/method.tex']
+
+  it('descends only into a directory some wanted path runs through', () => {
+    expect(descendInto('chapters', wanted)).toBe(true)
+    expect(descendInto('parts', wanted)).toBe(true)
+    expect(descendInto('parts/two', wanted)).toBe(true)
+    expect(descendInto('secrets', wanted)).toBe(false)
+    // a prefix that is not a path SEGMENT is not a match
+    expect(descendInto('chapter', wanted)).toBe(false)
+  })
+
+  it('reads a nested file only when it is exactly a path the document named', () => {
+    expect(acceptNested('chapters/intro.tex', wanted)).toBe(true)
+    expect(acceptNested('chapters/other.tex', wanted)).toBe(false)
+    expect(acceptNested('chapters', wanted)).toBe(false)
+  })
+
+  it('an empty want list keeps the grant to one level, exactly as before', () => {
+    expect(descendInto('chapters', [])).toBe(false)
+    expect(acceptNested('chapters/intro.tex', [])).toBe(false)
   })
 })

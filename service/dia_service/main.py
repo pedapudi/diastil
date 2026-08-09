@@ -530,6 +530,63 @@ async def write_file(req: FileWrite) -> dict[str, Any]:
     return {"mtime": p.stat().st_mtime}
 
 
+# ---------------------------------------------------------------------------
+# /project/file — the OTHER .tex files of a multi-file document
+# ---------------------------------------------------------------------------
+
+# A thesis is a main file plus \input'd chapters, and the editor has to be
+# able to both read and write those chapters — an edit that shows on screen
+# and never reaches disk is worse than one that never happened.
+#
+# The allowlist does not change shape: the CLI still has to have opened the
+# MAIN file, and a chapter is addressed only as a path RELATIVE to it. The
+# containment rule is texcompile's `_safe_asset_path`, reused rather than
+# restated — it is the same question (may this relative name touch this
+# directory?), and two copies of a security check drift.
+#
+# Only .tex: this endpoint exists to serve \input, and a bridge that will
+# hand back any file beside the document is a different, larger promise.
+
+
+def _project_file(main_path: str, rel: str) -> Path:
+    main = _resolve_opened(main_path)
+    if not rel.lower().endswith(".tex"):
+        raise HTTPException(status_code=400, detail="project files are .tex only")
+    try:
+        target = texcompile._safe_asset_path(main.parent, rel)
+    except texcompile.AssetError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if target == main:
+        # the main file has its own door, with its own mtime bookkeeping
+        raise HTTPException(status_code=400, detail="use /file for the main document")
+    return target
+
+
+@app.get("/project/file")
+async def read_project_file(main: str, path: str) -> dict[str, Any]:
+    target = _project_file(main, path)
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="file not found")
+    return {"tex": target.read_text(encoding="utf-8"), "mtime": target.stat().st_mtime}
+
+
+class ProjectFileWrite(BaseModel):
+    main: str
+    path: str
+    tex: str
+
+
+@app.put("/project/file")
+async def write_project_file(req: ProjectFileWrite) -> dict[str, Any]:
+    target = _project_file(req.main, req.path)
+    # a chapter's directory already exists (we read the chapter from it);
+    # refusing to create one keeps this endpoint a writer, not a scaffolder
+    if not target.parent.is_dir():
+        raise HTTPException(status_code=404, detail="directory not found")
+    target.write_text(req.tex, encoding="utf-8")
+    return {"mtime": target.stat().st_mtime}
+
+
 class ExportPptx(BaseModel):
     html: str
     title: str | None = None
