@@ -212,6 +212,26 @@ describe('editing a block of an included file', () => {
     expect(doc.source.text).toBe(MAIN)
   })
 
+  it('names exactly the files a save has to write', () => {
+    const doc = mount(MAIN, FILES)
+    expect(doc.project.changedPaths()).toEqual([])
+    const p = [...doc.article.querySelectorAll('p')]
+      .find((el) => (el.textContent ?? '').includes('The opening paragraph'))!
+    commitDocEdit(doc, p, [setInlineHtml(p, 'Rewritten opening.')], 'Edit text')
+    // one chapter edited: that one file, and no other, needs writing
+    expect(doc.project.changedPaths()).toEqual(['chapters/intro.tex'])
+    doc.project.markSaved(['chapters/intro.tex'])
+    expect(doc.project.changedPaths()).toEqual([])
+  })
+
+  it('a main-file edit dirties no included file', () => {
+    const doc = mount(MAIN, FILES)
+    const p = [...doc.article.querySelectorAll('p')]
+      .find((el) => (el.textContent ?? '').includes('The end.'))!
+    commitDocEdit(doc, p, [setInlineHtml(p, 'A new ending.')], 'Edit text')
+    expect(doc.project.changedPaths()).toEqual([])
+  })
+
   it('a main-file edit still touches only the main file', () => {
     const doc = mount(MAIN, FILES)
     const p = [...doc.article.querySelectorAll('p')]

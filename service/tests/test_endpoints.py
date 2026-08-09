@@ -139,3 +139,85 @@ def test_tex_refresh_reprobes(client, monkeypatch, fake_path):
     monkeypatch.setenv("PATH", str(fake_path))
     tex.reset_cache()
     assert client.post("/tex/refresh").json()["tex"]["engine"] is None
+
+
+# ---------------------------------------------------------------------------
+# /project/file — a multi-file document's other .tex files
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def project(tmp_path):
+    """A CLI-opened main file with one \\input'd chapter beside it."""
+    root = tmp_path / "thesis"
+    (root / "chapters").mkdir(parents=True)
+    main_tex = root / "thesis.tex"
+    main_tex.write_text("\\documentclass{book}\n\\input{chapters/intro}\n")
+    (root / "chapters" / "intro.tex").write_text("\\chapter{Intro}\n")
+    (root / "secret.env").write_text("TOKEN=hunter2")
+    main.OPENED_FILES.add(main_tex.resolve())
+    try:
+        yield root, str(main_tex.resolve())
+    finally:
+        main.OPENED_FILES.discard(main_tex.resolve())
+
+
+def test_reads_a_chapter_relative_to_the_opened_main_file(client, project):
+    root, main_path = project
+    r = client.get("/project/file", params={"main": main_path, "path": "chapters/intro.tex"})
+    assert r.status_code == 200
+    assert r.json()["tex"] == "\\chapter{Intro}\n"
+
+
+def test_writes_a_chapter_back(client, project):
+    """The half that matters most: an edit that shows on screen and never
+    reaches disk is worse than one that never happened."""
+    root, main_path = project
+    r = client.put("/project/file", json={
+        "main": main_path, "path": "chapters/intro.tex", "tex": "\\chapter{Edited}\n"})
+    assert r.status_code == 200
+    assert (root / "chapters" / "intro.tex").read_text() == "\\chapter{Edited}\n"
+
+
+def test_the_main_file_must_have_been_opened_by_the_cli(client, project, tmp_path):
+    _, main_path = project
+    stranger = tmp_path / "elsewhere.tex"
+    stranger.write_text("x")
+    r = client.get("/project/file",
+                   params={"main": str(stranger), "path": "chapters/intro.tex"})
+    assert r.status_code == 403
+
+
+@pytest.mark.parametrize("bad", [
+    "../../etc/passwd",
+    "/etc/passwd",
+    "chapters/../../escape.tex",
+    "",
+])
+def test_refuses_paths_that_leave_the_project(client, project, bad):
+    _, main_path = project
+    r = client.get("/project/file", params={"main": main_path, "path": bad})
+    assert r.status_code in (400, 404, 422)
+
+
+def test_serves_tex_only(client, project):
+    """The bridge exists to serve \\input. Handing back any file beside the
+    document is a different, larger promise."""
+    _, main_path = project
+    r = client.get("/project/file", params={"main": main_path, "path": "secret.env"})
+    assert r.status_code == 400
+    w = client.put("/project/file",
+                   json={"main": main_path, "path": "secret.env", "tex": "pwn"})
+    assert w.status_code == 400
+
+
+def test_the_main_file_keeps_its_own_door(client, project):
+    _, main_path = project
+    r = client.get("/project/file", params={"main": main_path, "path": "thesis.tex"})
+    assert r.status_code == 400
+
+
+def test_does_not_scaffold_missing_directories(client, project):
+    _, main_path = project
+    r = client.put("/project/file",
+                   json={"main": main_path, "path": "nowhere/new.tex", "tex": "x"})
+    assert r.status_code == 404

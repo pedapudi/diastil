@@ -124,6 +124,12 @@ export class DocProject {
    * Session-only, exactly like the spans themselves (source.ts) — a fresh
    * session rebuilds it by re-composing, so nothing can rot in the DOM. */
   private readonly owner = new Map<string, string>()
+  /** each included file's bytes AS READ. A save must write the files that
+   * actually changed and no others: rewriting a file the user never
+   * touched is how a project's whole mtime history disappears into one
+   * commit, and NOT writing one they did edit is the worse half — the
+   * edit is on screen and not on disk. */
+  private readonly pristine = new Map<string, string>()
 
   constructor(
     /** the main file's own name, as the project sees it — the cycle check
@@ -134,7 +140,10 @@ export class DocProject {
   ) {
     for (const [path, text] of Object.entries(texts)) {
       const clean = resolveInputPath(path)
-      if (clean !== null && clean !== mainPath) this.included.set(clean, new DocSource(text))
+      if (clean !== null && clean !== mainPath) {
+        this.included.set(clean, new DocSource(text))
+        this.pristine.set(clean, text)
+      }
     }
   }
 
@@ -173,6 +182,21 @@ export class DocProject {
   adopt(path: string, text: string): void {
     if (path === this.mainPath) return
     this.included.set(path, new DocSource(text))
+    this.pristine.set(path, text)
+  }
+
+  /** included files whose bytes differ from what was read — exactly the
+   * set a save has to write back */
+  changedPaths(): string[] {
+    return this.includedPaths().filter((p) => (this.included.get(p) as DocSource).text !== this.pristine.get(p))
+  }
+
+  /** after a successful write: these bytes are now what is on disk */
+  markSaved(paths: readonly string[] = this.includedPaths()): void {
+    for (const p of paths) {
+      const source = this.included.get(p)
+      if (source) this.pristine.set(p, source.text)
+    }
   }
 
   /** bind a rendered block's span in the file that actually owns it */

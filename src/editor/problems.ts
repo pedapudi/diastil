@@ -164,7 +164,8 @@ function rowFor(f: TexError): HTMLElement {
 }
 
 /** the daemon compiles the source as `main.tex`; anything else is a package,
- * a class, or an \input'd file we did not send and cannot address */
+ * a class, or an \input'd file whose own line numbering we cannot map a
+ * main-file offset into */
 function isMainSource(file: string): boolean {
   return /(^|[\\/])main\.tex$/.test(file)
 }
@@ -177,6 +178,14 @@ function shortFile(file: string): string {
 function jumpableLine(f: TexError): number | null {
   if (f.line === null) return null
   if (f.file !== null && !isMainSource(f.file)) return null
+  // A file-less line in a MULTI-FILE project cannot be placed. TeX numbers
+  // lines per file, and an \input'd chapter's line 26 is not main.tex's
+  // line 26 — measured: an undefined control sequence inside
+  // chapters/method.tex comes back as `line: 26, file: null`, which mapped
+  // against main.tex lands on an unrelated paragraph. Refusing to jump is
+  // the honest answer until the daemon's log parse tracks the open-file
+  // stack (`(./chapters/method.tex … )`) and attributes the line itself.
+  if (f.file === null && state.doc?.project.multiFile) return null
   return f.line
 }
 
