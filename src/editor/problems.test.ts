@@ -377,9 +377,7 @@ describe('a chapter the view does not hold', () => {
   /* An empty body has zero bindings in the ROOT source, exactly like an
    * unspliced chapter — and a brand-new document is now a first-class flow,
    * so "typo in the preamble, first compile" is a real first run. The root
-   * must not be told it is \input from somewhere: it is the file on screen.
-   * Every spelling the daemon can use for it resolves to the same DocSource,
-   * which is what makes the identity check in declineReason sufficient. */
+   * must not be told it is \input from somewhere: it is the file on screen. */
   const EMPTY_BODY = '\\documentclass{article}\n\\begin{document}\n\\end{document}\n'
 
   it.each([null, 'main.tex', './main.tex', 'untitled.tex'])(
@@ -463,6 +461,24 @@ describe('what the daemon emits, the project resolves', () => {
     for (const [file, expected] of table) {
       expect(sourceForFile(doc, file), `file: ${file}`).toBe(expected)
     }
+  })
+
+  /* The drawer tells the root apart from a chapter through
+   * `fileOfCompilePath(file) === mainPath`, so that normalization is a
+   * contract this file depends on and not an implementation detail it may
+   * watch change. Pinned here, on the depending side, because the project
+   * cannot know who leans on it. (The alternative — comparing the resolved
+   * DocSource to doc.source — would depend instead on the root's source
+   * being the same OBJECT, which is true by construction today and is
+   * nowhere promised.) */
+  it('every spelling of the root normalizes to mainPath, and a chapter never does', () => {
+    const doc = chapterDoc()
+    expect(doc.project.mainPath).toBe('thesis.tex')
+    for (const spelling of ['main.tex', './main.tex', 'thesis.tex', './thesis.tex']) {
+      expect(doc.project.fileOfCompilePath(spelling), spelling).toBe(doc.project.mainPath)
+    }
+    expect(doc.project.fileOfCompilePath('chapters/method.tex')).toBe('chapters/method.tex')
+    expect(doc.project.fileOfCompilePath('geometry.sty')).toBeNull()
   })
 
   it('a single-file document takes the unplaced line, because there is only one file', () => {
