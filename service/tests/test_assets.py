@@ -112,3 +112,81 @@ def test_leaves_bbl_alone_when_a_bib_can_regenerate_it(tmp_path):
     _link_support_files(work, source)
     assert not (work / "diarefs.bbl").exists()
     assert "\\bibliography{custom}" in (work / "main.tex").read_text()
+
+
+# ---------------------------------------------------------------------------
+# multi-file projects
+# ---------------------------------------------------------------------------
+
+def test_writes_a_chapter_into_a_subdirectory(tmp_path):
+    """`\\input{chapters/intro}` ships as an asset named exactly that, so
+    the workdir has to grow the directory. Before multi-file support the
+    client never sent one; the path checks always allowed it."""
+    written = write_assets(tmp_path, {"chapters/intro.tex": "\\section{Intro}\n"})
+    assert written == ["chapters/intro.tex"]
+    assert (tmp_path / "chapters" / "intro.tex").read_text() == "\\section{Intro}\n"
+
+
+def test_a_nested_main_tex_is_not_the_document(tmp_path):
+    """Only the workdir's OWN main.tex is the job. Refusing every file
+    named main.tex anywhere refused a real project's `parts/main.tex`."""
+    write_assets(tmp_path, {"parts/main.tex": "\\section{Part}\n"})
+    assert (tmp_path / "parts" / "main.tex").exists()
+    with pytest.raises(AssetError):
+        write_assets(tmp_path, {"main.tex": "x"})
+
+
+def test_links_a_chapter_subdirectory_into_the_workdir(tmp_path):
+    """A CLI-opened project compiles from TEXINPUTS alone, with no grant
+    and no client assets. tectonic has no kpathsea, so `chapters/` has to
+    APPEAR beside main.tex — skipping directories meant a thesis opened
+    from the CLI died on `File \'chapters/intro.tex\' not found`."""
+    from dia_service.texcompile import _link_support_files
+
+    source = tmp_path / "thesis"
+    (source / "chapters").mkdir(parents=True)
+    (source / "thesis.tex").write_text("\\documentclass{book}")
+    (source / "chapters" / "intro.tex").write_text("\\chapter{Intro}\n")
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "main.tex").write_text("\\documentclass{book}\n\\input{chapters/intro}\n")
+
+    _link_support_files(work, source)
+    assert (work / "chapters" / "intro.tex").read_text() == "\\chapter{Intro}\n"
+
+
+def test_client_chapters_win_over_the_ones_on_disk(tmp_path):
+    """The client\'s copies carry the user\'s unsaved edits. A subdirectory
+    the assets already created is MERGED into, not replaced, so an edited
+    chapter keeps its edits while its untouched siblings still arrive."""
+    from dia_service.texcompile import _link_support_files
+
+    source = tmp_path / "thesis"
+    (source / "chapters").mkdir(parents=True)
+    (source / "chapters" / "intro.tex").write_text("stale on disk")
+    (source / "chapters" / "method.tex").write_text("untouched on disk")
+    work = tmp_path / "work"
+    work.mkdir()
+    write_assets(work, {"chapters/intro.tex": "edited in the browser"})
+
+    _link_support_files(work, source)
+    assert (work / "chapters" / "intro.tex").read_text() == "edited in the browser"
+    assert (work / "chapters" / "method.tex").read_text() == "untouched on disk"
+
+
+def test_link_walk_stops_at_max_depth(tmp_path):
+    """Bounded: the mirror describes a project layout, not whatever tree
+    the user happened to have open."""
+    from dia_service.texcompile import MAX_LINK_DEPTH, _link_support_files
+
+    assert MAX_LINK_DEPTH == 3
+    source = tmp_path / "src"
+    deep = source / "a" / "b" / "c"
+    deep.mkdir(parents=True)
+    (deep / "far.tex").write_text("too far")
+    work = tmp_path / "work"
+    work.mkdir()
+
+    _link_support_files(work, source)
+    assert (work / "a" / "b").exists()
+    assert not (work / "a" / "b" / "c" / "far.tex").exists()
