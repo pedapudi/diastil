@@ -710,9 +710,11 @@ export function mountEditor(host: HTMLElement): void {
     commentsTab.btn.hidden = !on
     if (!on && commentsTab.pane.classList.contains('de-on')) tabs[0].btn.click()
     if (!on) toggleProblems(false)
+    closeDocFind()
     if (on) {
       deactivateTable()
       // a fresh doc always opens in the native view
+      docView = 'native'
       segNative.classList.add('dn-on')
       segPages.classList.remove('dn-on')
       segSource.classList.remove('dn-on')
