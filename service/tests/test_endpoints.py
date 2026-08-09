@@ -21,7 +21,10 @@ HELLO = "\\documentclass{article}\\begin{document}hi\\end{document}\n"
 
 @pytest.fixture
 def client():
-    with TestClient(main.app) as c:
+    # A loopback Host, because the disk bridges refuse anything else (the
+    # DNS-rebinding defence): a name that resolves to 127.0.0.1 sends a
+    # non-loopback Host, and that is exactly what these endpoints decline.
+    with TestClient(main.app, base_url="http://127.0.0.1:8317") as c:
         yield c
 
 
@@ -228,9 +231,10 @@ def test_does_not_scaffold_missing_directories(client, project):
 # ---------------------------------------------------------------------------
 
 def test_project_file_refuses_an_opaque_origin(tmp_path):
-    """A sandboxed iframe on any site sends `Origin: null`, and CORS allows it
-    so the standalone file:// editor works. This endpoint writes .tex anywhere
-    under the opened document's directory, so it declines that caller."""
+    """A sandboxed iframe on any site sends `Origin: null`. This endpoint
+    writes .tex anywhere under the opened document's directory, so it declines
+    that caller server-side — never relying on the CORS list, which a config
+    may loosen for /skills (issue #25)."""
     from fastapi.testclient import TestClient
     from dia_service.main import app, OPENED_FILES
 
@@ -265,3 +269,114 @@ def test_project_file_refuses_an_opaque_origin(tmp_path):
         assert r.json()["tex"] == "edited\n"
     finally:
         OPENED_FILES.discard(main_tex.resolve())
+
+
+# ---------------------------------------------------------------------------
+# /file is a read AND write disk bridge — issue #25. It is the residual the
+# CORS "null" allowance left exposed: a drive-by page mints an opaque origin
+# with <iframe sandbox> and reaches the exact file the CLI opened. The bridge
+# now refuses that caller itself, because CORS says who may READ a response,
+# never who may ACT.
+# ---------------------------------------------------------------------------
+
+def test_file_bridge_refuses_an_opaque_origin(tmp_path):
+    """`Origin: null` — a sandboxed iframe on any site — cannot read or
+    overwrite the CLI-opened file. The same-origin editor (loopback Origin)
+    and a native caller (no Origin) are unaffected."""
+    from fastapi.testclient import TestClient
+    from dia_service.main import app, OPENED_FILES
+
+    deck = tmp_path / "deck.html"
+    deck.write_text("<html>original</html>", encoding="utf-8")
+    OPENED_FILES.add(deck.resolve())
+    try:
+        c = TestClient(app, base_url="http://127.0.0.1:8317")
+
+        # the drive-by write is refused and the file is untouched
+        r = c.put("/file", headers={"Origin": "null"},
+                  json={"path": str(deck), "html": "<html>PWNED</html>"})
+        assert r.status_code == 403
+        assert deck.read_text(encoding="utf-8") == "<html>original</html>"
+
+        # the drive-by read is refused — and because it is refused BEFORE the
+        # allowlist check, the 403 body is no longer a path-enumeration oracle
+        r = c.get(f"/file?path={deck}", headers={"Origin": "null"})
+        assert r.status_code == 403
+
+        # the editor the daemon serves at /editor sends a real loopback Origin
+        r = c.get(f"/file?path={deck}", headers={"Origin": "http://127.0.0.1:8317"})
+        assert r.status_code == 200
+        assert r.json()["html"] == "<html>original</html>"
+
+        r = c.put("/file", headers={"Origin": "http://127.0.0.1:8317"},
+                  json={"path": str(deck), "html": "<html>edited</html>"})
+        assert r.status_code == 200
+        assert deck.read_text(encoding="utf-8") == "<html>edited</html>"
+
+        # a native caller (dia CLI, curl) sends no Origin at all
+        r = c.get(f"/file?path={deck}")
+        assert r.status_code == 200
+    finally:
+        OPENED_FILES.discard(deck.resolve())
+
+
+def test_file_bridge_refuses_a_rebinding_host(tmp_path):
+    """DNS rebinding sidesteps Origin: the attacker's own domain resolves to
+    127.0.0.1, so the request is same-origin and carries no cross-origin
+    Origin. The bridge therefore also insists it was addressed as loopback —
+    the same defence /mcp already applies."""
+    from fastapi.testclient import TestClient
+    from dia_service.main import app, OPENED_FILES
+
+    deck = tmp_path / "deck.html"
+    deck.write_text("<html>original</html>", encoding="utf-8")
+    OPENED_FILES.add(deck.resolve())
+    try:
+        c = TestClient(app, base_url="http://attacker.example")
+        r = c.put("/file", json={"path": str(deck), "html": "<html>PWNED</html>"})
+        assert r.status_code == 403
+        assert deck.read_text(encoding="utf-8") == "<html>original</html>"
+
+        r = c.get(f"/file?path={deck}")
+        assert r.status_code == 403
+    finally:
+        OPENED_FILES.discard(deck.resolve())
+
+
+def test_default_cors_allowlist_excludes_the_null_origin():
+    """The opaque origin is DELIBERATELY not in the shipped defaults: it is
+    what any site mints with <iframe sandbox>, so its presence would hand a
+    drive-by page a preflight pass to /skills/* (token burn). A user who
+    wants the file:// standalone to reach the skills opts in explicitly."""
+    from dia_service import main
+    assert "null" not in main._DEFAULT_ORIGINS
+
+
+def test_skills_refuse_a_rebinding_host_before_spending_tokens(monkeypatch):
+    """/skills/* spends model tokens, so it must gate the caller, not lean on
+    CORS alone. A DNS-rebound page reaches the daemon same-origin with a
+    non-loopback Host; the skill declines it BEFORE the model runs. A loopback
+    caller passes the gate and reaches the model as before."""
+    from fastapi.testclient import TestClient
+    from dia_service import main
+
+    calls = []
+
+    async def _fake_skill(skill, prompt, images, root):
+        calls.append(skill)
+        return "<section>ok</section>", ""
+
+    monkeypatch.setattr(main, "_run_html_skill", _fake_skill)
+    body = {"sourceHtml": "<section>x</section>", "tokensCss": ""}
+
+    # DNS-rebound Host — refused, and the model is never touched
+    c = TestClient(main.app, base_url="http://attacker.example")
+    r = c.post("/skills/translate-slide", json=body)
+    assert r.status_code == 403
+    assert calls == []
+
+    # loopback Host — the real editor's address — passes the gate
+    c = TestClient(main.app, base_url="http://127.0.0.1:8317")
+    r = c.post("/skills/translate-slide", json=body)
+    assert r.status_code == 200, r.text
+    assert calls == ["translate-slide"]
