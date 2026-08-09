@@ -356,6 +356,59 @@ function cleanMetaText(tex: string | undefined): string {
     .trim()
 }
 
+/* ---------- new document ---------- */
+
+/** The starting document — plain `article`, no packages, so it compiles on
+ * any engine, and every construct in it (title, abstract, sections, a
+ * numbered equation, a cross-reference, a list) has a native view, so a new
+ * author's first screen is the editor working rather than a TeX island.
+ *
+ * These are the SAME bytes `dia new --doc` writes: the mirror lives in
+ * service/dia_service/scaffold.py (DOC_TEMPLATE) because that side is
+ * stdlib-only and cannot read this one, and the lockstep test in
+ * src/editor/slides.test.ts fails the moment the two drift. A starter that
+ * differed between the CLI and the editor would teach two dialects. */
+export function docScaffoldTex(title: string): string {
+  // a function replacer: a title carrying `$&` (legal in a file stem) would
+  // otherwise splice the match back into the source
+  return DOC_SCAFFOLD_TEX.replace('__TITLE__', () => title || 'Untitled')
+}
+
+const DOC_SCAFFOLD_TEX = String.raw`\documentclass{article}
+
+\title{__TITLE__}
+\author{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+One paragraph on what this document establishes and why it matters.
+\end{abstract}
+
+\section{Introduction}\label{sec:intro}
+
+Start writing. Inline math works anywhere: $e^{i\pi} + 1 = 0$.
+
+\section{Method}
+
+Display math numbers itself and can be referenced from prose:
+\begin{equation}\label{eq:main}
+f(x) = \int_{-\infty}^{\infty} \hat f(\xi)\, e^{2\pi i \xi x}\, d\xi
+\end{equation}
+
+As Equation~\ref{eq:main} shows, Section~\ref{sec:intro} promised nothing
+it could not deliver.
+
+\begin{itemize}
+\item lists,
+\item and \textbf{inline styling},
+\item and \texttt{code} all map to the editor's native view.
+\end{itemize}
+
+\end{document}
+`
+
 /* ---------- document theme ---------- */
 
 export function defaultDocThemeCss(): string {

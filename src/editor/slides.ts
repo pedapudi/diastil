@@ -8,7 +8,7 @@ import type { Deck } from '../types'
 import { state } from '../state'
 import { loadDeck } from '../model/parse'
 import { serializeDeck } from '../model/serialize'
-import { loadDoc, loadDocFromTex, serializeDoc, exportTex, type Doc } from '../model/doc'
+import { docScaffoldTex, loadDoc, loadDocFromTex, serializeDoc, exportTex, type Doc } from '../model/doc'
 import { clearPreview } from '../copilot/preview'
 import { closeStudio } from '../studio/studio'
 import { closeSlideFocus } from '../studio/focus'
@@ -173,11 +173,7 @@ export async function bootFromCli(canvasHost: HTMLElement): Promise<boolean> {
   if (kind === 'doc') {
     loadDocument('html', file.html, canvasHost, name)
   } else {
-    setImportReport(null)
-    const deck = loadDeck(file.html, canvasHost, name)
-    state.doc = null
-    state.deck = deck
-    state.bus.emit({ type: 'deck-loaded' })
+    loadDeckInto(file.html, canvasHost, name)
   }
   startWatch(canvasHost)
   return true
@@ -244,10 +240,30 @@ export function dialectKind(html: string): 'deck' | 'doc' | null {
 export function openDocumentText(text: string, name: string): void {
   const host = document.getElementById('deck-host')
   if (!host) return
+  detachFromFile()
+  loadDocument(looksLikeTex(text, name) ? 'tex' : 'html', text, host, name)
+}
+
+/** Forget where this session was reading and writing. Every door that
+ * replaces the open file goes through here first: a file that inherited the
+ * previous one's service path or FS handle would silently overwrite it on
+ * the next save — the worst possible answer to "new". */
+function detachFromFile(): void {
   servicePath = null
+  serviceMtime = 0
+  lastSyncedHtml = ''
   window.clearInterval(watchTimer)
   fileHandle = null
-  loadDocument(looksLikeTex(text, name) ? 'tex' : 'html', text, host, name)
+}
+
+/** load a dialect deck into the editor — the deck twin of loadDocument;
+ * loading either kind nulls the other, so the mode is never ambiguous */
+function loadDeckInto(html: string, canvasHost: HTMLElement, name: string): void {
+  setImportReport(null)
+  const deck = loadDeck(html, canvasHost, name)
+  state.doc = null
+  state.deck = deck
+  state.bus.emit({ type: 'deck-loaded' })
 }
 
 /** load a document (from artifact html or bare .tex) into the editor */
@@ -266,10 +282,8 @@ function loadDocument(kind: 'html' | 'tex', text: string, canvasHost: HTMLElemen
 export async function openDeck(canvasHost: HTMLElement): Promise<void> {
   const picked = await pickHtmlFile()
   if (!picked) return
-  servicePath = null
-  window.clearInterval(watchTimer)
+  detachFromFile()
   if (picked.bytes && looksLikePptx(picked.bytes, picked.name)) {
-    fileHandle = null
     try {
       startImport(pptxToHtml(picked.bytes, picked.name), picked.name)
     } catch (err) {
@@ -289,15 +303,38 @@ export async function openDeck(canvasHost: HTMLElement): Promise<void> {
     loadDocument('html', picked.text, canvasHost, picked.name)
   } else if (kind === 'deck') {
     fileHandle = picked.handle
-    setImportReport(null)
-    const deck = loadDeck(picked.text, canvasHost, picked.name)
-    state.doc = null
-    state.deck = deck
-    state.bus.emit({ type: 'deck-loaded' })
+    loadDeckInto(picked.text, canvasHost, picked.name)
   } else {
-    fileHandle = null
     startImport(picked.text, picked.name)
   }
+}
+
+/* ---------- new file (deck or document) ---------- */
+
+/** Replacing the open file discards whatever is not on disk: the editor has
+ * no autosave and no recovery. So every door that swaps files asks first,
+ * and only when there is something to lose. Where no confirm dialog exists
+ * (headless), the answer is NO — refusing to start a new file is
+ * recoverable, losing an edited one is not. */
+export function confirmReplace(dirty: boolean, what: string): boolean {
+  if (!dirty) return true
+  const ask = (window as { confirm?: (message: string) => boolean }).confirm
+  if (typeof ask !== 'function') return false
+  return ask.call(window, `${what}\n\nThe open file has unsaved changes — they are lost unless you save first.`)
+}
+
+/** start a fresh LaTeX document from the scaffold — down the same
+ * loadDocument door an opened .tex takes, so the deck/doc mode swap stays
+ * one code path */
+export function newDocument(canvasHost: HTMLElement, name = 'untitled.tex', title = ''): void {
+  detachFromFile()
+  loadDocument('tex', docScaffoldTex(title), canvasHost, name)
+}
+
+/** start a fresh deck from the scaffold */
+export function newDeck(canvasHost: HTMLElement, name = 'untitled.html', title = 'Untitled'): void {
+  detachFromFile()
+  loadDeckInto(deckScaffoldHtml(title), canvasHost, name)
 }
 
 /* ---------- save / present ---------- */
@@ -497,6 +534,133 @@ export async function exportPptx(deck: Deck): Promise<void> {
 }
 
 /* ---------- slide templates ---------- */
+
+/** The starting deck, and the ONE definition of it: `dia new` writes these
+ * same bytes (service/dia_service/scaffold.py DECK_TEMPLATE, mirrored here
+ * because that side is stdlib-only and cannot read this one), and the
+ * lockstep test in slides.test.ts fails the moment the two drift.
+ *
+ * It carries its own theme rather than leaning on defaultThemeCss(): the
+ * fallback theme is the parser's last resort for a deck that arrived without
+ * one, and its serif-on-cream palette is not what the house style starts
+ * people on (docs/HOUSE-STYLE.md). A new deck deserves the real default. */
+export function deckScaffoldHtml(title: string): string {
+  const t = title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return DECK_SCAFFOLD_HTML.replaceAll('__TITLE__', () => t)
+}
+
+const DECK_SCAFFOLD_HTML = `<!doctype html>
+<html lang="en" data-dia-version="1">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__</title>
+<style id="dia-theme">
+:root {
+  --dia-paper: #F2EEDE;
+  --dia-ink: #1A1A1A;
+  --dia-ink-soft: #33312B;
+  --dia-ink-faint: #85837A;
+  --dia-accent: #1E6FCC;
+  --dia-rule: #C6C3B6;
+  --dia-face-display: "Source Sans 3", system-ui, sans-serif;
+  --dia-face-body: "Source Sans 3", system-ui, sans-serif;
+  --dia-face-label: "Source Code Pro", ui-monospace, monospace;
+  --dia-scale-1: 12px;
+  --dia-scale-2: 15px;
+  --dia-scale-3: 18px;
+  --dia-scale-4: 22px;
+  --dia-scale-5: 30px;
+  --dia-scale-6: 38px;
+  --dia-scale-7: 48px;
+  --dia-gap: 24px;
+  --dia-pad: 52px;
+}
+section.dia-slide {
+  aspect-ratio: 16 / 9;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: var(--dia-paper);
+  color: var(--dia-ink);
+  padding: var(--dia-pad);
+  font-family: var(--dia-face-body);
+}
+.dia-kicker { font-family: var(--dia-face-label); font-size: var(--dia-scale-1);
+  letter-spacing: .14em; text-transform: uppercase; color: var(--dia-accent);
+  margin-bottom: 12px; }
+.dia-title { font-family: var(--dia-face-display); font-size: var(--dia-scale-5);
+  line-height: 1.14; font-weight: 700; margin: 0 0 14px; }
+.dia-cover-title { font-size: var(--dia-scale-7); max-width: 16ch; }
+.dia-body { font-size: var(--dia-scale-2); line-height: 1.55; color: var(--dia-ink-soft); }
+.dia-body p { margin: 0 0 10px; }
+.dia-caption { font-family: var(--dia-face-label); font-size: var(--dia-scale-1);
+  color: var(--dia-ink-soft); }
+li::before { content: var(--dia-marker, none); color: var(--dia-marker-ink, var(--dia-accent)); margin-right: 0.55em; }
+li:has(> .dia-marker) { list-style: none; display: grid; grid-template-columns: auto 1fr; column-gap: 0.55em; align-items: start; }
+.dia-marker { color: var(--dia-marker-ink, var(--dia-accent)); }
+.dia-marker > svg, .dia-marker > img { width: 1.1em; height: 1.1em; display: block; margin-top: 0.2em; }
+.dia-marker.dia-marker-chip { display: inline-grid; place-items: center; width: 1.5em; height: 1.5em;
+  border-radius: 999px; background: var(--dia-accent); color: var(--dia-paper); font-size: 0.72em; }
+.dia-columns { display: grid; grid-template-columns: 1.05fr 1fr; gap: var(--dia-gap); }
+.dia-stack { display: flex; flex-direction: column; gap: calc(var(--dia-gap) / 2); }
+.dia-figure { align-self: center; }
+aside.dia-notes { display: none; } /* speaker notes — operator-only */
+table { border-collapse: collapse; font-size: var(--dia-scale-2); }
+th { font-family: var(--dia-face-label); font-size: var(--dia-scale-1);
+  text-transform: uppercase; letter-spacing: .08em; color: var(--dia-ink-faint);
+  text-align: left; font-weight: 500; padding: 6px 18px 6px 0;
+  border-bottom: 1.5px solid var(--dia-ink); }
+td { padding: 7px 18px 7px 0; border-bottom: 1px solid var(--dia-rule);
+  color: var(--dia-ink-soft); }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums;
+  font-family: var(--dia-face-label); }
+.dia-cover { display: grid; align-content: center; }
+.dia-scene { width: 100%; }
+.dia-scene .dia-node-shape { fill: var(--dia-node-fill, var(--dia-paper)); stroke: var(--dia-node-stroke, var(--dia-ink)); stroke-width: var(--dia-node-stroke-w, 1.3); }
+.dia-scene .dia-node-label { font: 12px var(--dia-face-body); fill: var(--dia-node-ink, var(--dia-ink)); }
+.dia-scene .dia-edge-path { stroke: var(--dia-edge-stroke, var(--dia-ink)); stroke-width: var(--dia-edge-w, 1.2); fill: none; color: var(--dia-edge-stroke, var(--dia-ink)); }
+.dia-scene .dia-edge-label { font: 10px var(--dia-face-label); fill: var(--dia-edge-ink, var(--dia-ink-soft)); }
+.dia-scene [data-dia-emphasis] .dia-node-shape { stroke: var(--dia-accent); stroke-width: 2; }
+.dia-draw { fill: none; stroke: var(--dia-ink); stroke-linecap: round; stroke-linejoin: round; }
+</style>
+</head>
+<body>
+
+<section class="dia-slide dia-cover">
+  <div class="dia-kicker">kicker</div>
+  <h1 class="dia-title dia-cover-title">__TITLE__</h1>
+  <div class="dia-body">One line on what this deck argues.</div>
+</section>
+
+<section class="dia-slide">
+  <div class="dia-kicker">section</div>
+  <h2 class="dia-title">A content slide</h2>
+  <div class="dia-columns">
+    <div class="dia-stack">
+      <div class="dia-body">
+        <p>Body text lives in <code>.dia-body</code>. Roles bind to the
+        scale tokens, so retheming is one edit.</p>
+        <p data-dia-step="1">This line reveals second in present mode.</p>
+      </div>
+    </div>
+    <figure class="dia-figure">
+      <svg class="dia-scene" viewBox="0 0 340 220" role="img" aria-label="example diagram">
+        <g data-dia-node="input" data-shape="rounded" data-x="20" data-y="24" data-w="120" data-h="40">
+          <text class="dia-node-label">input</text>
+        </g>
+        <g data-dia-node="output" data-shape="rounded" data-x="200" data-y="140" data-w="120" data-h="40">
+          <text class="dia-node-label">output</text>
+        </g>
+        <g data-dia-edge="input->output" data-anchors="S,W" data-route="ortho" data-label="flows"></g>
+      </svg>
+      <figcaption class="dia-caption">fig 1 — scenes route their own edges</figcaption>
+    </figure>
+  </div>
+</section>
+
+</body>
+</html>
+`
 
 let idSeq = 1
 const ID_SESSION = Math.random().toString(36).slice(2, 6)
