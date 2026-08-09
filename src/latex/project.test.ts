@@ -466,3 +466,65 @@ describe('corpus/tex/multifile', () => {
     expect(exportTex(doc)).toBe(main)
   })
 })
+
+/* ---------- the root resolves to doc.source ITSELF ---------- */
+
+/* The problems drawer decides whether a compile finding belongs to a file it
+ * cannot jump into by asking `source !== doc.source`. That predicate is a
+ * complete guard only because this module hands back the very same DocSource
+ * object for the root under every spelling the daemon can emit — not an equal
+ * copy, not a per-call view.
+ *
+ * It holds because one DocSource is built for the main file and that same
+ * reference becomes both `doc.source` and the project's main. Nothing else
+ * enforces it, and the cost of losing it is silent and remote: a defensive
+ * copy or a wrapper here would make `source !== doc.source` true for the
+ * ROOT, and the drawer would start telling someone their open file is
+ * "\input from somewhere the editor does not splice". So the identity is
+ * pinned on the side that owns it, next to the code that could break it. */
+describe('the root source is doc.source by identity, not by value', () => {
+  const SPELLINGS = ['main.tex', './main.tex', 'paper.tex', './paper.tex']
+
+  it('every spelling of the root returns the same object', () => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const doc = loadDocFromTex('\\documentclass{article}\n\\begin{document}\nHi.\n\\end{document}\n',
+      host, 'paper.tex')
+    for (const spelling of SPELLINGS) {
+      expect(doc.project.sourceOfCompilePath(spelling), spelling).toBe(doc.source)
+    }
+    host.remove()
+  })
+
+  it('holds for a multi-file project too, where a chapter is a DIFFERENT object', () => {
+    const main = readFileSync(join(fixtureDir, 'multifile.tex'), 'utf-8')
+    const files: Record<string, string> = {}
+    for (const rel of ['chapters/intro.tex', 'chapters/method.tex', 'chapters/results.tex']) {
+      files[rel] = readFileSync(join(fixtureDir, rel), 'utf-8')
+    }
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const doc = loadDocFromTex(main, host, 'multifile.tex', files)
+    expect(doc.project.multiFile).toBe(true)
+    for (const spelling of ['main.tex', './main.tex', 'multifile.tex']) {
+      expect(doc.project.sourceOfCompilePath(spelling), spelling).toBe(doc.source)
+    }
+    // and a chapter must NOT be the root, or the guard would swallow chapters
+    const chapter = doc.project.sourceOfCompilePath('chapters/intro.tex')
+    expect(chapter).not.toBeNull()
+    expect(chapter).not.toBe(doc.source)
+    host.remove()
+  })
+
+  it('survives an empty body, which is where the guard is load-bearing', () => {
+    // zero bindings in the root — the shape a count-based rule mistakes for
+    // an unspliced chapter (see editor/problems.test.ts)
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const doc = loadDocFromTex('\\documentclass{article}\n\\begin{document}\n\\end{document}\n',
+      host, 'untitled.tex')
+    expect(doc.source.snapshotBindings().size).toBe(0)
+    expect(doc.project.sourceOfCompilePath('main.tex')).toBe(doc.source)
+    host.remove()
+  })
+})
