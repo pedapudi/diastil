@@ -172,6 +172,10 @@ const SYMBOL_CMD: Record<string, string> = {
   ldots: '…', dots: '…', textellipsis: '…',
   textendash: '–', textemdash: '—',
   textbackslash: '\\', textbar: '|', textless: '<', textgreater: '>',
+  // emit.ts writes these for a typed ~ and ^; without them the file reopened
+  // showing the macro NAME as prose, and editing that paragraph escaped the
+  // backslash again — one round trip per edit, compounding
+  textasciitilde: '~', textasciicircum: '^',
   pounds: '£', euro: '€', textperthousand: '‰',
 }
 /** old-style declarations usable as `{\bf …}` */
@@ -771,7 +775,12 @@ function parseInline(cur: Cursor, lo: number, hi: number): LxInline[] {
     if (t.kind === 'comment' || t.kind === 'parbreak') { i++; continue }
 
     if (t.kind === 'text') {
-      out.push({ kind: 'text', span: t.span, text: cur.slice(t.span) })
+      // a bare ~ in SOURCE bytes is a non-breaking space, and this is the one
+      // place text comes from source bytes — every other text inline below is
+      // a substituted literal (a stray bracket, \%, \textasciitilde). The
+      // renderer used to do this instead, which meant it could not tell the
+      // two apart: a typed tilde came back from \textasciitilde{} as a space.
+      out.push({ kind: 'text', span: t.span, text: cur.slice(t.span).replace(/~/g, ' ') })
       i++
       continue
     }

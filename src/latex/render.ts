@@ -398,9 +398,10 @@ const STYLE_TAG: Record<string, string> = { bf: 'strong', it: 'i', em: 'em', tt:
 function renderInline(node: LxInline, src: string): Node {
   switch (node.kind) {
     case 'text':
-      // `~` is a non-breaking space (a bare ~ is never an escape here —
-      // `\~` arrives as a cs token, not text); everything else stays as typed
-      return document.createTextNode(node.text.replace(/~/g, ' '))
+      // parse.ts already turned a SOURCE ~ into a non-breaking space; a tilde
+      // still standing here is a literal one (from \textasciitilde), so it
+      // stays a tilde — doing this here could not tell the two apart
+      return document.createTextNode(node.text)
     case 'style': {
       const el = document.createElement(STYLE_TAG[node.cmd] ?? 'span')
       if (node.cmd === 'sc') el.className = 'dia-smallcaps'

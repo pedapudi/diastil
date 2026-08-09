@@ -380,13 +380,27 @@ function emitVerb(text: string): string {
   return `\\texttt{${escapeTex(text)}}`
 }
 
+/** every character that cannot stand for itself in a LaTeX text run, and what
+ * it becomes. U+00A0 is in the table for a reason: a source `~` parses to a
+ * real non-breaking space, so that character round-trips as one — which is
+ * also why a TYPED tilde (U+007E) can safely become \textasciitilde{} without
+ * turning anyone's `Fig.~\ref{...}` into a literal squiggle. */
+const TEX_ESCAPE: Record<string, string> = {
+  '\\': '\\textbackslash{}',
+  '%': '\\%', '$': '\\$', '&': '\\&', '#': '\\#', '_': '\\_',
+  '{': '\\{', '}': '\\}',
+  '~': '\\textasciitilde{}',
+  '^': '\\textasciicircum{}',
+  '\u00a0': '~',
+}
+
+/** ONE pass, because a chain re-reads its own output: escaping `\` first wrote
+ * \textbackslash{} into the string, and the brace rule that ran next escaped
+ * the braces it had just produced, so typing `a\b` left the editor as
+ * a\textbackslash\{\}b — wrong in the FILE, not merely on screen; the PDF set
+ * `a\{}b`. A single regex over a table cannot re-enter what it emits. */
 export function escapeTex(text: string): string {
-  return text
-    .replace(/\\/g, '\\textbackslash{}')
-    .replace(/([%$&#_{}])/g, '\\$1')
-    .replace(/~/g, '\\textasciitilde{}')
-    .replace(/\^/g, '\\textasciicircum{}')
-    .replace(/ /g, '~')
+  return text.replace(/[\\%$&#_{}~^\u00a0]/g, (c) => TEX_ESCAPE[c])
 }
 
 /* ---------- surgical slice helpers ---------- */
