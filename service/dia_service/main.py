@@ -548,6 +548,25 @@ async def write_file(req: FileWrite) -> dict[str, Any]:
 # hand back any file beside the document is a different, larger promise.
 
 
+def _project_caller_ok(request: Request) -> str | None:
+    """None when this caller may reach /project/file, else why not.
+
+    An opaque origin — what a sandboxed iframe on ANY site gets — is spelled
+    "null", and CORS allows it here so the standalone file:// editor can talk
+    to the daemon. That is a capability a drive-by page can mint, and this
+    endpoint WRITES: refusing it keeps the reach of a hostile page at the one
+    file the CLI opened (/file, issue #25) instead of every .tex under that
+    file's directory. A same-origin editor sends its real loopback origin and
+    a native caller sends none, so neither is affected.
+    """
+    origin = request.headers.get("origin")
+    if origin is not None and origin.strip().lower() == "null":
+        return ("/project/file does not answer an opaque origin — any page can "
+                "mint one with a sandboxed iframe, and this endpoint writes "
+                "files. Use the editor the daemon serves at /editor.")
+    return None
+
+
 def _project_file(main_path: str, rel: str) -> Path:
     main = _resolve_opened(main_path)
     if not rel.lower().endswith(".tex"):
@@ -563,7 +582,10 @@ def _project_file(main_path: str, rel: str) -> Path:
 
 
 @app.get("/project/file")
-async def read_project_file(main: str, path: str) -> dict[str, Any]:
+async def read_project_file(main: str, path: str, request: Request) -> dict[str, Any]:
+    refused = _project_caller_ok(request)
+    if refused is not None:
+        raise HTTPException(status_code=403, detail=refused)
     target = _project_file(main, path)
     if not target.is_file():
         raise HTTPException(status_code=404, detail="file not found")
@@ -577,7 +599,10 @@ class ProjectFileWrite(BaseModel):
 
 
 @app.put("/project/file")
-async def write_project_file(req: ProjectFileWrite) -> dict[str, Any]:
+async def write_project_file(req: ProjectFileWrite, request: Request) -> dict[str, Any]:
+    refused = _project_caller_ok(request)
+    if refused is not None:
+        raise HTTPException(status_code=403, detail=refused)
     target = _project_file(req.main, req.path)
     # a chapter's directory already exists (we read the chapter from it);
     # refusing to create one keeps this endpoint a writer, not a scaffolder

@@ -221,3 +221,47 @@ def test_does_not_scaffold_missing_directories(client, project):
     r = client.put("/project/file",
                    json={"main": main_path, "path": "nowhere/new.tex", "tex": "x"})
     assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# /project/file is a WRITER, so it does not answer an origin anyone can mint
+# ---------------------------------------------------------------------------
+
+def test_project_file_refuses_an_opaque_origin(tmp_path):
+    """A sandboxed iframe on any site sends `Origin: null`, and CORS allows it
+    so the standalone file:// editor works. This endpoint writes .tex anywhere
+    under the opened document's directory, so it declines that caller."""
+    from fastapi.testclient import TestClient
+    from dia_service.main import app, OPENED_FILES
+
+    main_tex = tmp_path / "thesis.tex"
+    main_tex.write_text("\\documentclass{book}\n", encoding="utf-8")
+    chapter_dir = tmp_path / "chapters"
+    chapter_dir.mkdir()
+    chapter = chapter_dir / "intro.tex"
+    chapter.write_text("original\n", encoding="utf-8")
+    OPENED_FILES.add(main_tex.resolve())
+    try:
+        c = TestClient(app, base_url="http://127.0.0.1:8317")
+
+        r = c.put("/project/file", headers={"Origin": "null"}, json={
+            "main": str(main_tex), "path": "chapters/intro.tex", "tex": "PWNED"})
+        assert r.status_code == 403
+        assert chapter.read_text(encoding="utf-8") == "original\n"
+
+        r = c.get(f"/project/file?main={main_tex}&path=chapters/intro.tex",
+                  headers={"Origin": "null"})
+        assert r.status_code == 403
+
+        # the editor the daemon serves is unaffected: a real loopback origin
+        r = c.put("/project/file", headers={"Origin": "http://127.0.0.1:8317"}, json={
+            "main": str(main_tex), "path": "chapters/intro.tex", "tex": "edited\n"})
+        assert r.status_code == 200, r.text
+        assert chapter.read_text(encoding="utf-8") == "edited\n"
+
+        # and so is a native caller, which sends no Origin at all
+        r = c.get(f"/project/file?main={main_tex}&path=chapters/intro.tex")
+        assert r.status_code == 200
+        assert r.json()["tex"] == "edited\n"
+    finally:
+        OPENED_FILES.discard(main_tex.resolve())
