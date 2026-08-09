@@ -335,6 +335,57 @@ describe('float interior edits reach the source', () => {
   })
 })
 
+describe('tables behind a brace group are editable end to end (issue #21)', () => {
+  /** a real llama.tex float whose tabular sits inside a bare `{ … }` — it
+   * was invisible before the float scanner learned to descend, so this
+   * guards the whole path: parse → render → cell edit → surgical emission */
+  function braceGroupFloat(file: string, marker: string) {
+    const src = readFileSync(join(repo, 'corpus', 'tex', ...file.split('/')), 'utf-8')
+    const target = renderPairs(src).find(({ el, slice }) =>
+      el.matches('figure.dia-figure') && slice.includes(marker))!
+    expect(target, `no float containing ${marker}`).toBeTruthy()
+    return target
+  }
+
+  /** retype one cell and return (emission, expected) — expected is the
+   * float's own slice with exactly that cell's source bytes swapped, so the
+   * assertion is "one cell moved and nothing else did" */
+  function retypeCell(target: { el: HTMLElement; slice: string }, was: string, now: string) {
+    const td = [...target.el.querySelectorAll('td')].find((c) => c.textContent?.trim() === was)!
+    expect(td, `no cell reading ${was}`).toBeTruthy()
+    const original = td.textContent!
+    expect(target.slice.split(original)).toHaveLength(2)
+    td.textContent = original.replace(was, now)
+    return { out: emitBlockTex(target.el), want: target.slice.replace(original, td.textContent) }
+  }
+
+  it('llama.tex: the bare-group table renders, and a cell edit reaches only that cell', () => {
+    const target = braceGroupFloat('llama/llama.tex', '\\label{tab:nqa}')
+    expect(target.el.querySelector('table')).toBeTruthy()
+    // untouched: the float still emits its exact bytes, brace group included
+    expect(emitBlockTex(target.el)).toBe(target.slice)
+    const { out, want } = retypeCell(target, '29.9', '99.9')
+    expect(out).toBe(want)
+  })
+
+  it('bloom.tex: a \\resizebox table edits the same way, dimensions untouched', () => {
+    const target = braceGroupFloat('bloom.tex', '\\label{tab:language_families}')
+    expect(target.slice).toContain('\\resizebox{\\textwidth}{!}')
+    expect(target.el.querySelector('table')).toBeTruthy()
+    const { out, want } = retypeCell(target, 'Akan', 'Akaan')
+    expect(out).toBe(want)
+    // the width/height arguments are never reconstructed — they ride along
+    // in the untouched bytes around the spliced cell
+    expect(out).toContain('\\resizebox{\\textwidth}{!}')
+  })
+
+  it('editing a bare-group table leaves the caption bytes alone', () => {
+    const target = braceGroupFloat('llama/llama.tex', '\\label{tab:nqa}')
+    const { out } = retypeCell(target, '31.9', '77.7')
+    expect(out).toContain(target.slice.slice(target.slice.indexOf('\\caption')))
+  })
+})
+
 describe('inline emission', () => {
   it('escapes special characters and round-trips through the parser', () => {
     const p = document.createElement('p')

@@ -484,56 +484,83 @@ function parseList(cur: Cursor, open: number, close: number, env: 'itemize' | 'e
 }
 
 function parseFloatEnv(cur: Cursor, open: number, close: number, env: 'figure' | 'table', starred: boolean, span: Span): LxBlock {
-  let caption: LxInline[] | undefined
-  let label: string | undefined
-  const graphics: LxGraphic[] = []
-  const body: LxBlock[] = []
-
+  const sink: FloatSink = { graphics: [], body: [] }
   let i = open + 1
   const placement = matchBracketGroup(cur, i, close)
   if (placement) i = placement.close + 1
+  scanFloatLevel(cur, i, close, sink, true, 0)
+  return { kind: 'float', span, env, starred, caption: sink.caption, label: sink.label, graphics: sink.graphics, body: sink.body }
+}
 
-  // a LOOSE RUN is everything between two float-level constructs: the prose
-  // a float carries beside its graphic ("(a) left, (b) right", a note the
-  // author wrote under the image). Kept unparsed it stays in the source but
-  // never reaches the surface the user edits in — visible in the compiled
-  // mirror, absent from the document. Runs are flushed through parseBlocks
-  // only when they actually BEAR PROSE (see runBearsProse): a run of pure
-  // furniture — \centering, \small, a \subfloat whose only text sits in its
-  // bracket argument — would otherwise island its command bytes onto the
-  // surface as junk, which is a worse defect than the one being fixed.
+interface FloatSink { caption?: LxInline[]; label?: string; graphics: LxGraphic[]; body: LxBlock[] }
+
+/** how deep a chain of nested brace groups the float scanner will follow.
+ * Real floats bottom out at two or three ({\small \resizebox{w}{h}{…}}); the
+ * limit is only there so a pathological source cannot recurse unboundedly. */
+const FLOAT_GROUP_DEPTH = 6
+
+/** Scan a float's interior for its caption, label, graphics and body blocks.
+ *
+ * Recurses into a depth-0 brace group ONLY when the group carries positive
+ * evidence of content — a \begin{…} or an \includegraphics somewhere inside
+ * it. Skipping every group wholesale made real tables invisible: llama/palm/
+ * palm2 wrap the tabular in a bare `{ … }`, and bloom/flan/palm2 wrap it in
+ * \resizebox{w}{h}{…}. Descending into every group instead would parse a
+ * pgfplots/keyval OPTIONS group, or a layout command's own argument
+ * (\setlength{\tabcolsep}{4pt}), as body — so the evidence test is the whole
+ * discrimination, and it gets the boxes for free: \resizebox's {width} and
+ * {height} and \scalebox's {factor} hold no environment and no graphic, so
+ * only the LAST argument is ever descended.
+ *
+ * `top` is false inside any descended group, and that is what keeps a nested
+ * \caption (a \subfigure's, an inner box's) from being hoisted onto the outer
+ * float — it belongs to whatever construct encloses it, so below float level
+ * a \caption is left exactly where it was written.
+ *
+ * A LOOSE RUN is everything between two float-level constructs: the prose a
+ * float carries beside its graphic ("(a) left, (b) right", a note written
+ * under the image). Kept unparsed it stays in the source but never reaches
+ * the surface the user edits in — visible in the compiled mirror, absent from
+ * the document. Runs are flushed through parseBlocks only when they actually
+ * BEAR PROSE (runBearsProse): a run of pure furniture — \centering, \small, a
+ * \subfloat whose only text sits in its bracket argument — would otherwise
+ * island its command bytes onto the surface as junk, a worse defect than the
+ * one being fixed. A group we DESCEND into ends the run before it; a group we
+ * do not (options, dimensions) stays part of the run around it. */
+function scanFloatLevel(cur: Cursor, lo: number, hi: number, sink: FloatSink, top: boolean, depth: number): void {
+  let i = lo
   let runLo = -1
   const flushRun = (runHi: number) => {
-    if (runLo >= 0 && runBearsProse(cur, runLo, runHi)) body.push(...parseBlocks(cur, runLo, runHi))
+    if (runLo >= 0 && runBearsProse(cur, runLo, runHi)) sink.body.push(...parseBlocks(cur, runLo, runHi))
     runLo = -1
   }
 
-  while (i < close) {
+  while (i < hi) {
     const t = cur.toks[i]
     if (t.kind === 'envbegin') {
       flushRun(i)
-      const envClose = findEnvEnd(cur.toks, i, close, t.name)
-      if (envClose < 0) { i = close; break }
-      body.push(parseEnv(cur, i, envClose, t.name))
+      const envClose = findEnvEnd(cur.toks, i, hi, t.name)
+      if (envClose < 0) break
+      sink.body.push(parseEnv(cur, i, envClose, t.name))
       i = envClose + 1
       continue
     }
     if (t.kind === 'cs') {
-      if (t.name === 'caption') {
-        const b = matchBracketGroup(cur, i + 1, close)
-        const g = matchBraceGroup(cur, b ? b.close + 1 : i + 1, close)
-        if (g) { flushRun(i); caption = parseInline(cur, g.lo, g.hi); i = g.close + 1; continue }
+      if (top && t.name === 'caption') {
+        const b = matchBracketGroup(cur, i + 1, hi)
+        const g = matchBraceGroup(cur, b ? b.close + 1 : i + 1, hi)
+        if (g) { flushRun(i); sink.caption = parseInline(cur, g.lo, g.hi); i = g.close + 1; continue }
       }
-      if (t.name === 'label') {
-        const g = matchBraceGroup(cur, i + 1, close)
-        if (g) { flushRun(i); label = groupText(cur, g); i = g.close + 1; continue }
+      if (top && t.name === 'label') {
+        const g = matchBraceGroup(cur, i + 1, hi)
+        if (g) { flushRun(i); sink.label = groupText(cur, g); i = g.close + 1; continue }
       }
       if (t.name === 'includegraphics') {
-        const b = matchBracketGroup(cur, i + 1, close)
-        const g = matchBraceGroup(cur, b ? b.close + 1 : i + 1, close)
+        const b = matchBracketGroup(cur, i + 1, hi)
+        const g = matchBraceGroup(cur, b ? b.close + 1 : i + 1, hi)
         if (g) {
           flushRun(i)
-          graphics.push({
+          sink.graphics.push({
             span: { start: t.span.start, end: cur.toks[g.close].span.end },
             path: groupText(cur, g).trim(),
             opts: b ? groupText(cur, b) : undefined,
@@ -543,18 +570,36 @@ function parseFloatEnv(cur: Cursor, open: number, close: number, env: 'figure' |
         }
       }
     }
-    if (runLo < 0) runLo = i
     if (t.kind === 'open') {
-      // skip a balanced group so nested commands aren't misread as float-level
-      // (the group's bytes stay part of the run around it)
-      const g = matchGroupFrom(cur, i, close)
-      i = g ? g.close + 1 : i + 1
+      const g = matchGroupFrom(cur, i, hi)
+      if (!g) { i++; continue }
+      if (depth < FLOAT_GROUP_DEPTH && groupHoldsContent(cur, g)) {
+        flushRun(i)
+        scanFloatLevel(cur, g.lo, g.hi, sink, false, depth + 1)
+      } else if (runLo < 0) {
+        runLo = i
+      }
+      i = g.close + 1
       continue
     }
+    if (runLo < 0) runLo = i
     i++
   }
-  flushRun(close)
-  return { kind: 'float', span, env, starred, caption, label, graphics, body }
+  flushRun(hi)
+}
+
+/** does this group hold something that sets content the float should show?
+ * A \begin{…} of ANY environment counts, recognized or not: an unknown one
+ * parses to an island carrying its real source, which is this parser's
+ * honest fallback everywhere else and beats the content vanishing. Key/value
+ * option groups and dimension arguments contain neither. */
+function groupHoldsContent(cur: Cursor, g: Group): boolean {
+  for (let i = g.lo; i < g.hi; i++) {
+    const t = cur.toks[i]
+    if (t.kind === 'envbegin') return true
+    if (t.kind === 'cs' && t.name === 'includegraphics') return true
+  }
+  return false
 }
 
 /** glue primitives whose dimension is a BARE argument, not a braced one

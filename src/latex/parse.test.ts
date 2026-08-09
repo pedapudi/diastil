@@ -1,4 +1,7 @@
 // @vitest-environment node
+import { readdirSync, readFileSync, existsSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseLatex, setsNoType, spansSane, stitch } from './parse'
 import type { LxBlock, LxInline } from './parse'
@@ -284,6 +287,71 @@ describe('parseLatex structure', () => {
       expect(bodyText(inner, full)).not.toContain('One Slide')
     })
   })
+
+  describe('float body groups — content behind a brace (issue #21)', () => {
+    const float = (src: string) => {
+      const [f] = body(DOC(src))
+      expect(f.kind).toBe('float')
+      return f as Extract<LxBlock, { kind: 'float' }>
+    }
+    const TAB = '\\begin{tabular}{lr}a & 1 \\\\\\end{tabular}'
+
+    it('a bare {…} group holding a tabular becomes float body', () => {
+      // llama.tex's idiom: \setlength then a bare group around the table.
+      // Skipped wholesale, the float rendered as a caption and nothing else.
+      const f = float(`\\begin{table}[h]\n\\centering\n\\setlength{\\tabcolsep}{4pt}\n{\n${TAB}\n}\n\\caption{C}\n\\end{table}`)
+      expect(f.body.map((b) => b.kind)).toEqual(['tabular'])
+      expect(f.caption).toBeTruthy()
+    })
+
+    it('a group opening with a declaration still yields its tabular', () => {
+      // palm.tex: {\renewcommand{\arraystretch}{1.25} \begin{tabular}…}
+      const f = float(`\\begin{table}\n{\\renewcommand{\\arraystretch}{1.25}\n${TAB}}\n\\caption{C}\n\\end{table}`)
+      expect(f.body.map((b) => b.kind)).toEqual(['tabular'])
+    })
+
+    it('\\resizebox: only the LAST argument is content, never the dimensions', () => {
+      const f = float(`\\begin{table}\n\\caption{C}\n\\resizebox{\\textwidth}{!}{%\n${TAB}\n}\n\\end{table}`)
+      expect(f.body.map((b) => b.kind)).toEqual(['tabular'])
+      // the width/height groups produced no block of their own
+      expect(f.body).toHaveLength(1)
+    })
+
+    it('\\scalebox: the factor is not body either', () => {
+      const f = float(`\\begin{table*}\n\\scalebox{0.72}{\n${TAB}}\n\\caption{C}\n\\end{table*}`)
+      expect(f.body.map((b) => b.kind)).toEqual(['tabular'])
+    })
+
+    it('a nested \\caption is NEVER hoisted onto the outer float', () => {
+      // THE HAZARD: a sub-float's own caption must not become the float's.
+      // The outer caption is the one at float level; the inner one stays
+      // where it was written (invisible, as before — never misattributed).
+      const f = float(`\\begin{figure}\n{\\begin{tabular}{l}x \\\\\\end{tabular}\\caption{Inner}}\n\\caption{Outer}\n\\end{figure}`)
+      expect(f.caption).toBeTruthy()
+      expect(f.caption!.map((n) => (n.kind === 'text' ? n.text : '')).join('')).toContain('Outer')
+    })
+
+    it('a group with no environment or graphic in it is left alone', () => {
+      // an OPTIONS group (pgfplots keys, a \renewcommand run) reads exactly
+      // like a content group to a brace scanner; only positive evidence —
+      // a \begin{…} or an \includegraphics — earns the descent
+      const f = float('\\begin{figure}\n{\\footnotesize\\renewcommand{\\arraystretch}{1.2}}\n\\caption{C}\n\\end{figure}')
+      expect(f.body).toHaveLength(0)
+    })
+
+    it('\\subfigure{…}: the image is found, the sub-caption bracket is not body', () => {
+      const f = float('\\begin{figure}[t]\n\\subfigure[]{\n\\centering\n\\includegraphics[width=0.48\\linewidth]{a.pdf}\n}\n\\caption{C}\n\\end{figure}')
+      expect(f.graphics.map((g) => g.path)).toEqual(['a.pdf'])
+    })
+
+    it('an unrecognized environment behind a brace islands honestly rather than vanishing', () => {
+      // llama.tex figure: { \tt \tiny \begin{tabularx}… }. tabularx is not
+      // in the vocabulary, so the descent yields an island carrying the real
+      // source — the compiled mirror shows it typeset either way
+      const f = float('\\begin{figure}[h]\n{ \\tt \\tiny\n\\begin{tabularx}{\\linewidth}{rX}a & b \\\\\\end{tabularx}}\n\\caption{C}\n\\end{figure}')
+      expect(f.body.map((b) => b.kind)).toEqual(['island'])
+    })
+  })
 })
 
 describe('parseLatex inline', () => {
@@ -463,4 +531,52 @@ describe('expanded environments', () => {
     const styled = (p as Extract<LxBlock, { kind: 'para' }>).inline.find((n) => n.kind === 'style')
     expect(styled && (styled as Extract<LxInline, { kind: 'style' }>).cmd).toBe('sf')
   })
+})
+
+/* A float that shows a caption and NOTHING ELSE is the shape that makes an
+ * import look broken, so it gets its own corpus ratchet. The ones in
+ * corpus.test.ts weigh TOP-LEVEL block spans only: a float is one non-island
+ * block whether its body holds a table or nothing at all, so neither the
+ * island ratio nor the structure count moves when this defect appears or is
+ * fixed. This count only moves DOWN. */
+describe('corpus: floats that would render as a bare caption', () => {
+  const texDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'corpus', 'tex')
+  const fixtures = existsSync(texDir)
+    ? readdirSync(texDir, { withFileTypes: true })
+        .map((e) => (e.isDirectory() ? join(e.name, `${e.name}.tex`) : e.name))
+        .filter((f) => f.endsWith('.tex'))
+        .filter((f) => existsSync(join(texDir, f)))
+        .sort()
+    : []
+
+  /** every float in a source — nested in a wrapper, a list item, or another
+   * float included; a float's visible content is its graphics plus its body */
+  const floatsIn = (blocks: LxBlock[], out: Array<Extract<LxBlock, { kind: 'float' }>> = []) => {
+    for (const b of blocks) {
+      if (b.kind === 'float') { out.push(b); floatsIn(b.body, out) }
+      else if (b.kind === 'wrapper' || b.kind === 'abstract') floatsIn(b.body, out)
+      else if (b.kind === 'list') for (const item of b.items) floatsIn(item.blocks, out)
+    }
+    return out
+  }
+
+  /* measured 2026-08-09, issue #21 (float body groups): 27 → 2 across the
+   * whole corpus. What the descent recovered: bare `{ … }` groups (llama 2,
+   * palm 2, palm2 1), \resizebox{w}{h}{…} (bloom 5, flan 9, palm2 1),
+   * \scalebox{f}{…} (llama 1), \subfigure{…} images (palm 2, palm2 1), and
+   * one honest island for llama's \begin{tabularx}. The 2 that remain are
+   * llama's \begin{figure*}\section{…}\end{figure*} page-break hack — float
+   * level PROSE, a different defect from a group the scanner refused to
+   * open, and one no brace descent can reach. */
+  const CAPTION_ONLY_CEILING: Record<string, number> = {
+    'llama/llama.tex': 2,
+  }
+
+  for (const file of fixtures) {
+    it(`${file} — caption-only float count holds the ratchet`, () => {
+      const src = readFileSync(join(texDir, file), 'utf-8')
+      const bare = floatsIn(parse(src).blocks).filter((f) => f.graphics.length === 0 && f.body.length === 0)
+      expect(bare.length).toBeLessThanOrEqual(CAPTION_ONLY_CEILING[file] ?? 0)
+    })
+  }
 })
