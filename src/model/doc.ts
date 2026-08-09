@@ -13,8 +13,9 @@
  *                                            comments trailer it owns)   */
 
 import { parseLatex } from '../latex/parse'
-import { renderDoc, setRenderMacros } from '../latex/render'
+import { setRenderMacros } from '../latex/render'
 import { DocSource } from '../latex/source'
+import { DocProject, composeProject, markUnresolved, resolveInputPath } from '../latex/project'
 import { refreshDerived } from '../doc/derived'
 import { DOC_RUNTIME } from '../doc/runtime'
 import { freshId, scopeToHost, unscopeFromHost } from './parse'
@@ -25,8 +26,15 @@ export interface Doc {
   themeStyle: HTMLStyleElement
   /** the rendered dialect body — article.dia-doc, a direct root child */
   article: HTMLElement
-  /** LaTeX truth + session-only block-id → span map */
+  /** LaTeX truth + session-only block-id → span map, for the MAIN file.
+   * Stays exactly what it always was: every single-file path reads it
+   * unchanged, and a single-file document's project holds nothing else. */
   source: DocSource
+  /** the main file plus whatever \input/\include files were readable, each
+   * with its own span map (latex/project.ts). A block edited in an included
+   * file patches THAT file — `project.sourceOfId(id)` is what the write
+   * path routes on. */
+  project: DocProject
   /** raw JSON text of the comments block (owned by the comment store) */
   commentsJson: string
   /** original .tex file name, kept for .tex export */
@@ -52,10 +60,15 @@ export function loadDoc(html: string, host: HTMLElement, fileName: string): Doc 
   const srcEl = parsed.querySelector('script#dia-source')
   let tex = ''
   let texName = fileName.replace(/\.html?$/i, '.tex')
+  let files: Record<string, string> = {}
   try {
-    const j = JSON.parse(srcEl?.textContent ?? '{}') as { tex?: string; fileName?: string }
+    const j = JSON.parse(srcEl?.textContent ?? '{}') as
+      { tex?: string; fileName?: string; files?: Record<string, string> }
     tex = j.tex ?? ''
     if (j.fileName) texName = j.fileName
+    // the artifact carries the WHOLE project, so a saved multi-file
+    // document reopens complete with no daemon and no folder grant
+    if (j.files && typeof j.files === 'object') files = j.files
   } catch {
     console.error('dia-doc: #dia-source block is not valid JSON — opening with empty source')
   }
@@ -74,6 +87,7 @@ export function loadDoc(html: string, host: HTMLElement, fileName: string): Doc 
 
   const doc = mountDoc(host, {
     tex,
+    files,
     themeCss: parsed.querySelector<HTMLStyleElement>('style#dia-theme')?.textContent ?? null,
     commentsJson,
     texName,
@@ -92,13 +106,24 @@ export function loadDoc(html: string, host: HTMLElement, fileName: string): Doc 
   return doc
 }
 
-/** open a bare .tex file — wraps it into a fresh document */
-export function loadDocFromTex(texRaw: string, host: HTMLElement, fileName: string): Doc {
+/** Open a bare .tex file — wraps it into a fresh document.
+ *
+ * `files` is the project's other files, project-relative, when the caller
+ * could read them (folder grant, daemon). It is OPTIONAL on purpose:
+ * opening a .tex offline with nothing but its own bytes must work, and
+ * every \input it cannot reach stays an island that says so. */
+export function loadDocFromTex(
+  texRaw: string,
+  host: HTMLElement,
+  fileName: string,
+  files: Record<string, string> = {},
+): Doc {
   const { tex, commentsJson } = splitCommentsTrailer(texRaw)
   const parsed = parseLatex(tex)
   const meta = parsed.blocks[0]?.kind === 'preamble' ? parsed.blocks[0].meta : {}
   return mountDoc(host, {
     tex,
+    files,
     themeCss: null,
     commentsJson,
     texName: fileName,
@@ -111,6 +136,7 @@ export function loadDocFromTex(texRaw: string, host: HTMLElement, fileName: stri
 
 interface MountInput {
   tex: string
+  files: Record<string, string>
   themeCss: string | null
   commentsJson: string
   texName: string
@@ -193,6 +219,19 @@ function mountDoc(host: HTMLElement, input: MountInput): Doc {
       background: var(--dia-paper);
       pointer-events: none; animation: de-stale-pulse 1.7s ease-in-out infinite; }
     @keyframes de-stale-pulse { 0%, 100% { opacity: .45 } 50% { opacity: 1 } }
+    /* An \\input whose file we could not read. It has to read as a HOLE —
+     * the failure mode this guards against is a chapter that is silently
+     * not there, and a grey mono line looks like every other island. The
+     * note is a .dia-editor-artifact, so neither the block's render memo
+     * nor the saved file ever sees it (latex/project.ts markUnresolved). */
+    article.dia-doc > *:has(> .dia-input-unreached) {
+      border-left: 3px solid var(--dia-accent); padding-left: 0.7rem;
+      background: color-mix(in srgb, var(--dia-accent) 6%, transparent); }
+    .dia-input-unreached { display: block; margin-top: 0.3rem;
+      font-family: var(--dia-face-label); font-size: 0.72rem; line-height: 1.5;
+      color: var(--dia-accent); }
+    .dia-input-unreached::before { content: "not reached — "; text-transform: uppercase;
+      letter-spacing: .1em; }
   `
   root.appendChild(editorBase)
 
@@ -201,16 +240,22 @@ function mountDoc(host: HTMLElement, input: MountInput): Doc {
   const preamble = parsedDoc.blocks[0]
   const pmeta = preamble?.kind === 'preamble' ? preamble.meta : undefined
   setRenderMacros(pmeta?.textMacros, pmeta?.quietMacros)
-  const rendered = renderDoc(parsedDoc)
+  const project = new DocProject(mainPathOf(input.texName), source, input.files)
+  const rendered = composeProject(project)
   root.appendChild(rendered.article)
 
-  // session ids everywhere; top-level blocks bind their source spans
+  // session ids everywhere; top-level blocks bind their source spans — in
+  // the file that OWNS them, which for a single-file document is the only
+  // file there is
   for (const el of [rendered.article, ...rendered.article.querySelectorAll<HTMLElement>('*')]) {
     if (!el.hasAttribute('data-dia-id')) el.setAttribute('data-dia-id', freshId('d'))
   }
   for (const b of rendered.blocks) {
-    source.bind(b.el.getAttribute('data-dia-id') as string, b.span)
+    project.bind(b.el.getAttribute('data-dia-id') as string, b.path, b.span)
   }
+  // an \input we could not follow keeps its own bytes and SAYS so — never
+  // a chapter that quietly is not there
+  markUnresolved(rendered.unresolved)
 
   // resolve derived content (ref numbers) BEFORE any serialization — the
   // pass re-seals render memos, so emit stays byte-exact afterwards
@@ -221,6 +266,7 @@ function mountDoc(host: HTMLElement, input: MountInput): Doc {
     themeStyle,
     article: rendered.article,
     source,
+    project,
     commentsJson: input.commentsJson,
     texName: input.texName,
     headExtras: input.headExtras,
@@ -229,6 +275,15 @@ function mountDoc(host: HTMLElement, input: MountInput): Doc {
     docVersion: input.docVersion,
     docclass: pmeta?.docclass,
   }
+}
+
+/** The main file's identity INSIDE the project: its bare name, relative to
+ * the project root it sits at the top of. Only the cycle check reads it —
+ * a chapter that \inputs the main file back must be refused, and it can
+ * only be recognized by name. */
+function mainPathOf(texName: string): string {
+  const base = texName.split(/[/\\]/).pop() ?? ''
+  return resolveInputPath(base) ?? 'main.tex'
 }
 
 /* ---------- serialize ---------- */
@@ -255,7 +310,7 @@ export function serializeDoc(doc: Doc): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(doc.title)}</title>
 ${doc.headExtras ? doc.headExtras + '\n' : ''}<script type="application/json" id="dia-source">
-${inertJson(JSON.stringify({ version: 1, fileName: doc.texName, tex: doc.source.text }))}
+${inertJson(JSON.stringify(sourceBlock(doc)))}
 </script>
 <script type="application/json" id="dia-comments">
 ${inertJson(doc.commentsJson)}
@@ -267,6 +322,30 @@ ${article}${runtime}
 </body>
 </html>
 `
+}
+
+/** The #dia-source payload. `files` appears ONLY for a genuinely
+ * multi-file project, so every single-file artifact this module has ever
+ * written stays byte-identical; the paths are sorted (DocProject.
+ * includedPaths) so the key order — and therefore the bytes — is the same
+ * in every session, which is what serializeDoc(loadDoc(x)) === x needs. */
+function sourceBlock(doc: Doc): Record<string, unknown> {
+  const base = { version: 1, fileName: doc.texName, tex: doc.source.text }
+  return doc.project.multiFile ? { ...base, files: doc.project.includedTexts() } : base
+}
+
+/** Every .tex the project is made of, main first — what an export writes
+ * to disk. Byte-identical to what was opened when nothing was edited: each
+ * file's text is its own DocSource, patched only where its own blocks were.
+ * The comments trailer rides on the MAIN file alone (it always has). */
+export function exportTexFiles(doc: Doc): Array<{ path: string; text: string }> {
+  return [
+    { path: doc.texName, text: exportTex(doc) },
+    ...doc.project.includedPaths().map((path) => ({
+      path,
+      text: (doc.project.sourceOfPath(path) as DocSource).text,
+    })),
+  ]
 }
 
 /** export the LaTeX truth, with comments carried as a structured trailer

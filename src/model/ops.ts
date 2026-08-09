@@ -3,6 +3,7 @@
 
 import type { NodeGeom, Op } from '../types'
 import type { Doc } from './doc'
+import type { DocSource } from '../latex/source'
 import { routeAll, routeEdge, setNodeGeom, getNodeGeom } from '../scene/route'
 import { emitBlockTex } from '../latex/emit'
 import { applySourceText } from '../doc/reconcile'
@@ -20,8 +21,8 @@ const author = (a?: 'you' | 'copilot') => a ?? 'you'
  *
  * Both cases pass through here: the unedited emission already carries the
  * separators, so stripping and re-adding them is the identity. */
-function reseated(doc: Doc, span: { start: number; end: number }, emitted: string): string {
-  const slice = doc.source.text.slice(span.start, span.end)
+function reseated(source: DocSource, span: { start: number; end: number }, emitted: string): string {
+  const slice = source.text.slice(span.start, span.end)
   const lead = /^\s*/.exec(slice)?.[0] ?? ''
   const tail = /\s*$/.exec(slice.slice(lead.length))?.[0] ?? ''
   return lead + emitted.replace(/^\s+/, '').replace(/\s+$/, '') + tail
@@ -40,8 +41,13 @@ export function syncedBlockOp(doc: Doc, blockEl: HTMLElement, domOps: Op[], labe
     apply() {
       for (const o of domOps) o.apply()
       const id = blockEl.getAttribute('data-dia-id')
-      const span = id ? doc.source.spanOf(id) : null
-      if (span) doc.source.patch(span.start, span.end, reseated(doc, span, emitBlockTex(blockEl)))
+      // multi-file: a block rendered from an \input'd chapter binds its
+      // span in THAT file's DocSource, so the patch has to land there.
+      // Single-file documents route to doc.source exactly as before —
+      // their project holds nothing else (latex/project.ts).
+      const source = (id && doc.project.sourceOfId(id)) || doc.source
+      const span = id ? source.spanOf(id) : null
+      if (span) source.patch(span.start, span.end, reseated(source, span, emitBlockTex(blockEl)))
       else console.error('dia-doc: edited block has no bound source span — source not updated')
     },
     invert() {
