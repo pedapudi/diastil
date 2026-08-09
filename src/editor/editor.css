@@ -706,3 +706,44 @@
   padding: 8px 10px; margin: 8px 0;
   max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
 }
+
+/* ---------- find & replace (editor/docfind.ts, and the source view's bar) ----------
+ * The document's find bar FLOATS over the top-right of the surface rather
+ * than taking a row of layout: opening it must not reflow the page the user
+ * is reading, or the line they were looking at moves out from under them. */
+.de-find {
+  position: absolute; z-index: 40; top: 10px; right: 16px;
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 8px 10px;
+  background: var(--panel); border: 1px solid var(--rule); border-radius: 6px;
+  box-shadow: 0 3px 12px rgb(0 0 0 / .28);
+}
+.de-find[hidden] { display: none; }
+.de-find-row { display: flex; align-items: center; gap: 6px; }
+.de-find-row[hidden] { display: none; }
+.de-find-row .dn-input { width: 210px; }
+.de-find-count {
+  font-family: var(--mono); font-size: calc(10.5px * var(--dt-font-scale, 1));
+  font-variant-numeric: tabular-nums; color: var(--ink-faint);
+  min-width: 46px; text-align: right;
+}
+.de-find .dn-btn { padding: 3px 7px; }
+.de-find .de-find-wide { flex: 1; }
+.de-find-note {
+  max-width: 340px;
+  font-family: var(--sans); font-size: calc(10.5px * var(--dt-font-scale, 1));
+  line-height: 1.45; color: var(--ink-faint);
+}
+.de-find-note[hidden] { display: none; }
+/* a toggle is a button that stays pressed — same shape as the segmented
+ * control's on state, so "on" reads the same everywhere in the chrome */
+.de-find-tog { font-variant: small-caps; }
+.de-find-tog.is-on { background: var(--accent); color: var(--paper); border-color: var(--accent); }
+
+/* the source view's bar gained a second row; it still sits IN the layout
+ * there (the textarea below it scrolls on its own, so nothing shifts) */
+.de-src-find { flex-direction: column; align-items: stretch; gap: 6px; }
+.de-src-findrow { display: flex; align-items: center; gap: 8px; }
+.de-src-findrow[hidden] { display: none; }
+.de-src-findrow .dn-input { width: 240px; }
+.de-src-findact { flex: none; }
