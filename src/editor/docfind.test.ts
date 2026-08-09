@@ -249,7 +249,7 @@ describe('replacement escaping', () => {
   /** the characters emit.ts's escapeTex escapes with a leading backslash —
    * the ones a replacement is most likely to carry, and the ones that
    * silently change what LaTeX compiles if they get through raw */
-  const HOSTILE = ['%', '_', '&', '#', '$', '{', '}']
+  const HOSTILE = ['%', '_', '&', '#', '$', '{', '}', '\\', '~', '^']
 
   const roundTrip = (replacement: string): string => {
     const doc = mount()
@@ -266,27 +266,17 @@ describe('replacement escaping', () => {
     }
   })
 
-  /* Two characters do NOT survive, and neither failure belongs to this
-   * module — both are in the shared escape/parse pair, which this change
-   * does not own. They are pinned here as `fails` so the day someone fixes
-   * them, this test turns red and gets promoted into the one above.
-   *
-   *  - `\` : escapeTex substitutes `\textbackslash{}` and then its own NEXT
-   *    pass escapes the braces it just wrote, so the export carries
-   *    `\textbackslash\{\}` — bytes that set "\{}" in the PDF. The parser is
-   *    fine: `a\textbackslash{}b` reads back as `a\b`. Every edit path has
-   *    this bug (typing a backslash into a paragraph does the same), not
-   *    just replace.
-   *  - `~` and `^` : escapeTex writes correct LaTeX (`\textasciitilde{}`,
-   *    `\textasciicircum{}`) so the EXPORT compiles right, but parse.ts's
-   *    SYMBOL_CMD table does not carry those two macros, so reopening the
-   *    file shows the macro name as literal text. */
-  it.fails('KNOWN GAP: a literal backslash survives (escapeTex double-escapes it)', () => {
+  /* `\`, `~` and `^` were pinned here as known gaps while this module was
+   * built, because both failures lived in the shared escape/parse pair rather
+   * than in find/replace: escapeTex chained its substitutions and re-escaped
+   * the braces of the \textbackslash{} it had just written, and SYMBOL_CMD
+   * carried neither textasciitilde nor textasciicircum. Both are fixed (see
+   * latex/escape.test.ts), so all three now ride in HOSTILE above. This case
+   * stays because a replacement is the shortest path to typing one. */
+  it('a replacement carrying a backslash, tilde or caret survives', () => {
     expect(roundTrip('a\\b')).toContain('a\\b')
-  })
-
-  it.fails('KNOWN GAP: tilde and caret survive re-parse (SYMBOL_CMD has neither)', () => {
     expect(roundTrip('a~b')).toContain('a~b')
+    expect(roundTrip('a^b')).toContain('a^b')
   })
 
   it('property: random hostile strings survive a full round trip', () => {
