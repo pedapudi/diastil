@@ -469,19 +469,21 @@ describe('corpus/tex/multifile', () => {
 
 /* ---------- the root resolves to doc.source ITSELF ---------- */
 
-/* The problems drawer decides whether a compile finding belongs to a file it
- * cannot jump into by asking `source !== doc.source`. That predicate is a
- * complete guard only because this module hands back the very same DocSource
- * object for the root under every spelling the daemon can emit — not an equal
- * copy, not a per-call view.
+/* The root's DocSource and `doc.source` must be the SAME OBJECT, not an equal
+ * copy — under every spelling the daemon can emit for the root.
  *
- * It holds because one DocSource is built for the main file and that same
- * reference becomes both `doc.source` and the project's main. Nothing else
- * enforces it, and the cost of losing it is silent and remote: a defensive
- * copy or a wrapper here would make `source !== doc.source` true for the
- * ROOT, and the drawer would start telling someone their open file is
- * "\input from somewhere the editor does not splice". So the identity is
- * pinned on the side that owns it, next to the code that could break it. */
+ * This was first written to defend the problems drawer, which used to tell
+ * the root from a chapter by comparing source objects. That guard has since
+ * moved to `fileOfCompilePath` against `mainPath`, which rests on this
+ * module's documented normalization instead — a better dependency, and the
+ * reason this file no longer explains itself by pointing at the drawer.
+ *
+ * The identity still matters, for something worse than a wrong message:
+ * edits route through the project to find the file a block's bytes live in,
+ * so a defensive copy or a per-call view here would take a main-file edit,
+ * apply it to the copy, and drop it. Measured, not argued — returning
+ * `Object.create(this.main)` for the root fails these three tests AND
+ * `a main-file edit still touches only the main file` above. */
 describe('the root source is doc.source by identity, not by value', () => {
   const SPELLINGS = ['main.tex', './main.tex', 'paper.tex', './paper.tex']
 
@@ -516,9 +518,9 @@ describe('the root source is doc.source by identity, not by value', () => {
     host.remove()
   })
 
-  it('survives an empty body, which is where the guard is load-bearing', () => {
-    // zero bindings in the root — the shape a count-based rule mistakes for
-    // an unspliced chapter (see editor/problems.test.ts)
+  it('survives an empty body, where the root holds no bindings at all', () => {
+    // zero bindings in the root — the shape that makes a count-based rule
+    // mistake the open file for an unspliced chapter (editor/problems.test.ts)
     const host = document.createElement('div')
     document.body.appendChild(host)
     const doc = loadDocFromTex('\\documentclass{article}\n\\begin{document}\n\\end{document}\n',
