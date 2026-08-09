@@ -43,10 +43,12 @@ def test_gzipped_reads_identically(tmp_path):
 
 
 def test_missing_or_garbage_file_is_empty_not_fatal(tmp_path):
-    """No lines, but still the axis labels: they describe the format, not
-    the file, so a client parsing an empty answer keeps its bearings."""
-    empty = {"pages": [], "lines": [],
-             "xSemantics": "leftPt", "ySemantics": "topDownPt"}
+    """No lines and no boxes, but still the semantics labels: they describe
+    the format, not the file, so a client parsing an empty answer keeps its
+    bearings."""
+    empty = {"pages": [], "lines": [], "boxes": [], "inputs": [], "mainTag": None,
+             "xSemantics": "leftPt", "ySemantics": "topDownPt",
+             "boxSemantics": "refPointPt"}
     assert parse_synctex(tmp_path / "nope.synctex") == empty
     junk = tmp_path / "junk.synctex"
     junk.write_bytes(b"\x1f\x8bnot actually gzip")
@@ -204,3 +206,137 @@ def test_records_from_other_input_files_are_dropped(tmp_path):
     assert len(lines) == 1  # the .bbl's line-10 record is gone
     assert lines[0]["line"] == 10
     assert lines[0]["y"] == 79.5  # main.tex's box, not the .bbl's
+
+
+# ---------------------------------------------------------------------------
+# the box tree
+# ---------------------------------------------------------------------------
+
+def boxes_of(out, tag=1):
+    """the credited boxes, as (lines, rect) — the shape a client crops from"""
+    got = []
+    for b in out["boxes"]:
+        lines = sorted(l for t, l in b["src"] if t == tag)
+        if not lines:
+            continue
+        got.append((lines, (b["x"], round(b["x"] + b["w"], 2),
+                            round(b["y"] - b["h"], 2), round(b["y"] + b["d"], 2))))
+    return got
+
+
+def test_boxes_report_the_rectangle_the_engine_set(tmp_path):
+    """`x, y` is TeX's reference point: the box covers x..x+w across and
+    y-h..y+d down. Verified against a real compile — see parse_boxes."""
+    out = write(tmp_path, NESTED)
+    got = dict((tuple(lines), rect) for lines, rect in boxes_of(out))
+    # line 5's own line of type: 220pt wide, 7.16pt tall, 0.22pt deep
+    assert got[(5,)] == (25.0, 245.0, 27.84, 35.22)
+    assert out["boxSemantics"] == "refPointPt"
+
+
+def test_a_container_is_not_credited_to_the_line_that_closed_it(tmp_path):
+    """The rule the whole box tree turns on. Source line 7 is the line the
+    page break landed on, so it owns the page box, the text block and BOTH
+    column boxes as well as its own two lines of type. Every one of those
+    containers holds boxes that speak for other lines, and crediting them
+    would crop the whole page to line 7."""
+    out = write(tmp_path, NESTED)
+    rects = [rect for lines, rect in boxes_of(out) if 7 in lines]
+    # only line 7's own two lines of type, both in column two
+    assert rects == [(255.0, 475.0, 27.62, 35.22), (255.0, 475.0, 39.84, 47.22)]
+
+
+def test_a_box_holding_only_its_own_line_survives_the_containment_rule(tmp_path):
+    """…and the rule must not eat a real one. A section heading's line box
+    holds nothing but the box of its section NUMBER, credited to the very
+    same source line."""
+    synctex = NESTED.replace(
+        "h1,5:1638401,2293761:655360,0,0",
+        "(1,5:1638401,2293761:1638400,469238,14417\n"
+        "h1,5:1638401,2293761:655360,0,0\n"
+        ")\n"
+        "k1,5:3276801,2293761:65536")
+    rects = [rect for lines, rect in boxes_of(write(tmp_path, synctex)) if lines == [5]]
+    assert (25.0, 245.0, 27.84, 35.22) in rects, "lost the heading's own line box"
+
+
+def test_a_zero_extent_box_is_never_credited(tmp_path):
+    """TeX writes plenty of boxes with no rectangle — the 1in origin marker
+    (w=0), the empty running head (h+d=0) — and each would be a crop of
+    nothing. Measured: 65 such boxes in llama.tex, 57 in beamer.tex."""
+    for lines, rect in boxes_of(write(tmp_path, NESTED)):
+        assert rect[1] > rect[0] and rect[3] > rect[2], f"credited an empty box: {lines} {rect}"
+
+
+def test_a_strut_does_not_credit_the_box_it_stands_in(tmp_path):
+    """A rule with no width is a strut, and struts carry the line of the
+    MACRO that defined them. llama.tex's figure caption holds
+    `r1,316:...:0,692380,141880`, which credited the caption's rectangle to
+    a paragraph eight pages later."""
+    synctex = NESTED.replace(
+        "h1,5:1638401,2293761:655360,0,0",
+        "k1,5:1638401,2293761:65536\nr1,999:1638401,2293761:0,692380,141880")
+    assert [l for l, _ in boxes_of(write(tmp_path, synctex)) if 999 in l] == []
+
+
+def test_the_current_point_record_is_not_a_witness(tmp_path):
+    """`x` records carry the AMBIENT tag/line — for a paragraph's line boxes
+    that is the line \\par fired on, which is usually blank. They credit
+    nothing while a real node is there to."""
+    synctex = NESTED.replace(
+        "h1,5:1638401,2293761:655360,0,0",
+        "x1,998:1638401,2293761\nk1,5:1638401,2293761:65536")
+    assert [l for l, _ in boxes_of(write(tmp_path, synctex)) if 998 in l] == []
+
+
+def test_a_leaf_with_no_node_witness_falls_back_to_its_own_line(tmp_path):
+    """64 of llama.tex's 3594 content boxes are a lone linked word or a
+    `$x$` with no kern or glue in them at all. On every one the box's own
+    tag and line was the right answer; the ladder is there so the leaf
+    degrades to it instead of vanishing."""
+    synctex = NESTED.replace("h1,5:1638401,2293761:655360,0,0", "x1,5:1638401,2293761")
+    assert [l for l, _ in boxes_of(write(tmp_path, synctex)) if l == [5]] != []
+
+
+def test_parent_indexes_back_into_the_same_list(tmp_path):
+    """Containment is what tells a hanging `\\item` label from a second
+    column, so the chain has to resolve — and a parent always precedes its
+    children."""
+    out = write(tmp_path, NESTED)
+    for i, b in enumerate(out["boxes"]):
+        assert -1 <= b["parent"] < i
+
+
+def test_boxes_keep_every_input_file_and_name_the_main_one(tmp_path):
+    """Only main.tex's lines mean anything to the editor's source — but a
+    `.bbl`'s boxes are still reported, keyed by ITS tag, so a client that
+    grows multi-file support has them and one that has not can ignore them
+    by tag rather than by guessing."""
+    synctex = "\n".join([
+        "SyncTeX Version:1",
+        "Input:1:/tmp/dia-tex-x/main.tex",
+        "Input:2:/tmp/dia-tex-x/refs.bbl",
+        "Input:3:",
+        "Unit:1",
+        "Content:",
+        "{1",
+        "(1,10:4736286,5209886:30785863,655360,196608",
+        "h1,10:4736286,5209886:30785863,655360,196608",
+        ")",
+        "(2,10:4736286,9000000:30785863,655360,196608",
+        "h2,10:4736286,9000000:30785863,655360,196608",
+        ")",
+        "}1",
+    ])
+    path = tmp_path / "main.synctex"
+    path.write_text(synctex, encoding="utf-8")
+    out = parse_synctex(path)
+    assert out["mainTag"] == 1
+    assert out["inputs"] == [
+        {"tag": 1, "path": "/tmp/dia-tex-x/main.tex", "name": "main.tex"},
+        {"tag": 2, "path": "/tmp/dia-tex-x/refs.bbl", "name": "refs.bbl"},
+        # tectonic leaves the name blank for files it wrote itself; reported
+        # anyway, so a client can still say "these boxes are not mine"
+        {"tag": 3, "path": "", "name": ""},
+    ]
+    assert [b["src"] for b in out["boxes"]] == [[[1, 10]], [[2, 10]]]
