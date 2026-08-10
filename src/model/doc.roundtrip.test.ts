@@ -204,6 +204,19 @@ describe('doc round-trip', () => {
     expect(out).not.toContain('data-dia-id')
   })
 
+  it('a provisional ref carries its marking AND its rule into the artifact', () => {
+    // SAMPLE_TEX has never been compiled, so every ref in it is counted by
+    // us — the marking is only worth anything if the saved file can show
+    // it, which means the rule must live in the THEME sheet (kept) and not
+    // in dia-editor-base (dropped).
+    const out = serializeDoc(mountTex(SAMPLE_TEX))
+    expect(out).toContain('class="dia-ref dia-ref-provisional"')
+    expect(out).toContain('a.dia-ref.dia-ref-provisional')
+    expect(out).toContain('title="provisional number')
+    // and it survives the reopen, so a second save is still byte-stable
+    expect(serializeDoc(mountHtml(out))).toBe(out)
+  })
+
   // one fixture per document FAMILY the corpus covers (see corpus/tex/README.md
   // and issue #8) — a two-column conference paper, plus book/beamer/biblatex/
   // amsthm, each exercising presentation heuristics the others don't
