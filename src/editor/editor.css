@@ -787,3 +787,23 @@
   color: var(--accent);
   cursor: pointer;
 }
+
+/* ---------- outline: the front line without a \title (editor/outline.ts) ----------
+ * The line above the headings speaks for everything before the first one.
+ * With a \title it IS the document's title and is set like one; without one
+ * there is no header in the paper to name it, so it borrows the model's
+ * fallback — the file's own name — and says so by being set like a caption
+ * instead of a title. Same weight and colour as a heading row, italic: the
+ * reader must not read it as a \title the document does not have, and the
+ * find and comment counts on it have to look like the counts on every other
+ * row, because they answer the same question.
+ *
+ * Both badges keep `margin-left: auto` from the shared pill, which does
+ * nothing in this line's block box (a heading row is the flex one), so they
+ * follow the text instead of hugging the right edge — and need the gap a
+ * flex row gets for free, or the count butts against the last word. */
+.de-outline-noname {
+  font-weight: 400; font-style: italic; color: var(--ink-soft);
+  font-size: calc(10.5px * var(--dt-font-scale, 1));
+}
+.de-outline-title > .de-outline-badge { margin-left: 6px; }
