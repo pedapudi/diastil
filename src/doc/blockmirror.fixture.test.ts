@@ -27,7 +27,8 @@ import { state } from '../state'
 import { loadDocFromTex, type Doc } from '../model/doc'
 import { inkBounds, inkCount, type PageInk } from './pageink'
 import {
-  claimsFor, cutDocument, lineRangeOf, mirrorTargets, normalizeBoxMap, ownership,
+  claimsFor, cropShowing, cutDocument, isMirrored, lineRangeOf, mirrorTargets, normalizeBoxMap,
+  ownership,
   type Claim, type PageSource, type Pass,
 } from './blockmirror'
 
@@ -242,6 +243,42 @@ describe.skipIf(skip)('corpus breadth (issue #8): every block accounted for', ()
       ).toBeLessThanOrEqual(knownUnaccounted)
     })
   }
+})
+
+/* Find's counts hang on crops, and a block hidden because a NEIGHBOUR's
+ * picture already shows its words has its matches under that picture — so
+ * "which crop is standing over this block" has to be answered from the
+ * classifier's own verdict, not guessed from the DOM. The two verdicts that
+ * look identical in the markup are the ones this pins apart. */
+describe.skipIf(skip)('cropShowing: which picture is standing over a block', () => {
+  it('every hidden block either names the crop showing its ink or names none, and never a bare block', async () => {
+    for (const { paper, tex } of CORPUS_BREADTH_FIXTURES) {
+      const { doc } = await cutFixture(paper, tex)
+      for (const block of mirrorTargets(doc.article)) {
+        const crop = cropShowing(block)
+        if (crop === null) continue
+        // whatever it names is a block actually showing a picture — a count
+        // hung anywhere else would be pointing at nothing
+        expect(isMirrored(crop), `${paper}: ${(block.textContent ?? '').slice(0, 40)}`).toBe(true)
+        if (crop !== block) {
+          expect(block.querySelector(':scope > .de-mirror-hidden')).not.toBeNull()
+        }
+      }
+    }
+  })
+
+  it('beamer\'s \\section markers are in NO picture — the engine set no type for them', async () => {
+    const { doc } = await cutFixture('beamer', 'beamer/beamer.tex')
+    const sections = [...doc.article.querySelectorAll<HTMLElement>('h2.dia-sec')]
+    expect(sections.length).toBe(3)
+    for (const section of sections) {
+      // hidden, like an absorbed run-in heading, and the markup cannot tell
+      // them apart — but its words are on no page, so pointing a reader at
+      // the frame next door would be pointing at a slide without them
+      expect(section.querySelector(':scope > .de-mirror-hidden')).not.toBeNull()
+      expect(cropShowing(section), section.textContent ?? '').toBeNull()
+    }
+  })
 })
 
 describe.skipIf(skip)('the ink oracle: a crop holds its own block and nothing else', () => {

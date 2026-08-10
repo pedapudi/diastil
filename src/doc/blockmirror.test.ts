@@ -24,7 +24,8 @@ import { emitBlockTex } from '../latex/emit'
 import { commitDocEdit } from './sync'
 import { setText } from '../model/ops'
 import {
-  attachMirror, boxOwns, clearMirrors, cropBand, cropsFor, encloses, installBlockMirror,
+  attachMirror, boxOwns, clearMirrors, cropBand, cropFlagCount, cropShowing, cropsFor, encloses,
+  flagCrops, installBlockMirror,
   isMirrored, isPeeked, lineRangeOf, measureOf, mirrorTargets, normalizeBox, normalizeBoxMap,
   normalizeRecord, openBlock, pageExtent, padded, peekBlock, pruneMirrors, rectOf, toTopDown,
   bibliographyPages, isFillerPage, isInklessSectionMarker, isLayoutOnlySlice,
@@ -591,6 +592,136 @@ describe('peekBlock', () => {
     expect(peekBlock(bare)).toBe(false)
     expect(isPeeked(para)).toBe(false)
     expect(para.querySelector('.de-mirror')).not.toBeNull()
+  })
+})
+
+/* ---------- counting the matches a crop stands over ---------- */
+
+/* The loan answers for the block holding the CURRENT match. Every other
+ * match in a mirrored block is still under a picture, and peeking all of
+ * them would take the render away on any common word — so the crop keeps
+ * its picture and gains a count. The count has to be as cheap as the loan:
+ * no url revoked, no byte moved, and gone the moment the crop is. */
+
+describe('flagCrops', () => {
+  const flag = (count: number, pick = (): void => {}): { count: number; pick: () => void } =>
+    ({ count, pick })
+
+  it('hangs the count inside the crop, and takes it away again', () => {
+    const doc = mount()
+    const para = mirrorTargets(doc.article).find((t) => t.matches('p'))!
+    attachMirror(doc, para, [{ url: PNG }])
+
+    flagCrops(new Map([[para, flag(7)]]))
+    const tab = para.querySelector('.de-mirror > .de-mirror-part > .de-crop-flag')!
+    expect(tab.textContent).toBe('7')
+    // inside the wrapper serializeDoc already strips, so the count needs no
+    // rule of its own to survive `> :not(.de-mirror)` and none to be stripped
+    expect(tab.classList.contains('dia-editor-artifact')).toBe(true)
+    expect(cropFlagCount(para)).toBe(7)
+
+    flagCrops(null)
+    expect(para.querySelector('.de-crop-flag')).toBeNull()
+    expect(cropFlagCount(para)).toBeNull()
+  })
+
+  it('counting keeps the crop alive across a whole search — no url is revoked', () => {
+    const doc = mount()
+    const para = mirrorTargets(doc.article).find((t) => t.matches('p'))!
+    attachMirror(doc, para, [{ url: PNG }])
+    const crop = para.querySelector<HTMLElement>('.de-mirror')!
+    const img = crop.querySelector('img')!.src
+
+    for (let i = 0; i < 20; i++) {
+      flagCrops(new Map([[para, flag(i + 1)]]))
+      flagCrops(null)
+    }
+    expect(para.querySelector('.de-mirror')).toBe(crop)
+    expect(crop.querySelector('img')!.src).toBe(img)
+    expect(isMirrored(para)).toBe(true)
+  })
+
+  it('a counted block still emits its exact source bytes and never reaches the file', () => {
+    const doc = mount()
+    const para = mirrorTargets(doc.article).find((t) => t.matches('p'))!
+    const span = doc.source.spanOf(para.getAttribute('data-dia-id')!)!
+    const exact = doc.source.text.slice(span.start, span.end)
+    attachMirror(doc, para, [{ url: PNG }])
+    flagCrops(new Map([[para, flag(3)]]))
+
+    expect(emitBlockTex(para)).toBe(exact)
+    const html = serializeDoc(doc)
+    expect(html).not.toContain('de-crop-flag')
+    expect(html).not.toContain('>3<')
+  })
+
+  it('touches nothing on the block itself', () => {
+    const doc = mount()
+    const para = mirrorTargets(doc.article).find((t) => t.matches('p'))!
+    const before = [...para.attributes].map((a) => `${a.name}=${a.value}`).sort()
+    attachMirror(doc, para, [{ url: PNG }])
+    flagCrops(new Map([[para, flag(3)]]))
+    expect([...para.attributes].map((a) => `${a.name}=${a.value}`).sort()).toEqual(before)
+  })
+
+  it('the count goes with the crop when the source changes', () => {
+    const doc = mount()
+    const para = mirrorTargets(doc.article).find((t) => t.matches('p'))!
+    attachMirror(doc, para, [{ url: 'data:,a' }])
+    flagCrops(new Map([[para, flag(2)]]))
+    commitDocEdit(doc, para, [setText(para, 'A rewritten paragraph.')], 'edit text')
+    pruneMirrors()
+    // a number hanging over a block with no picture left would be pointing
+    // at nothing — it lives in the wrapper precisely so it cannot outlive it
+    expect(para.querySelector('.de-crop-flag')).toBeNull()
+    expect(isMirrored(para)).toBe(false)
+  })
+
+  it('a peeked block takes no count — its highlights are the real thing', () => {
+    const doc = mount()
+    const para = mirrorTargets(doc.article).find((t) => t.matches('p'))!
+    attachMirror(doc, para, [{ url: PNG }])
+    peekBlock(para)
+    flagCrops(new Map([[para, flag(4)]]))
+    expect(para.querySelector('.de-crop-flag')).toBeNull()
+
+    // and a count taken before the loan does not survive it hidden
+    peekBlock(null)
+    flagCrops(new Map([[para, flag(4)]]))
+    peekBlock(para)
+    flagCrops(new Map([[para, flag(4)]]))
+    expect(para.querySelector('.de-crop-flag')).toBeNull()
+  })
+
+  it('a block with no crop cannot be counted, and zero is not a count', () => {
+    const doc = mount()
+    const [para, bare] = mirrorTargets(doc.article).filter((t) => t.matches('p'))
+    attachMirror(doc, para, [{ url: PNG }])
+    flagCrops(new Map([[bare, flag(1)], [para, flag(0)]]))
+    expect(doc.article.querySelector('.de-crop-flag')).toBeNull()
+  })
+
+  it('clicking the count runs its pick, and never opens the block for editing', () => {
+    const doc = mount()
+    const para = mirrorTargets(doc.article).find((t) => t.matches('p'))!
+    attachMirror(doc, para, [{ url: PNG }])
+    let picked = 0
+    flagCrops(new Map([[para, flag(3, () => { picked++ })]]))
+    const tab = para.querySelector('.de-crop-flag')!
+    tab.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(picked).toBe(1)
+    tab.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    expect(para.hasAttribute('contenteditable')).toBe(false)
+  })
+
+  it('cropShowing names the picture a block\'s ink is standing in', () => {
+    const doc = mount()
+    const [para, bare] = mirrorTargets(doc.article).filter((t) => t.matches('p'))
+    attachMirror(doc, para, [{ url: PNG }])
+    expect(cropShowing(para)).toBe(para)
+    // an ordinary HTML block is nobody's picture: its text is already on
+    // screen, and a highlight over it needs no count to stand in for it
+    expect(cropShowing(bare)).toBeNull()
   })
 })
 

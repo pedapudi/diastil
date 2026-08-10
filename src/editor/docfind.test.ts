@@ -8,7 +8,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { state } from '../state'
 import { exportTex, loadDoc, loadDocFromTex, serializeDoc } from '../model/doc'
-import { attachMirror, clearMirrors, isMirrored, isPeeked } from '../doc/blockmirror'
+import { attachMirror, clearMirrors, cropFlagCount, isMirrored, isPeeked } from '../doc/blockmirror'
 import { docBlocks } from '../doc/sync'
 import {
   buildReplaceOp, closeDocFind, collectDocMatches, docFindOwnsKey, findInText, mountDocFind,
@@ -408,6 +408,72 @@ describe('the find bar', () => {
     expect(isPeeked(second)).toBe(false)
     expect(isMirrored(first)).toBe(true)
     expect(isMirrored(second)).toBe(true)
+  })
+
+  /* The loan is for ONE block. The other matches are still under pictures,
+   * and on llama.tex (131 of 152 blocks mirrored) a common word left the
+   * reader a count of twenty and one mark. Each of those crops now carries
+   * a count of its own — the render stays, and the reader can see where the
+   * other nineteen went. */
+
+  it('counts the matches every OTHER crop is standing over', () => {
+    const doc = mount()
+    const paras = docBlocks(doc).filter((b) => b.matches('p'))
+    const first = paras.find((b) => b.textContent!.startsWith('First paragraph'))!
+    const second = paras.find((b) => b.textContent!.startsWith('Second paragraph'))!
+    attachMirror(doc, first, [{ url: 'data:,a' }])
+    attachMirror(doc, second, [{ url: 'data:,b' }])
+
+    openDocFind()
+    type(field(0), 'paragraph')
+    // the current match's block is peeked, so its shading is the real thing
+    // and it wants no count; the one behind the picture gets one
+    expect(isPeeked(first)).toBe(true)
+    expect(cropFlagCount(first)).toBeNull()
+    expect(cropFlagCount(second)).toBe(1)
+
+    btn('›').click()
+    expect(cropFlagCount(first)).toBe(1)
+    expect(cropFlagCount(second)).toBeNull()
+
+    closeDocFind()
+    expect(cropFlagCount(first)).toBeNull()
+    expect(cropFlagCount(second)).toBeNull()
+  })
+
+  it('a crop\'s count is every match under that picture, not one per block', () => {
+    const doc = mount()
+    const first = docBlocks(doc).find((b) => b.textContent!.startsWith('First paragraph'))!
+    attachMirror(doc, first, [{ url: 'data:,a' }])
+    openDocFind()
+    // "First paragraph, with style and deliberate odd whitespace" holds six
+    // of these on its own
+    type(field(0), 'a')
+    const total = Number(countEl().textContent!.split('/')[1])
+    // walk the current match out of this block: while it is in there the
+    // block is on loan and shading for real, which is not what is being
+    // measured here
+    for (let i = 0; i < total && isPeeked(first); i++) btn('›').click()
+    expect(isPeeked(first)).toBe(false)
+    expect(cropFlagCount(first)).toBe(6)
+  })
+
+  it('clicking a count steps the search into that block, and lends it back', () => {
+    const doc = mount()
+    const paras = docBlocks(doc).filter((b) => b.matches('p'))
+    const first = paras.find((b) => b.textContent!.startsWith('First paragraph'))!
+    const second = paras.find((b) => b.textContent!.startsWith('Second paragraph'))!
+    attachMirror(doc, first, [{ url: 'data:,a' }])
+    attachMirror(doc, second, [{ url: 'data:,b' }])
+
+    openDocFind()
+    type(field(0), 'paragraph')
+    expect(countEl().textContent).toBe('1/2')
+    const tab = second.querySelector('.de-crop-flag')!
+    tab.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(countEl().textContent).toBe('2/2')
+    expect(isPeeked(second)).toBe(true)
+    expect(isMirrored(second)).toBe(true) // the picture is still there to go back to
   })
 
   it('a search over a mirrored document still moves not one byte', () => {

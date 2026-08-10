@@ -678,6 +678,9 @@ function detach(block: HTMLElement): void {
   // matching only `de-mirror` here would leave the picture behind and then
   // revoke the url under it, which draws a broken image
   if (peeked === block) peeked = null
+  // the find count hangs inside the wrapper, so it goes with it — there is
+  // nothing to remove here, only the bookkeeping to forget (see flagCrops)
+  flagged.delete(block)
   for (const el of [...block.children]) {
     if (el.classList.contains('de-mirror') || el.classList.contains('de-mirror-peeked')) el.remove()
   }
@@ -757,6 +760,143 @@ function swapPeek(block: HTMLElement, back: boolean): boolean {
     }
   }
   return any
+}
+
+/* ---------- counting what a crop is standing over ---------- */
+
+/* The loan above answers for ONE block: the one holding the match the
+ * reader is standing on. Every other match in a mirrored block is still
+ * underneath a picture, so on the same llama.tex measurement a search for a
+ * common word reports "1 / 20" over a paper carrying exactly one mark.
+ *
+ * Peeking all twenty is not the answer, and the reason is not taste: twenty
+ * crops step aside, twenty blocks change height, and the paragraph the
+ * reader was looking at slides somewhere else while they type — on a term
+ * like "the" the mirror is simply gone, and the render is what they came
+ * for. Nor can the highlight be drawn ON the picture: synctex gives this
+ * file the box a source LINE's material stands in, never where a word sits
+ * inside it, so a mark placed on the pixels would be a guess, and a guess
+ * pointing at the wrong word is worse than no mark at all.
+ *
+ * What the engine's evidence does support is a COUNT. A crop knows exactly
+ * which blocks' ink it shows; so beside each picture standing over matches
+ * goes a small tab saying how many, which steps the search onto the first
+ * of them when clicked. The reader learns where the other nineteen are
+ * without the document leaving the mirror, and every one of them is one
+ * click from the loan that shows it.
+ *
+ * The tab hangs INSIDE the crop's own subtree, which settles three things
+ * at once. The wrapper is already the artifact serializeDoc strips, so a
+ * tab under it can no more reach the saved file than the picture can (and
+ * needs no rule of its own to escape `> :not(.de-mirror)`, which would
+ * otherwise hide it). `detach` removes the wrapper whole, so a crop that
+ * goes drops its count with it and can never leave a number hanging over a
+ * block with no picture left. And a peek hides the wrapper, so the one
+ * block showing real highlights loses its tab without anyone asking. The
+ * block's own markup is still never touched. */
+
+export interface CropFlag {
+  /** how many of the reader's matches this picture is standing over */
+  count: number
+  /** step the search onto the first of them */
+  pick: () => void
+}
+
+const FLAG = 'de-crop-flag'
+/** an artifact's inline style leaks nothing (the node itself is stripped),
+ * which is what lets the tab be styled from the module that owns the mirror
+ * rather than from the document stylesheet, where it would have to out-rank
+ * `> :not(.de-mirror)` to be seen at all. It reads as chrome, not as ink:
+ * the label face the staleness marker already uses.
+ *
+ * It is placed against the PICTURE, not against the block. Measured live on
+ * corpus/tex/llama, whose crops are single columns of a two-column paper,
+ * a tab hung off the block's edge stood a third of the measure away from
+ * the thing it was counting; against the part it hugs it. -1.5rem is the
+ * article's own side padding, so on a full-measure crop the tab still lands
+ * flush with the paper's edge rather than over the render. */
+const FLAG_STYLE = [
+  'position:absolute', 'right:-1.5rem', 'top:0', 'z-index:2',
+  'font-family:var(--dia-face-label)', 'font-size:0.62rem', 'line-height:1.5',
+  'font-variant-numeric:tabular-nums', 'letter-spacing:.04em',
+  'color:var(--dia-accent)', 'background:var(--dia-paper)',
+  'border:1px solid color-mix(in srgb, var(--dia-accent) 45%, transparent)',
+  'border-radius:3px', 'padding:0 0.35em',
+  'cursor:pointer', 'user-select:none', 'white-space:nowrap',
+].join(';')
+
+/** blocks currently wearing a count, and what it says — kept rather than
+ * re-derived so a compile pass can hand the set in and take it back out
+ * exactly as it does the peek loan (cutDocument) */
+const flagged = new Map<HTMLElement, CropFlag>()
+
+/** Put a count beside every crop in `next`, and take away every count that
+ * is not in it. `null` clears the lot — what closing the find bar does. */
+export function flagCrops(next: Map<HTMLElement, CropFlag> | null): void {
+  for (const block of [...flagged.keys()]) clearFlag(block)
+  for (const [block, flag] of next ?? []) {
+    if (!block.isConnected || flag.count <= 0) continue
+    if (attachFlag(block, flag)) flagged.set(block, flag)
+  }
+}
+
+/** the count this block's crop is showing, if any (tests, and the reader's
+ * own eyes, want to be able to ask) */
+export function cropFlagCount(block: HTMLElement): number | null {
+  const tab = block.querySelector(`:scope > .de-mirror .${FLAG}`)
+  return tab ? Number(tab.textContent) : null
+}
+
+/** Which block's crop is showing THIS block's ink? Itself when it mirrored;
+ * the neighbour that absorbed it when the compile set its words inside
+ * somebody else's picture (a run-in heading, display math sharing a source
+ * line — classifyOrphans names the owner, see absorbedBy); null when no
+ * picture is standing over it at all, which is both the ordinary case of an
+ * HTML block whose text the reader can already see AND the block the engine
+ * set no type for, whose words are in no crop anywhere. */
+export function cropShowing(block: HTMLElement): HTMLElement | null {
+  if (isMirrored(block)) return block
+  const owner = absorbedBy.get(block)
+  return owner && isMirrored(owner) ? owner : null
+}
+
+function attachFlag(block: HTMLElement, flag: CropFlag): boolean {
+  // `.de-mirror` only: a peeked wrapper is hidden, and the block behind it
+  // is showing the reader real highlights instead. The tab goes on the
+  // FIRST part — a block that ran off the foot of a column is two pictures,
+  // and the count belongs beside where its reading starts.
+  const part = block.querySelector(':scope > .de-mirror > .de-mirror-part')
+  if (!(part instanceof HTMLElement)) return false
+  // the part carries the crop's real width; relative makes it the tab's
+  // containing block, and changes nothing about how it lays out
+  part.style.position = 'relative'
+  const tab = document.createElement('span')
+  tab.className = `dia-editor-artifact ${FLAG}`
+  tab.textContent = String(flag.count)
+  tab.title = `${flag.count} match${flag.count === 1 ? '' : 'es'} in this block's render` +
+    ' — click to step onto the first'
+  tab.style.cssText = FLAG_STYLE
+  // the wrapper's own dblclick opens the block for editing; a click on the
+  // count is a navigation, not an invitation to edit, and mousedown would
+  // otherwise take the selection with it
+  tab.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation() })
+  tab.addEventListener('dblclick', (e) => { e.preventDefault(); e.stopPropagation() })
+  tab.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); flag.pick() })
+  part.append(tab)
+  return true
+}
+
+function clearFlag(block: HTMLElement): void {
+  // peeked too: a block can be lent its HTML form between one paint and the
+  // next, and the tab would then be sitting inside a hidden wrapper
+  for (const tab of block.querySelectorAll(
+    `:scope > .de-mirror .${FLAG}, :scope > .de-mirror-peeked .${FLAG}`,
+  )) {
+    const part = tab.parentElement
+    if (part instanceof HTMLElement) part.style.position = ''
+    tab.remove()
+  }
+  flagged.delete(block)
 }
 
 /* ---------- the staleness marker ---------- */
@@ -935,12 +1075,17 @@ export async function cutDocument(doc: Doc, run: Pass): Promise<void> {
   // nothing left that knows how to put its picture back. Hand the loan in
   // before the rebuild and take it out again after, so a search that
   // outlives an auto-compile still shows the reader its match.
+  // ...and the same for the counts standing beside the other matches: they
+  // hang inside crop wrappers this pass is entitled to replace, so they are
+  // handed in and put back rather than left pointing at a dead node.
   const loan = peeked
+  const counts = new Map(flagged)
   peekBlock(null)
   try {
     await cutPass(doc, run)
   } finally {
     if (loan?.isConnected) peekBlock(loan)
+    if (counts.size > 0) flagCrops(counts)
   }
 }
 
@@ -1164,9 +1309,11 @@ interface Orphan {
 function classifyOrphans(doc: Doc, orphans: Orphan[], mirrored: Set<HTMLElement>): void {
   for (const { block, range, sharedWith } of orphans) {
     if (!block.isConnected) continue
-    if (sharedWith && mirrored.has(sharedWith)) { putAside(block, 'hidden'); continue }
+    if (sharedWith && mirrored.has(sharedWith)) { putAside(block, 'hidden', sharedWith); continue }
     const slice = doc.source.sliceOf(block.getAttribute('data-dia-id') ?? '') ?? ''
     if (isLayoutOnlySlice(slice) || setsNoType(slice) || isInklessSectionMarker(slice, doc.docclass)) {
+      // no owner: this one is hidden because the engine set NOTHING for it,
+      // not because somebody else's picture is showing its words
       putAside(block, 'hidden')
       continue
     }
@@ -1175,26 +1322,36 @@ function classifyOrphans(doc: Doc, orphans: Orphan[], mirrored: Set<HTMLElement>
     if (prev instanceof HTMLElement && mirrored.has(prev)) {
       const prevRange = lineRangeOf(doc, prev)
       const room = block.matches('.dia-math') ? 1 : 0
-      if (prevRange && prevRange.to + room >= range.from) { putAside(block, 'hidden'); continue }
+      if (prevRange && prevRange.to + room >= range.from) { putAside(block, 'hidden', prev); continue }
     }
     const next = block.nextElementSibling
     if (block.matches('h4.dia-sec, h5.dia-sec') && next instanceof HTMLElement && mirrored.has(next)) {
       const nextRange = lineRangeOf(doc, next)
-      if (nextRange && nextRange.from - range.to <= 2) { putAside(block, 'hidden'); continue }
+      if (nextRange && nextRange.from - range.to <= 2) { putAside(block, 'hidden', next); continue }
     }
     putAside(block, 'marked')
   }
 }
 
 const aside = new Map<HTMLElement, 'hidden' | 'marked'>()
+/** for a block hidden because a NEIGHBOUR's crop already shows its words,
+ * which neighbour that is. `hidden` alone cannot answer it: it is also the
+ * verdict for a block the engine set no type for at all (\clearpage, a
+ * beamer \section), whose words are in no picture anywhere — and telling
+ * the reader to look for them in the block next door would be pointing at
+ * a page that does not have them. Only the classifier knows which is
+ * which, so it says so here rather than leaving it to be guessed from the
+ * DOM afterwards. */
+const absorbedBy = new WeakMap<HTMLElement, HTMLElement>()
 
-function putAside(block: HTMLElement, how: 'hidden' | 'marked'): void {
+function putAside(block: HTMLElement, how: 'hidden' | 'marked', owner?: HTMLElement): void {
   clearAside(block)
   const tag = document.createElement('span')
   tag.className = `dia-editor-artifact ${how === 'hidden' ? 'de-mirror-hidden' : 'de-unmirrored'}`
   if (how === 'marked') tag.title = 'not present in the compiled render — shown as authored'
   block.prepend(tag)
   aside.set(block, how)
+  if (owner) absorbedBy.set(block, owner)
 }
 
 function clearAside(block: HTMLElement): void {
@@ -1204,6 +1361,7 @@ function clearAside(block: HTMLElement): void {
     ':scope > .de-mirror-hidden, :scope > .de-mirror-hidden-peeked, :scope > .de-unmirrored',
   )) el.remove()
   aside.delete(block)
+  absorbedBy.delete(block)
 }
 
 /** How a placed crop becomes pixels. The ONLY step that ever touches real

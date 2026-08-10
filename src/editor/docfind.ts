@@ -5,15 +5,18 @@
  * Two rules shape everything here.
  *
  * 1. A SEARCH MOVES NOTHING. Highlights are decoration: they are painted
- *    with the CSS custom highlight registry from Ranges, so not one node,
- *    class or attribute enters the document. The house pattern for editor
- *    chrome is `dia-editor-artifact` (blockmirror.ts's opening comment), but
- *    a <mark> wrapper cannot use it here — cleanOuter and serializeDoc
- *    REMOVE artifact elements, so a wrapped match would take the matched
- *    words with it, and emit.ts would drop them from the .tex. Ranges are
- *    the only decoration that is provably invisible to the serializer, and
- *    the only DOM this module ever appends is one artifact <style> in the
- *    shadow root, which serializeDoc filters by that same class.
+ *    with the CSS custom highlight registry from Ranges, so nothing wraps,
+ *    marks or annotates the matched text itself. The house pattern for
+ *    editor chrome is `dia-editor-artifact` (blockmirror.ts's opening
+ *    comment), but a <mark> wrapper cannot use it here — cleanOuter and
+ *    serializeDoc REMOVE artifact elements, so a wrapped match would take
+ *    the matched words with it, and emit.ts would drop them from the .tex.
+ *    Ranges are the only decoration that is provably invisible to the
+ *    serializer. The two nodes this module does put in the document sit
+ *    beside the prose and never around it: one artifact <style> in the
+ *    shadow root, and — on a block whose text is hidden under a compiled
+ *    crop — a count inside that crop's own artifact wrapper, which
+ *    serializeDoc strips whole (blockmirror's flagCrops argues it).
  *
  * 2. A REPLACE IS AN EDIT. It goes through doc/sync's paired op so the DOM
  *    change and the source patch are one invertible step, and the
@@ -55,7 +58,7 @@ import type { Doc } from '../model/doc'
 import { state } from '../state'
 import { batch, setInlineHtml } from '../model/ops'
 import { syncedDocOp, topBlockOf } from '../doc/sync'
-import { peekBlock } from '../doc/blockmirror'
+import { type CropFlag, cropShowing, flagCrops, peekBlock } from '../doc/blockmirror'
 import { flashBlock } from './docview'
 
 /* ---------- the matcher (pure) ---------- */
@@ -470,7 +473,13 @@ function render(): void {
 
 function step(dir: 1 | -1): void {
   if (hits.length === 0) return
-  at = (at + dir + hits.length) % hits.length
+  land((at + dir + hits.length) % hits.length)
+}
+
+/** make hit `i` the current one */
+function land(i: number): void {
+  if (i < 0 || i >= hits.length) return
+  at = i
   render()
   reveal(hits[at])
 }
@@ -537,6 +546,12 @@ function paint(): void {
   // missing the reader still gets the block's own words under the flash,
   // which beats a picture with no mark on it.
   peekBlock(at >= 0 ? hits[at]?.block ?? null : null)
+  // ...and tell the reader where the OTHER matches are without taking the
+  // render away from them: every crop still standing over one gets a count
+  // beside it. Ahead of the canPaint bail for the same reason as the loan —
+  // a count is a number in the margin, not a shade, and it is the only
+  // answer at all where the highlight registry is missing.
+  flagCrops(cropCounts())
   if (!canPaint || !registry) return
   const rest: Range[] = []
   for (const [i, m] of hits.entries()) {
@@ -551,6 +566,37 @@ function paint(): void {
   }
   set('dia-find', rest)
   set('dia-find-at', cur ? [cur] : [])
+}
+
+/** How many matches each crop is standing over, and where clicking its
+ * count should land.
+ *
+ * The key is the block whose PICTURE shows the words, not the block that
+ * holds them: a run-in heading, or display math sharing a source line, was
+ * typeset inside its neighbour's crop, so its matches are under that
+ * neighbour's picture and belong to that neighbour's count. cropShowing is
+ * blockmirror's answer to which is which; the reader is looking at
+ * pictures, not at block boundaries.
+ *
+ * The current match is never counted. Usually it cannot be — peekBlock has
+ * lent its block back its HTML form, so there is no crop left to stand a
+ * count on — but a block absorbed into a NEIGHBOUR's crop is un-hidden by
+ * the loan while that neighbour keeps its picture, and counting the one
+ * match the reader can already see shaded would be the bar's number twice
+ * over. */
+function cropCounts(): Map<HTMLElement, CropFlag> {
+  const seen = new Map<HTMLElement, { count: number; first: number }>()
+  for (const [i, m] of hits.entries()) {
+    if (i === at || !m.block || !m.node.isConnected) continue
+    const crop = cropShowing(m.block)
+    if (!crop) continue
+    const e = seen.get(crop)
+    if (e) e.count++
+    else seen.set(crop, { count: 1, first: i })
+  }
+  const out = new Map<HTMLElement, CropFlag>()
+  for (const [crop, e] of seen) out.set(crop, { count: e.count, pick: () => land(e.first) })
+  return out
 }
 
 /** Scroll the current match into view. Called after paint, so a mirrored
