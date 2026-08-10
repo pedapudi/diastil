@@ -544,6 +544,10 @@ h2.dia-sec { font-size: 1.45em; }
 h3.dia-sec { font-size: 1.2em; }
 h4.dia-sec, h5.dia-sec { font-size: 1.05em; }
 article.dia-doc p { margin: 0 0 1em; }
+/* \item[→] — the author's own bullet. It is real content, so the browser's
+ * marker must step aside or the item reads doubled ("• → Diminishing…"). */
+li:has(> .dia-item-label) { list-style: none; }
+.dia-item-label { margin-right: 0.4em; }
 article.dia-doc dl dt { font-weight: 700; margin-top: 0.6em; }
 article.dia-doc dl dd { margin: 0 0 0.4em 1.4em; }
 .dia-wrap-center, .dia-wrap-figure { text-align: center; }
