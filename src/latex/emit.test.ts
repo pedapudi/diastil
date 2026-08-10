@@ -553,3 +553,80 @@ describe('beamer round-trips (issue #20 acceptance)', () => {
     expect(out).toContain('New prose.')
   })
 })
+
+/* Overlay specifications are the one construct whose bytes have nowhere
+ * obvious to live: `<1->` sits BETWEEN a command and its arguments, so a
+ * reader that consumed it and a writer that did not know about it would
+ * delete it from the user's file on the first edit — silently, and only in
+ * the .tex, since the reading surface would look right either way. Every
+ * test here is that byte-loss guard, one per position the spec can occupy. */
+describe('overlay specifications survive editing (beamer)', () => {
+  it('an edited list keeps every item\'s overlay spec', () => {
+    const src = '\\begin{itemize}\n  \\item<1-> First point.\n  \\item<2-> Second point.\n\\end{itemize}'
+    const [{ el }] = renderPairs(src)
+    const items = [...el.querySelectorAll('li')]
+    items[0].textContent = 'Rewritten point.'
+    const out = emitBlockTex(el)
+    expect(out).toContain('\\item<1->')
+    expect(out).toContain('\\item<2->')
+    expect(out).toContain('Rewritten point.')
+    expect(out).toContain('Second point.')
+  })
+
+  it('an edited frame keeps the overlay spec on its \\begin line', () => {
+    const src = '\\begin{frame}<2->{Later Slide}\n  Body prose.\n\\end{frame}'
+    const [{ el }] = renderPairs(src)
+    expect(el.querySelector('p.dia-wrap-title')!.textContent).toBe('Later Slide')
+    el.querySelector('p:not(.dia-wrap-title)')!.textContent = '\n  New prose.\n'
+    const out = emitBlockTex(el)
+    expect(out.startsWith('\\begin{frame}<2->{Later Slide}')).toBe(true)
+    expect(out).toContain('New prose.')
+  })
+
+  it('an edited frame title keeps the overlay spec beside it', () => {
+    const src = '\\begin{block}<3>{Old Heading}\n  Prose.\n\\end{block}'
+    const [{ el }] = renderPairs(src)
+    el.querySelector('p.dia-wrap-title')!.textContent = 'New Heading'
+    const out = emitBlockTex(el)
+    expect(out.startsWith('\\begin{block}<3>{New Heading}')).toBe(true)
+  })
+
+  it('an edited paragraph keeps a style command\'s overlay spec', () => {
+    const src = 'Reveal \\textbf<2>{this word} on the second step.\n'
+    const [{ el }] = renderPairs(src)
+    el.querySelector('strong')!.textContent = 'that word'
+    expect(emitBlockTex(el)).toContain('\\textbf<2>{that word}')
+  })
+
+  it('an unedited overlay-bearing document emits byte-identical LaTeX', () => {
+    const src = '\\begin{frame}<1->{T}\n  \\begin{itemize}<+->\n    \\item<1-> A \\alert<2>{word}.\n  \\end{itemize}\n  \\onslide<4->{tail}\n\\end{frame}'
+    for (const { el, slice } of renderPairs(src)) expect(emitBlockTex(el)).toBe(slice)
+  })
+})
+
+/* A custom \item label is an argument the DOM had no node for, so an edited
+ * itemize dropped it from the file — the same byte-loss class as the overlay
+ * specs above. beamer.tex writes `\item[$\to$]` for exactly one bullet. */
+describe('a custom \\item bullet survives editing', () => {
+  it('an edited itemize keeps \\item[$\\to$]', () => {
+    const src = '\\begin{itemize}\n  \\item Plain point.\n  \\item[$\\to$] Marked point.\n\\end{itemize}'
+    const [{ el }] = renderPairs(src)
+    const items = [...el.querySelectorAll('li')]
+    items[0].textContent = 'Rewritten point.'
+    const out = emitBlockTex(el)
+    expect(out).toContain('\\item[$\\to$]')
+    expect(out).toContain('Marked point.')
+  })
+
+  it('the custom bullet is SHOWN, not silently carried', () => {
+    const src = '\\begin{itemize}\n  \\item[$\\to$] Marked point.\n\\end{itemize}'
+    const [{ el }] = renderPairs(src)
+    expect(el.querySelector('li > .dia-item-label')).not.toBeNull()
+  })
+
+  it('unedited, it emits exact bytes', () => {
+    const src = '\\begin{itemize}\n  \\item[$\\to$] Marked point.\n\\end{itemize}'
+    for (const { el, slice } of renderPairs(src)) expect(emitBlockTex(el)).toBe(slice)
+  })
+})
+

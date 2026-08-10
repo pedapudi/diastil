@@ -133,7 +133,12 @@ const RAW_TEX_CEILINGS: Record<string, number> = {
   // the 8 bytes of `\model{}` in one frame's TITLE — newly counted because
   // that title is newly PAINTED (see the wrapper branch in blockBytes).
   // Trading 8 counted bytes for nine visible slide headings is the deal.
-  'beamer/beamer.tex': 0.1117,
+  // Re-measured 2026-08-09 at 0.10880 after overlay specifications got a
+  // token of their own (lex.ts): `\onslide<4->` is now ONE island that
+  // setsNoType calls furniture, so its 8 bytes leave the painted total —
+  // and the deck's `\item<1->` specs stop showing as literal characters in
+  // the middle of three bullet points, which is what this was really about.
+  'beamer/beamer.tex': 0.1089,
   // cot: two different things summed. 0.241 is tikzpicture inside floats —
   // honest, unrepresentable as structure, and the compiled mirror shows it
   // typeset (same call as the ISLAND_CEILINGS note above). The other 0.110
