@@ -245,7 +245,7 @@ function mountDoc(host: HTMLElement, input: MountInput): Doc {
   // records. The cast is the seam: minePreamble is growing these three keys
   // in a parallel change, and until PreambleMeta declares them this reads
   // them structurally. When it does, the cast is the only thing to delete.
-  setRefNames(pmeta as RefNameMeta | undefined)
+  setRefNames(pmeta)
   const project = new DocProject(mainPathOf(input.texName), source, input.files)
   const rendered = composeProject(project)
   root.appendChild(rendered.article)
@@ -537,6 +537,12 @@ article.dia-doc p { margin: 0 0 1em; }
 article.dia-doc dl dt { font-weight: 700; margin-top: 0.6em; }
 article.dia-doc dl dd { margin: 0 0 0.4em 1.4em; }
 .dia-wrap-center, .dia-wrap-figure { text-align: center; }
+/* a wrapper's own title argument — \begin{frame}{Heading}, beamer's
+ * block/alertblock. It is a heading, and without a rule it set as body prose,
+ * which is how a nine-slide deck read as one unbroken column. */
+p.dia-wrap-title { font-weight: 600; font-size: 1.12em; margin: 0 0 0.5em;
+  line-height: 1.25; }
+.dia-wrap-alertblock > p.dia-wrap-title { color: var(--dia-accent); }
 .dia-wrap-quote, .dia-wrap-quotation { margin: 1em 2em; color: var(--dia-ink-soft); }
 .dia-wrap-framed, .dia-wrap-mdframed { border: 1px solid var(--dia-rule); padding: 0.8em 1em;
   margin: 1em 0; }
