@@ -459,6 +459,163 @@ describe('an \\input the composition cannot splice', () => {
   })
 })
 
+/* ---------- the same file, \input twice ---------- */
+
+describe('a file \\input twice', () => {
+  /* Legal TeX, and the PDF really does get the chapter twice. What the
+   * EDITOR cannot honestly give is two live renderings: one file has one
+   * span space, so two renderings bind different block ids to identical
+   * spans, and nothing re-renders one when the other is patched.
+   *
+   * Measured on the two-rendering version, before this was closed:
+   *   - a text edit in the first rendering wrote the file correctly and left
+   *     the second showing the OLD text
+   *   - a comma then added to that stale second rendering re-emitted its own
+   *     screen over the same span: "A carefully rewritten opening." became
+   *     "The opening paragraph, really." — the first edit gone, no error
+   *   - a remove or a move dropped the twin's overlapping spans, leaving its
+   *     blocks unbound: on screen, editable-looking, writing nothing
+   *   - an insert anchored on the twin's heading landed at offset 0 of the
+   *     file, i.e. above the FIRST rendering, nowhere near the click
+   * Every one of those is "an edit that appears to work", so the second and
+   * later occurrences are islands instead. */
+
+  const TWICE = `\\documentclass{article}
+\\begin{document}
+
+\\input{chapters/intro}
+
+\\section{Middle}
+
+\\input{chapters/intro}
+
+\\end{document}
+`
+
+  /** every (file, span) a block is bound to — the collision this guards */
+  function bindings(doc: ReturnType<typeof mount>) {
+    return [...doc.article.querySelectorAll('[data-dia-id]')].flatMap((el) => {
+      const id = el.getAttribute('data-dia-id') as string
+      const path = doc.project.fileOfId(id)
+      const span = path === null ? null : doc.project.sourceOfPath(path)?.spanOf(id)
+      return path && span ? [`${path}:${span.start}-${span.end}`] : []
+    })
+  }
+
+  it('splices the first occurrence and marks the second as already shown', () => {
+    const doc = mount(TWICE, { 'chapters/intro.tex': INTRO })
+    const heads = [...doc.article.querySelectorAll('h2.dia-sec')].map((h) => h.textContent)
+    expect(heads).toEqual(['Introduction', 'Middle'])
+    const notes = [...doc.article.querySelectorAll('.dia-input-unreached')]
+    expect(notes.map((n) => n.getAttribute('data-dia-input-state'))).toEqual(['duplicate'])
+    // it says where the chapter IS, and that the PDF still has it twice
+    expect(notes[0].textContent).toContain('chapters/intro.tex')
+    expect(notes[0].textContent).toContain('already spliced in above')
+    expect(notes[0].textContent).toContain('PDF has it twice')
+  })
+
+  it('never binds two blocks to one span', () => {
+    // the collision itself, stated directly: identical spans under different
+    // ids is what made an edit to one rendering rewrite the other's bytes
+    const doc = mount(TWICE, { 'chapters/intro.tex': INTRO })
+    const bound = bindings(doc)
+    expect(new Set(bound).size).toBe(bound.length)
+  })
+
+  it('exports every byte unchanged, and the second \\input keeps its own', () => {
+    const doc = mount(TWICE, { 'chapters/intro.tex': INTRO })
+    expect(exportTexFiles(doc)).toEqual([
+      { path: 'main.tex', text: TWICE },
+      { path: 'chapters/intro.tex', text: INTRO },
+    ])
+    // the island is editor furniture: neither the emit nor the artifact sees it
+    expect(serializeDoc(doc)).not.toContain('dia-input-unreached')
+    expect(exportTex(doc)).toBe(TWICE)
+  })
+
+  it('the one rendering is editable, writes the file ONCE, and undoes exactly', () => {
+    const doc = mount(TWICE, { 'chapters/intro.tex': INTRO })
+    const ps = [...doc.article.querySelectorAll('p')]
+      .filter((el) => (el.textContent ?? '').includes('The opening paragraph'))
+    expect(ps.length).toBe(1)
+    expect(commitDocEdit(doc, ps[0], [setInlineHtml(ps[0], 'Rewritten opening.')], 'Edit text')).toBe(true)
+
+    const intro = doc.project.sourceOfPath('chapters/intro.tex')?.text as string
+    // written once — not once per \input
+    expect(intro.match(/Rewritten opening\./g)?.length).toBe(1)
+    expect(intro).not.toContain('The opening paragraph')
+    expect(doc.source.text).toBe(TWICE)
+    expect(doc.project.changedPaths()).toEqual(['chapters/intro.tex'])
+
+    state.undo()
+    expect(doc.project.sourceOfPath('chapters/intro.tex')?.text).toBe(INTRO)
+    expect(doc.source.text).toBe(TWICE)
+    expect(doc.project.changedPaths()).toEqual([])
+  })
+
+  it('survives the artifact round trip with the same shape', () => {
+    const doc = mount(TWICE, { 'chapters/intro.tex': INTRO })
+    const html = serializeDoc(doc)
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const again = loadDoc(html, host, 'main.html')
+    expect(serializeDoc(again)).toBe(html)
+    expect([...again.article.querySelectorAll('h2.dia-sec')].map((h) => h.textContent))
+      .toEqual(['Introduction', 'Middle'])
+    const bound = bindings(again)
+    expect(new Set(bound).size).toBe(bound.length)
+  })
+
+  it('a raw source edit does not resurrect the second rendering', async () => {
+    // applySourceText re-composes, so the rule has to hold on that path too —
+    // otherwise one trip through the source view reopens the collision
+    const doc = mount(TWICE, { 'chapters/intro.tex': INTRO })
+    const { commitSourceEdit } = await import('../doc/sync')
+    commitSourceEdit(doc, TWICE.replace('\\section{Middle}', '\\section{Centre}'))
+    expect([...doc.article.querySelectorAll('h2.dia-sec')].map((h) => h.textContent))
+      .toEqual(['Introduction', 'Centre'])
+    const bound = bindings(doc)
+    expect(new Set(bound).size).toBe(bound.length)
+    expect(doc.article.querySelectorAll('.dia-input-unreached').length).toBe(1)
+  })
+
+  it('counts occurrences across the whole document, not just one file', () => {
+    // two sibling chapters sharing a fragment is the same collision as one
+    // file naming it twice — the second one to be walked is the island
+    const doc = mount(MAIN, {
+      'chapters/intro.tex': '\\section{Introduction}\n\n\\input{shared/defs}\n',
+      'chapters/method.tex': '\\section{Method}\n\n\\input{shared/defs}\n',
+      'shared/defs.tex': 'The shared fragment.\n',
+    })
+    expect((doc.article.textContent ?? '').match(/The shared fragment\./g)?.length).toBe(1)
+    const notes = [...doc.article.querySelectorAll('.dia-input-unreached')]
+    expect(notes.map((n) => n.getAttribute('data-dia-input-state'))).toEqual(['duplicate'])
+  })
+
+  it('a file that never got a rendering is not something to be a duplicate of', () => {
+    // unreadable twice is unreadable twice: nothing was spliced the first
+    // time, so the second \input is not repeating anything
+    const doc = mount(TWICE)
+    const notes = [...doc.article.querySelectorAll('.dia-input-unreached')]
+    expect(notes.map((n) => n.getAttribute('data-dia-input-state')))
+      .toEqual(['unreadable', 'unreadable'])
+    // and the same for a file that was read and holds no blocks
+    const empty = mount(TWICE, { 'chapters/intro.tex': '\n\n' })
+    expect([...empty.article.querySelectorAll('.dia-input-unreached')]
+      .map((n) => n.getAttribute('data-dia-input-state'))).toEqual(['empty', 'empty'])
+  })
+
+  it('still says "includes itself" when a file is its own second occurrence', () => {
+    // cycle outranks duplicate: both are true of a self-include, and only one
+    // of them tells the author what to go fix
+    const doc = mount('\\documentclass{article}\n\\begin{document}\n\\input{a}\n\\end{document}\n', {
+      'a.tex': '\\section{A}\n\nBody.\n\n\\input{a}\n',
+    })
+    expect(doc.article.querySelector('.dia-input-unreached')
+      ?.getAttribute('data-dia-input-state')).toBe('cycle')
+  })
+})
+
 /* ---------- reading a project ---------- */
 
 describe('readProjectFiles', () => {
