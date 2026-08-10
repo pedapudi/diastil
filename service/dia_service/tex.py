@@ -28,8 +28,9 @@ cannot produce, and vice versa — so they get their own capability flag.
 (biber_path()): it is biblatex's real bibliography backend, and a machine
 can have a fine TeX engine and no biber at all. See biber_path()'s
 docstring for why there is no managed download for it, and
-texcompile.biblatex_bibtex_backend_finding for what happens when a
-document needs it and it is missing.
+texcompile.biblatex_biber_missing_finding for what a compile says when a
+document needs it and it is missing (biblatex_bibtex_backend_finding
+beside it covers the other, opted-out-of-biber shape).
 """
 
 from __future__ import annotations
@@ -258,7 +259,8 @@ def biber_path() -> str | None:
     code path in this module drives it — and latexmk has auto-detected and
     run biber with zero configuration since v4.22 (2011; CTAN latexmk.txt,
     `$bibtex_use`). What biber_path() is FOR is telling the user the truth
-    when it is missing: see texcompile.biblatex_bibtex_backend_finding.
+    when it is missing — texcompile.biblatex_biber_missing_finding reads
+    this answer and will not fire while a biber is here to be found.
 
     Cached like tool_path(): a compile-heavy session polls this a lot, and
     a binary does not appear mid-session. reset_cache() forgets it too."""
