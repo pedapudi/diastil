@@ -28,7 +28,31 @@
  *   folder grant, there is nothing to read; the document still opens, the
  *   \input keeps its own bytes and SAYS what it could not reach. A file
  *   with no DocSource has no blocks and therefore no write path — a
- *   truncated write-back is impossible by construction, not by care. */
+ *   truncated write-back is impossible by construction, not by care.
+ *
+ *   A FILE IS SPLICED ONCE PER DOCUMENT. \input'ing one file twice is legal
+ *   TeX and puts the chapter in the PDF twice, but one file has one span
+ *   space, so two renderings bind DIFFERENT block ids to the SAME spans.
+ *   Measured, that is not a cosmetic double: edit a paragraph in the first
+ *   rendering and the second keeps showing the old text, because nothing
+ *   re-renders it — and the next edit anywhere in that stale twin re-emits
+ *   what is on ITS screen over the same span, silently reverting the first
+ *   edit. (A comma added to the twin turned "A carefully rewritten opening."
+ *   back into "The opening paragraph, really." with no error anywhere.)
+ *   Structural edits are no better: a remove or a move drops the twin's
+ *   overlapping spans, so the twin's blocks go unbound — still on screen,
+ *   still editable-looking, their edits reaching no file — and an insert
+ *   anchored on the twin lands at the FIRST rendering's coordinates, which
+ *   is nowhere near where it was asked for.
+ *
+ *   Making both renderings live would mean re-rendering every other copy on
+ *   every patch, and every patch happens in model/ops at DOM-op granularity;
+ *   the mechanism that could go wrong is much larger than the one it
+ *   replaces, and its failure mode is exactly this one. So the SECOND and
+ *   later occurrences stay islands that say so. The file is still read,
+ *   still exported, still shipped to the compiler, so the PDF is unchanged;
+ *   what the editor gives up is a second editable copy it could not have
+ *   kept honest. */
 
 import { parseLatex } from './parse'
 import { renderDoc } from './render'
@@ -118,7 +142,7 @@ export interface UnresolvedInput {
   /** the resolved project-relative path, or the raw argument when the path
    * itself is what was refused */
   path: string
-  reason: 'unreadable' | 'refused' | 'empty' | 'cycle' | 'too-deep'
+  reason: 'unreadable' | 'refused' | 'empty' | 'cycle' | 'too-deep' | 'duplicate'
 }
 
 export class DocProject {
@@ -320,13 +344,22 @@ export function composeProject(project: DocProject, mainText?: string): Composed
   const rendered = renderDoc(parseLatex(text))
   const blocks: ComposedBlock[] = rendered.blocks.map((b) => ({ el: b.el, span: b.span, path: project.mainPath }))
   const unresolved: UnresolvedInput[] = []
-  spliceInputs(project, project.mainPath, text, blocks, unresolved, 0, new Set([project.mainPath]))
+  spliceInputs(project, project.mainPath, text, blocks, unresolved, 0,
+    new Set([project.mainPath]), new Set([project.mainPath]))
   return { article: rendered.article, blocks, meta: rendered.meta, unresolved }
 }
 
 /** Walk `blocks` (in place), replacing every \input block whose file is
  * readable with that file's own rendered blocks. The DOM splice and the
- * block-list splice happen together so the two can never disagree. */
+ * block-list splice happen together so the two can never disagree.
+ *
+ * The two path sets are deliberately different shapes. `visited` is the
+ * ANCESTOR CHAIN and is copied per branch — it answers "does following this
+ * \input re-enter a file we are already inside", which is a cycle, and two
+ * sibling chapters both including shared/macros is not one. `composed` is
+ * every path spliced ANYWHERE in this composition and is one mutable set
+ * shared by the whole walk — it answers "does this file already have a
+ * rendering, whose spans a second one would collide with". */
 function spliceInputs(
   project: DocProject,
   fromPath: string,
@@ -335,6 +368,7 @@ function spliceInputs(
   unresolved: UnresolvedInput[],
   depth: number,
   visited: Set<string>,
+  composed: Set<string>,
 ): void {
   for (let i = 0; i < blocks.length; i++) {
     const b = blocks[i]
@@ -355,6 +389,13 @@ function spliceInputs(
       unresolved.push({ el: b.el, path, reason: 'cycle' })
       continue
     }
+    // checked BEFORE the file is read, but AFTER the cycle test: a file that
+    // includes itself is both, and "includes itself" is the more useful thing
+    // to be told
+    if (composed.has(path)) {
+      unresolved.push({ el: b.el, path, reason: 'duplicate' })
+      continue
+    }
     const source = project.sourceOfPath(path)
     if (source === null) {
       unresolved.push({ el: b.el, path, reason: 'unreadable' })
@@ -370,7 +411,12 @@ function spliceInputs(
       unresolved.push({ el: b.el, path, reason: 'empty' })
       continue
     }
-    spliceInputs(project, path, source.text, innerBlocks, unresolved, depth + 1, new Set([...visited, path]))
+    // marked only once the splice is certain: a file that was refused, could
+    // not be read, or holds no blocks got no rendering, so a later \input of
+    // it is not a duplicate of anything and deserves its own reason
+    composed.add(path)
+    spliceInputs(project, path, source.text, innerBlocks, unresolved, depth + 1,
+      new Set([...visited, path]), composed)
 
     b.el.replaceWith(...innerBlocks.map((x) => x.el))
     blocks.splice(i, 1, ...innerBlocks)
@@ -412,6 +458,10 @@ function unresolvedText(u: UnresolvedInput): string {
       return `${u.path} was read and holds no content`
     case 'cycle':
       return `${u.path} includes itself — not followed`
+    case 'duplicate':
+      // says what the PDF will do as well as what the editor did, because the
+      // two differ here and the difference is the whole point
+      return `${u.path} is already spliced in above and is edited there. It still compiles here, so the PDF has it twice`
     case 'too-deep':
       return `${u.path} is nested deeper than ${MAX_INPUT_DEPTH} levels — not followed`
   }

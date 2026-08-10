@@ -232,6 +232,11 @@ function mountDoc(host: HTMLElement, input: MountInput): Doc {
       color: var(--dia-accent); }
     .dia-input-unreached::before { content: "not reached — "; text-transform: uppercase;
       letter-spacing: .1em; }
+    /* A file \\input twice is the one state on this note that WAS reached: it
+     * is spliced in above and edited there, and only the second occurrence is
+     * an island (latex/project.ts). "Not reached" would be a lie about the one
+     * thing the reader needs — where the chapter actually is. */
+    .dia-input-unreached[data-dia-input-state="duplicate"]::before { content: "shown above — "; }
   `
   root.appendChild(editorBase)
 
