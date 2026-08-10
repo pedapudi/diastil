@@ -272,10 +272,13 @@ function emitFloat(el: HTMLElement, slice: string | null): string {
     let out = slice
     if (cap && cleanOuter(cap) !== captionMemo.get(cap)) {
       const capTex = emitInlines(cap.childNodes)
-      // a \subfloat panel keeps its caption in a BRACKET, so it has no
-      // \caption group to patch — try that shape before concluding the
-      // float never had a caption at all
-      const patched = replaceCaptionGroup(out, 'caption', capTex) ?? replaceSubfloatCaption(out, capTex)
+      // a \subfloat panel keeps its caption in a BRACKET and a
+      // \subcaptionbox in its FIRST BRACE, so neither has a \caption group
+      // to patch — try both shapes before concluding the float never had a
+      // caption at all
+      const patched = replaceCaptionGroup(out, 'caption', capTex)
+        ?? replaceSubfloatCaption(out, capTex)
+        ?? replaceSubcaptionboxCaption(out, capTex)
       if (patched !== null) {
         out = patched
       } else {
@@ -435,6 +438,15 @@ function emitInline(node: Node): string {
   if (node.classList.contains('dia-editor-artifact')) return ''
 
   if (node.matches('span.dia-math')) return `$${node.getAttribute('data-dia-tex') ?? ''}$`
+  // BEFORE a.dia-ref, which a range also matches: the range carries no
+  // data-dia-ref, so falling through would emit `\crefrange{}` and delete
+  // both keys from the file
+  if (node.matches('a.dia-refrange')) {
+    const cmd = node.getAttribute('data-dia-ref-cmd') ?? 'crefrange'
+    const from = node.getAttribute('data-dia-ref-from') ?? ''
+    const to = node.getAttribute('data-dia-ref-to') ?? ''
+    return `\\${cmd}{${from}}{${to}}`
+  }
   if (node.matches('a.dia-ref')) {
     const cmd = node.getAttribute('data-dia-ref-cmd') ?? 'ref'
     return `\\${cmd}{${node.getAttribute('data-dia-ref') ?? ''}}`
@@ -564,6 +576,20 @@ function replaceSubfloatCaption(slice: string, prose: string): string | null {
     }
   }
   return null
+}
+
+/** A `\subcaptionbox{caption}[width][inner-pos]{panel}` slice: the caption
+ * is the FIRST BRACE group, the mirror image of \subfloat's bracket, so it
+ * is patched with replaceCaptionGroup's prose-only rule — a \label written
+ * inside the caption group (the package's own idiom, and the only place a
+ * sub-caption's label CAN go) survives an edit to the words around it.
+ *
+ * The guard is the whole point: it fires only on a slice that really opens
+ * with the command, so a figure whose panel merely contains one falls
+ * through to the caller's next shape. */
+function replaceSubcaptionboxCaption(slice: string, prose: string): string | null {
+  if (!/^\s*\\subcaptionbox\*?\s*\{/.test(slice)) return null
+  return replaceCaptionGroup(slice, 'subcaptionbox', prose)
 }
 
 /** the main {title} group of a heading slice — after the command name, an

@@ -116,6 +116,14 @@ export type LxInline =
    * opaque key the whole reference resolved to nothing. Same split rule
    * as cite's keys, and for the same reason. */
   | { kind: 'ref'; span: Span; cmd: string; keys: string[] }
+  /** `\crefrange{a}{b}` — a RANGE, and a node kind of its own precisely so
+   * it can never be read as a ref's `keys` list. The two ends are separate
+   * scalar fields, not an array: an array invites a `.join(', ')` and the
+   * difference between "figs. 1 to 5" and "figs. 1 and 5" is a difference
+   * in what the sentence CLAIMS. The type system carries the distinction —
+   * nothing that switches on LxInline can reach `from`/`to` while thinking
+   * it holds a list. */
+  | { kind: 'refrange'; span: Span; cmd: string; from: string; to: string }
   /** opt = the post-note; pre = the pre-note when \cite[pre][post]{…} */
   | { kind: 'cite'; span: Span; cmd: string; keys: string[]; opt?: string; pre?: string }
   | { kind: 'footnote'; span: Span; inner: LxInline[] }
@@ -239,13 +247,16 @@ const SYMBOL_CMD: Record<string, string> = {
 const STYLE_DECL: Record<string, StyleCmd> = {
   bf: 'bf', bfseries: 'bf', it: 'it', itshape: 'it', em: 'em', tt: 'tt', ttfamily: 'tt', sc: 'sc', scshape: 'sc',
 }
-/* One grammar per command set. \crefrange{a}{b} is deliberately absent: it
- * takes TWO brace groups and means a RANGE, where a ref node's `keys` is a
- * comma LIST — the same field with a different meaning, which is how a
- * resolver quietly starts printing "figs. 1 and 5" for "figs. 1 to 5". No
- * corpus fixture uses it, so there is no measurement to justify the risk;
- * as an island it stays honest and the compiled mirror sets it correctly. */
+/* One grammar per command set: everything here takes a single {keys} group,
+ * read as a comma LIST. */
 const REF_CMDS = new Set(['ref', 'eqref', 'autoref', 'cref', 'Cref', 'pageref'])
+/** \crefrange{a}{b} takes TWO brace groups and means a RANGE. It gets its
+ * OWN node kind rather than a second entry above, because a range put in a
+ * ref's `keys` would be the same field carrying a different meaning — which
+ * is how a resolver quietly starts printing "figs. 1 and 5" for "figs. 1 to
+ * 5". derived.ts's rangeDisplay prints it from the same measured name table
+ * \cref uses, in the plural half. */
+const REF_RANGE_CMDS = new Set(['crefrange', 'Crefrange'])
 // biblatex's "capitalize the first cite of a sentence" companions —
 // \Autocite, \Parencite, \Textcite — carry the same {keys} grammar as their
 // lowercase counterparts already below
@@ -581,8 +592,7 @@ interface FloatSink { env: 'figure' | 'table'; caption?: LxInline[]; label?: str
 /** sub-float COMMANDS with the `[caption]{content}` grammar — subfig's
  * \subfloat and the older subfigure package's \subfigure. (The subcaption
  * package's \begin{subfigure} environment is a different construct and is
- * already a wrapper; \subcaptionbox takes its caption in a BRACE and is
- * left alone rather than read with the wrong grammar.) */
+ * already a wrapper; \subcaptionbox has its own grammar, below.) */
 const SUBFLOAT_CMDS = new Set(['subfigure', 'subfloat'])
 
 /** how deep a chain of nested brace groups the float scanner will follow.
@@ -677,6 +687,46 @@ function scanFloatLevel(cur: Cursor, lo: number, hi: number, sink: FloatSink, to
             starred: false,
             // `\subfigure[]{…}` (palm's own idiom) declares an EMPTY
             // sub-caption — no caption at all, not an empty one
+            caption: caption.some((n) => !(n.kind === 'text' && n.text.trim() === '')) ? caption : sub.caption,
+            label: sub.label,
+            graphics: sub.graphics,
+            body: sub.body,
+          })
+          i = g.close + 1
+          continue
+        }
+      }
+      // \subcaptionbox{caption}[width][inner-pos]{panel}: the subcaption
+      // package's box form, and the MIRROR IMAGE of \subfloat's grammar —
+      // the caption comes FIRST and in a BRACE, with the optional arguments
+      // after it. Reading it with the bracket grammar above would take the
+      // {caption} as the panel and lose the panel entirely, which is why it
+      // was left an island until the grammar could be checked. Verified by
+      // compiling all four shapes (bare / [width] / [width][pos] / starred)
+      // on tectonic 0.15.0: the sub-captions set as (a) (b) (c) with
+      // \ref reaching 1a/1b/1c, and the starred one unnumbered.
+      if (t.name === 'subcaptionbox') {
+        const capG = matchBraceGroup(cur, skipStar(cur, i + 1, hi), hi)
+        let j = capG ? capG.close + 1 : -1
+        // [width] then [inner-pos], each optional and each skippable alone
+        for (let k = 0; capG && k < 2; k++) {
+          const b = matchBracketGroup(cur, j, hi)
+          if (!b) break
+          j = b.close + 1
+        }
+        const g = capG ? matchBraceGroup(cur, j, hi) : null
+        if (capG && g) {
+          flushRun(i)
+          const sub: FloatSink = { env: sink.env, graphics: [], body: [] }
+          scanFloatLevel(cur, g.lo, g.hi, sub, true, depth + 1)
+          const caption = parseInline(cur, capG.lo, capG.hi)
+          sink.body.push({
+            kind: 'float',
+            span: { start: t.span.start, end: cur.toks[g.close].span.end },
+            env: sub.env,
+            starred: false,
+            // an empty {} caption is no caption, the same reading
+            // `\subfigure[]{…}` already gets
             caption: caption.some((n) => !(n.kind === 'text' && n.text.trim() === '')) ? caption : sub.caption,
             label: sub.label,
             graphics: sub.graphics,
@@ -1113,6 +1163,25 @@ function parseInlineCs(cur: Cursor, at: number, hi: number): { inline: LxInline;
     }
   }
 
+  if (REF_RANGE_CMDS.has(name)) {
+    const g1 = matchBraceGroup(cur, at + 1, hi)
+    const g2 = g1 ? matchBraceGroup(cur, g1.close + 1, hi) : null
+    // BOTH groups or nothing: a half-read range would drop the second key's
+    // bytes out of the tree, and an island keeps them
+    if (g1 && g2) {
+      return {
+        inline: {
+          kind: 'refrange',
+          span: { start: t.span.start, end: cur.toks[g2.close].span.end },
+          cmd: name,
+          from: groupText(cur, g1).trim(),
+          to: groupText(cur, g2).trim(),
+        },
+        next: g2.close + 1,
+      }
+    }
+  }
+
   if (CITE_RE.test(name)) {
     // up to TWO optional args: \citep[post]{…} and \citep[pre][post]{…}
     const b1 = matchBracketGroup(cur, at + 1, hi)
@@ -1292,6 +1361,14 @@ function matchGroupFrom(cur: Cursor, open: number, hi: number): Group | null {
     }
   }
   return null
+}
+
+/** step over a starred command's `*`. The lexer ends a control word at the
+ * last letter, so the star arrives as its own text token — invisible to
+ * matchBraceGroup, which only skips BLANK text. */
+function skipStar(cur: Cursor, at: number, hi: number): number {
+  const t = cur.toks[at]
+  return at < hi && t?.kind === 'text' && cur.slice(t.span) === '*' ? at + 1 : at
 }
 
 /** `[…]` group — token-aligned since the lexer emits bopen/bclose.

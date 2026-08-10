@@ -41,6 +41,45 @@ describe('unedited blocks emit exact bytes', () => {
     expect(out.startsWith('Read ')).toBe(true)
   })
 
+  it('an edit around a \\crefrange keeps both of its keys, in order', () => {
+    // the two groups are a RANGE, not a list: they ride on their own
+    // from/to attributes, so nothing can reorder or comma-join them
+    const src = 'See \\crefrange{fig:a}{fig:c} and \\Crefrange{eq:x}{eq:z} now.\n'
+    const [{ el }] = renderPairs(src)
+    el.firstChild!.textContent = 'Read '
+    const out = emitBlockTex(el)
+    expect(out).toContain('\\crefrange{fig:a}{fig:c}')
+    expect(out).toContain('\\Crefrange{eq:x}{eq:z}')
+    expect(out.startsWith('Read ')).toBe(true)
+  })
+
+  it('an edit around a \\subcaptionbox keeps its caption, options and panel', () => {
+    const src = '\\begin{figure}\n\\centering\n'
+      + '\\subcaptionbox{Left\\label{sub:a}}[3cm][c]{\\includegraphics{a.png}}\n'
+      + '\\caption{Outer}\n\\end{figure}\n'
+    const [{ el }] = renderPairs(src)
+    // :scope > — the panel's own figcaption comes FIRST in the DOM
+    const cap = el.querySelector(':scope > figcaption')!
+    cap.textContent = 'Outer caption'
+    const out = emitBlockTex(el)
+    expect(out).toContain('\\subcaptionbox{Left\\label{sub:a}}[3cm][c]{\\includegraphics{a.png}}')
+    expect(out).toContain('\\caption{Outer caption}')
+  })
+
+  it('an edited \\subcaptionbox sub-caption patches its BRACE, keeping the \\label', () => {
+    // \subcaptionbox's caption is the first BRACE group — the mirror image
+    // of \subfloat's bracket — so the patch has to find a different group
+    const src = '\\begin{figure}\n\\centering\n'
+      + '\\subcaptionbox{Left\\label{sub:a}}[3cm]{\\includegraphics{a.png}}\n'
+      + '\\caption{Outer}\n\\end{figure}\n'
+    const [{ el }] = renderPairs(src)
+    const sub = el.querySelector('figure.dia-figure figcaption')!
+    sub.textContent = 'Right'
+    const out = emitBlockTex(el)
+    expect(out).toContain('\\subcaptionbox{Right\\label{sub:a}}[3cm]{\\includegraphics{a.png}}')
+    expect(out).toContain('\\caption{Outer}')
+  })
+
   it('…including after the derived-ref pass rewrote link texts', () => {
     const src = '\\section{One}\\label{sec:one}\n\nSee \\ref{sec:one} here.\n'
     const pairs = renderPairs(src)

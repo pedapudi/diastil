@@ -13,7 +13,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { parseLatex } from '../latex/parse'
 import { renderDoc } from '../latex/render'
 import { emitBlockTex } from '../latex/emit'
-import { refDisplay, refreshDerived, setRefNames, type RefNameMeta } from './derived'
+import { rangeDisplay, refDisplay, refreshDerived, setRefNames, type RefNameMeta } from './derived'
 import { parseAux, setAuxLabels, clearAuxLabels } from './auxnumbers'
 
 beforeEach(() => {
@@ -81,6 +81,48 @@ describe('the preamble renames cleveref\u2019s words', () => {
     expect(refDisplay('ref', 'figure', '1', null, 'k')).toBe('1')
     expect(refDisplay('eqref', 'equation', '1', null, 'k')).toBe('(1)')
     expect(refDisplay('pageref', 'figure', '1', '7', 'k')).toBe('7')
+  })
+})
+
+/* ---------- \crefrange / \Crefrange ---------- *
+ *
+ * Every form below was read off `pdftotext` of a tectonic 0.15.0 compile —
+ * see the table in derived.ts. A range prints the PLURAL name and joins the
+ * two numbers with " to ", which is why a range must never be carried as a
+ * comma list: "figs. 1 and 5" and "figs. 1 to 5" are different claims. */
+
+describe('a range prints cleveref’s range form', () => {
+  const range = (cmd: string, kind: string, a: string, b: string) =>
+    rangeDisplay(cmd, kind, a, b, 'ka', 'kb')
+
+  it('uses the plural name and joins with " to " (measured)', () => {
+    expect(range('crefrange', 'figure', '1', '3')).toBe('figs. 1 to 3')
+    expect(range('Crefrange', 'figure', '1', '3')).toBe('Figures 1 to 3')
+    expect(range('crefrange', 'section', '1', '3')).toBe('sections 1 to 3')
+    expect(range('Crefrange', 'section', '1', '3')).toBe('Sections 1 to 3')
+    expect(range('crefrange', 'table', '1', '2')).toBe('tables 1 to 2')
+    expect(range('crefrange', 'appendix', 'A', 'B')).toBe('appendices A to B')
+  })
+
+  it('parenthesizes each equation number separately (measured)', () => {
+    expect(range('crefrange', 'equation', '1', '3')).toBe('eqs. (1) to (3)')
+    expect(range('Crefrange', 'equation', '1', '3')).toBe('Equations (1) to (3)')
+  })
+
+  it('takes the plural the preamble declared', () => {
+    setRefNames({ crefNames: { figure: { sg: 'diagram', pl: 'diagrams' } } })
+    expect(range('crefrange', 'figure', '1', '3')).toBe('diagrams 1 to 3')
+    expect(range('Crefrange', 'figure', '1', '3')).toBe('Diagrams 1 to 3')
+  })
+
+  it('drops the word for a language the tables were not measured in', () => {
+    setRefNames({ language: 'ngerman' })
+    expect(range('crefrange', 'figure', '1', '3')).toBe('1 to 3')
+  })
+
+  it('falls back to the keys when a number is missing', () => {
+    expect(rangeDisplay('crefrange', 'figure', null, '3', 'fig:a', 'fig:c'))
+      .toBe('fig:a to fig:c')
   })
 })
 
@@ -198,6 +240,48 @@ describe('refreshDerived over the document', () => {
     setRefNames({ language: 'ngerman' })
     refreshDerived(rendered.article)
     expect(body.el.textContent).toContain('See 1.')
+    expect(emitBlockTex(body.el)).toBe(src.slice(body.span.start, body.span.end))
+  })
+
+  it('resolves a \\crefrange from our counters and from the .aux', () => {
+    const src = '\\documentclass{article}\n\\begin{document}\n'
+      + '\\begin{figure}\\caption{A}\\label{fig:a}\\end{figure}\n'
+      + '\\begin{figure}\\caption{B}\\label{fig:b}\\end{figure}\n'
+      + '\\begin{figure}\\caption{C}\\label{fig:c}\\end{figure}\n'
+      + 'See \\crefrange{fig:a}{fig:c}.\n\\end{document}\n'
+    const { article } = renderDoc(parseLatex(src))
+    refreshDerived(article)
+    expect(refTexts(article)).toEqual(['figs. 1 to 3'])
+
+    // the engine renumbers both ends, and names the kind from its own
+    // `@cref` vocabulary — which is the only place `subappendix` exists
+    setAuxLabels(parseAux(
+      '\\newlabel{fig:a}{{A.1}{9}{A}{section.A.1}{}}\n'
+      + '\\newlabel{fig:a@cref}{{[subappendix][1][]A.1}{[9][9][]9}}\n'
+      + '\\newlabel{fig:c}{{A.3}{9}{C}{section.A.3}{}}\n'
+      + '\\newlabel{fig:c@cref}{{[subappendix][3][]A.3}{[9][9][]9}}\n',
+    ), null)
+    refreshDerived(article)
+    expect(refTexts(article)).toEqual(['appendices A.1 to A.3'])
+  })
+
+  it('a range whose ends disagree about their kind prints no word', () => {
+    // cleveref cannot name a mixed range either — measured, it sets
+    // "?? 3.1–3.1" — so naming one here would outrun the engine
+    const src = '\\documentclass{article}\n\\begin{document}\n'
+      + '\\section{One}\\label{sec:a}\n'
+      + '\\begin{figure}\\caption{A}\\label{fig:a}\\end{figure}\n'
+      + 'See \\crefrange{sec:a}{fig:a}.\n\\end{document}\n'
+    const { article } = renderDoc(parseLatex(src))
+    refreshDerived(article)
+    expect(refTexts(article)).toEqual(['1 to 1'])
+  })
+
+  it('the byte invariant holds for a block holding a range', () => {
+    const src = 'See \\crefrange{fig:a}{fig:c} and \\Crefrange{eq:x}{eq:z}.\n'
+    const rendered = renderDoc(parseLatex(src))
+    refreshDerived(rendered.article)
+    const body = rendered.blocks[0]
     expect(emitBlockTex(body.el)).toBe(src.slice(body.span.start, body.span.end))
   })
 

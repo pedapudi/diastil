@@ -183,6 +183,58 @@ describe('parseLatex structure', () => {
     expect(f.caption!.map((n) => (n.kind === 'text' ? n.text : '')).join('')).toBe('C')
   })
 
+  /* \subcaptionbox's grammar is the mirror of \subfloat's — caption FIRST
+   * and in a brace, options after. All four shapes below were compiled on
+   * tectonic 0.15.0 before being read here; the fixture is a unit one
+   * rather than a corpus paper because no corpus paper uses the command,
+   * and a synthetic file added to corpus/tex/ would have carried its own
+   * ratchet entries measuring its preamble rather than this construct. */
+  describe('a \\subcaptionbox panel', () => {
+    const panels = (inner: string) => {
+      const [fig] = body(DOC(`\\begin{figure}\n\\centering\n${inner}\n\\caption{C}\n\\end{figure}`))
+      return (fig as Extract<LxBlock, { kind: 'float' }>).body
+    }
+    const textOf = (ns: LxInline[] | undefined) =>
+      (ns ?? []).map((n) => (n.kind === 'text' ? n.text : '')).join('')
+
+    it('reads the BRACE caption, not \\subfloat\u2019s bracket', () => {
+      const [sub] = panels('\\subcaptionbox{Left panel}{\\includegraphics{a.png}}') as Extract<LxBlock, { kind: 'float' }>[]
+      expect(sub.kind).toBe('float')
+      expect(textOf(sub.caption)).toBe('Left panel')
+      // the panel is the LAST group — reading the grammar backwards would
+      // have made the caption the panel and dropped the graphic entirely
+      expect(sub.graphics.map((g) => g.path)).toEqual(['a.png'])
+    })
+
+    it('steps over [width] and [inner-pos], together or singly', () => {
+      for (const opts of ['', '[3cm]', '[3cm][c]']) {
+        const [sub] = panels(`\\subcaptionbox{Cap}${opts}{\\includegraphics{a.png}}`) as Extract<LxBlock, { kind: 'float' }>[]
+        expect(textOf(sub.caption), opts).toBe('Cap')
+        expect(sub.graphics.map((g) => g.path), opts).toEqual(['a.png'])
+      }
+    })
+
+    it('reads the starred, unnumbered form too', () => {
+      const [sub] = panels('\\subcaptionbox*{No number}{\\includegraphics{a.png}}') as Extract<LxBlock, { kind: 'float' }>[]
+      expect(textOf(sub.caption)).toBe('No number')
+      expect(sub.graphics.map((g) => g.path)).toEqual(['a.png'])
+    })
+
+    it('keeps a \\label written inside the caption group', () => {
+      const [sub] = panels('\\subcaptionbox{Left\\label{sub:a}}{\\includegraphics{a.png}}') as Extract<LxBlock, { kind: 'float' }>[]
+      expect(sub.caption!.some((n) => n.kind === 'label' && n.key === 'sub:a')).toBe(true)
+    })
+
+    it('stays an island when the panel group is missing', () => {
+      // one grammar or none: a half-read \subcaptionbox would drop the
+      // bytes of whatever it failed to find
+      const src = DOC('\\begin{figure}\n\\subcaptionbox{Cap}\n\\caption{C}\n\\end{figure}')
+      const [fig] = body(src)
+      const f = fig as Extract<LxBlock, { kind: 'float' }>
+      expect(f.body.some((b) => b.kind === 'float')).toBe(false)
+    })
+  })
+
   it('float body prose keeps its inline structure', () => {
     const [fig] = body(DOC('\\begin{figure}\n\\includegraphics{f.png}\nNote with \\textbf{bold} and \\ref{tab:x}.\n\\caption{C}\n\\end{figure}'))
     const f = fig as Extract<LxBlock, { kind: 'float' }>
@@ -530,6 +582,26 @@ describe('parseLatex inline', () => {
     expect(cite.keys).toEqual(['knuth84', 'lamport94'])
     expect(cite.opt).toBe('p.~3')
     expect(inline.find((n) => n.kind === 'label')).toMatchObject({ key: 'here' })
+  })
+
+  it('a \\crefrange is a RANGE node, never a ref’s key list', () => {
+    // the whole point of the separate kind: `keys` does not exist on it, so
+    // no reader can join two ends with ", " and turn "to" into "and"
+    const range = inlineOf('see \\crefrange{fig:a}{fig:c} now')
+      .find((n) => n.kind === 'refrange')
+    expect(range).toMatchObject({ kind: 'refrange', cmd: 'crefrange', from: 'fig:a', to: 'fig:c' })
+    expect(range).not.toHaveProperty('keys')
+    expect(inlineOf('\\Crefrange{eq:x}{eq:z}').find((n) => n.kind === 'refrange'))
+      .toMatchObject({ cmd: 'Crefrange', from: 'eq:x', to: 'eq:z' })
+    // and a plain \cref is still a LIST — the two never converge
+    expect(inlineOf('\\cref{fig:a,fig:c}').find((n) => n.kind === 'ref'))
+      .toMatchObject({ keys: ['fig:a', 'fig:c'] })
+  })
+
+  it('a \\crefrange missing its second group stays an island', () => {
+    const inline = inlineOf('see \\crefrange{fig:a} now')
+    expect(inline.some((n) => n.kind === 'refrange')).toBe(false)
+    expect(inline.some((n) => n.kind === 'island')).toBe(true)
   })
 
   it('footnotes recurse', () => {

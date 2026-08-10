@@ -41,6 +41,14 @@ export interface DerivedNumber {
   text: string
   /** true = our own counters, or an engine answer we know is out of date */
   provisional: boolean
+  /** The raw number and the kind the source resolved this label to, when it
+   * knows them. `text` has already had one command's words wrapped round it,
+   * and a RANGE cannot be assembled from two such texts — it needs both
+   * numbers bare and the one kind they share, to print "figs. 1 to 3" and
+   * not "fig. 1 to fig. 3". Optional so a source that only formats (a test
+   * fake) still satisfies the type; a range then degrades to its keys. */
+  number?: string
+  kind?: RefKind | null
 }
 
 /** what auxnumbers.ts registers: the engine's answer for one ref, or null
@@ -81,10 +89,11 @@ export function setNumberSource(fn: NumberSource | null): void {
  * macro. */
 
 /** cleveref's four forms for one kind: \crefname{type}{sg}{pl} and
- * \Crefname{type}{Sg}{Pl}. Plurals are carried but not yet printed —
- * parse.ts hands `\cref{a,b}` over as the single key "a,b", so a multi-ref
- * group never reaches refDisplay as a group today. Storing them keeps the
- * seam whole rather than making the parser drop what it mined. */
+ * \Crefname{type}{Sg}{Pl}. The plurals are what \crefrange prints — a range
+ * names its kind in the plural ("figs. 1 to 3") — so this is the table
+ * rangeDisplay reads, not a second hardcoded one. (\cref{a,b} still reaches
+ * refDisplay as the single key "a,b", so a comma LIST is not pluralized
+ * here; that is a separate gap, not this one.) */
 export interface CrefName { sg?: string; pl?: string; Sg?: string; Pl?: string }
 
 /** The preamble's reference-word declarations, as minePreamble mines them.
@@ -160,11 +169,19 @@ function autorefName(kind: RefKind): string | undefined {
  * uppercasing the first letter. The reverse is NOT done — lowercasing
  * "Diagram" is harmless in English and wrong in German, where the noun is
  * capitalized by grammar, so a document that declared only \Crefname keeps
- * that word as it wrote it. */
-function crefName(kind: RefKind, cap: boolean): string | undefined {
+ * that word as it wrote it.
+ *
+ * `plural` picks the \crefrange half of the same table. A plural is never
+ * DERIVED from a singular: cleveref prints "appendices" for "appendix" and
+ * "figs." for "fig.", and no rule over the singular produces both. So a
+ * document that declared only a singular has no plural here, and a range
+ * degrades to the bare numbers exactly as an unmeasured kind does. */
+function crefName(kind: RefKind, cap: boolean, plural: boolean): string | undefined {
   const own = crefOverrides[kind]
-  const declared = cap ? own?.Sg ?? upperFirst(own?.sg) : own?.sg
-  return builtinAllowed(declared) ? CREF_NAMES[kind]?.[cap ? 1 : 0] : declared
+  const declared = plural
+    ? (cap ? own?.Pl ?? upperFirst(own?.pl) : own?.pl)
+    : (cap ? own?.Sg ?? upperFirst(own?.sg) : own?.sg)
+  return builtinAllowed(declared) ? CREF_NAMES[kind]?.[(plural ? 2 : 0) + (cap ? 1 : 0)] : declared
 }
 
 function upperFirst(s: string | undefined): string | undefined {
@@ -228,8 +245,12 @@ export function refreshDerived(article: HTMLElement): void {
   }
 
   for (const ref of article.querySelectorAll<HTMLElement>('a.dia-ref')) {
-    const key = ref.getAttribute('data-dia-ref') ?? ''
     const cmd = ref.getAttribute('data-dia-ref-cmd') ?? 'ref'
+    if (ref.matches('a.dia-refrange')) {
+      applyRefText(ref, resolveRange(ref, cmd, numbers, kinds), article)
+      continue
+    }
+    const key = ref.getAttribute('data-dia-ref') ?? ''
     const kind = kinds.get(key) ?? null
     // the engine first — it is the only one that knows what it printed
     const resolved = numberSource?.(cmd, key, kind)
@@ -239,6 +260,35 @@ export function refreshDerived(article: HTMLElement): void {
       // key, the same placeholder an unresolved \ref already shows.
       ?? { text: refDisplay(cmd, kind, numbers.get(key) ?? null, null, key), provisional: true }
     applyRefText(ref, resolved, article)
+  }
+}
+
+/** Resolve one \crefrange: both ends, then the shared kind, then the words.
+ *
+ * The two ends are resolved INDEPENDENTLY and the range is provisional if
+ * either of them is — a range half-answered by a stale .aux is exactly as
+ * untrustworthy as its worse half. When the ends disagree about their kind
+ * the range prints no word at all: cleveref cannot name a mixed range
+ * either (measured, it sets "?? 3.1–3.1"), and inventing one here would put
+ * a claim in the author's prose that the engine will not back. */
+function resolveRange(
+  ref: HTMLElement, cmd: string,
+  numbers: Map<string, string>, kinds: Map<string, RefKind>,
+): DerivedNumber {
+  const fromKey = ref.getAttribute('data-dia-ref-from') ?? ''
+  const toKey = ref.getAttribute('data-dia-ref-to') ?? ''
+  const end = (key: string) => {
+    const domKind = kinds.get(key) ?? null
+    const engine = numberSource?.(cmd, key, domKind)
+    if (engine) return { number: engine.number ?? null, kind: engine.kind ?? domKind, provisional: engine.provisional }
+    return { number: numbers.get(key) ?? null, kind: domKind, provisional: true }
+  }
+  const a = end(fromKey)
+  const b = end(toKey)
+  const kind = a.kind !== null && a.kind === b.kind ? a.kind : null
+  return {
+    text: rangeDisplay(cmd, kind, a.number, b.number, fromKey, toKey),
+    provisional: a.provisional || b.provisional,
   }
 }
 
@@ -289,18 +339,45 @@ const AUTOREF_NAMES: Record<string, string> = {
   Item: 'item', item: 'item',
 }
 
-/** cleveref's \crefname defaults: [lowercase for \cref, capitalized for
- * \Cref]. cleveref folds every sectioning level below \chapter onto
- * "section" (measured: \cref of a subsubsection prints "section 1.1.1"),
- * which is exactly the kind of thing a counter model would never guess. */
-const CREF_NAMES: Record<string, [string, string]> = {
-  part: ['part', 'Part'], chapter: ['chapter', 'Chapter'],
-  section: ['section', 'Section'], subsection: ['section', 'Section'],
-  subsubsection: ['section', 'Section'],
-  appendix: ['appendix', 'Appendix'], subappendix: ['appendix', 'Appendix'],
-  figure: ['fig.', 'Figure'], table: ['table', 'Table'],
-  equation: ['eq.', 'Equation'],
-  enumi: ['item', 'Item'], Item: ['item', 'Item'], item: ['item', 'Item'],
+/** cleveref's \crefname defaults, as [sg, Sg, pl, Pl] — the singulars \cref
+ * and \Cref print, then the plurals \crefrange and \Crefrange print.
+ * cleveref folds every sectioning level below \chapter onto "section"
+ * (measured: \cref of a subsubsection prints "section 1.1.1", \crefrange of
+ * two prints "sections 1.1.1 to 1.1.2"), which is exactly the kind of thing
+ * a counter model would never guess.
+ *
+ * The plural column was measured 2026-08-09 on tectonic 0.15.0, pdftotext
+ * of three probes (article, report, article+\appendix) — it is not the
+ * singular plus "s", and could not have been: "fig." pluralizes to "figs."
+ * but "Figure" to "Figures" (the abbreviation moves), and "appendix" to
+ * "appendices". Read off the PDF:
+ *
+ *   \crefrange / \Crefrange        \cref / \Cref
+ *   sections 1 to 3   Sections     section 1     Section
+ *   sections 3.1 to 3.2 (subsec)   section 3.1   Section
+ *   sections 1.1.1 to 1.1.2        section 1.1.1 Section
+ *   chapters 1 to 3   Chapters     chapter 1     Chapter
+ *   parts I to II     Parts        part I        Part
+ *   appendices A to B Appendices   appendix A.1  Appendix
+ *   figs. 1 to 3      Figures      fig. 1        Figure
+ *   tables 1 to 2     Tables       table 1       Table
+ *   eqs. (1) to (3)   Equations    eq. (1)       Equation
+ *   items 1 to 3      Items        item 1        Item
+ */
+const CREF_NAMES: Record<string, [string, string, string, string]> = {
+  part: ['part', 'Part', 'parts', 'Parts'],
+  chapter: ['chapter', 'Chapter', 'chapters', 'Chapters'],
+  section: ['section', 'Section', 'sections', 'Sections'],
+  subsection: ['section', 'Section', 'sections', 'Sections'],
+  subsubsection: ['section', 'Section', 'sections', 'Sections'],
+  appendix: ['appendix', 'Appendix', 'appendices', 'Appendices'],
+  subappendix: ['appendix', 'Appendix', 'appendices', 'Appendices'],
+  figure: ['fig.', 'Figure', 'figs.', 'Figures'],
+  table: ['table', 'Table', 'tables', 'Tables'],
+  equation: ['eq.', 'Equation', 'eqs.', 'Equations'],
+  enumi: ['item', 'Item', 'items', 'Items'],
+  Item: ['item', 'Item', 'items', 'Items'],
+  item: ['item', 'Item', 'items', 'Items'],
 }
 
 /** The text one \ref-family command prints for a label, given whatever is
@@ -321,7 +398,7 @@ export function refDisplay(
     }
     case 'cref':
     case 'Cref': {
-      const name = kind === null ? undefined : crefName(kind, cmd === 'Cref')
+      const name = kind === null ? undefined : crefName(kind, cmd === 'Cref', false)
       // cleveref parenthesizes an equation's number and nothing else's:
       // "eq. (1)" / "Equation (1)", but "fig. 1"
       const body = kind === 'equation' ? `(${number})` : number
@@ -330,6 +407,39 @@ export function refDisplay(
     default:
       return number
   }
+}
+
+/** cleveref's separator between a range's endpoints. Measured, and NOT the
+ * en-dash: `\crefrange{a}{b}` sets "figs. 1 to 3" in words. (The en-dash
+ * does appear — in cleveref's own FAILURE output, `1.1.1–??`, when one end
+ * does not resolve. That is an error marker, not the range form.) */
+const RANGE_JOIN = ' to '
+
+/** The text \crefrange / \Crefrange print for a pair of labels.
+ *
+ * A SIBLING of refDisplay rather than a case inside it, because its inputs
+ * are genuinely different: two numbers and one shared kind, where refDisplay
+ * takes one of each. Collapsing them would mean passing a range through a
+ * field shaped like a list, which is how "figs. 1 to 5" turns into "figs. 1
+ * and 5" — the exact confusion the refrange node exists to prevent.
+ *
+ * `kind` is the kind BOTH endpoints share; the caller passes null when they
+ * disagree, because cleveref itself cannot name a mixed range (measured:
+ * \crefrange{fig:a}{tab:a} sets "?? 3.1–3.1"). Null kind, an unmeasured
+ * kind, and a foreign language all degrade the same way — to the bare
+ * numbers, never to an invented word. */
+export function rangeDisplay(
+  cmd: string, kind: RefKind | null, from: string | null, to: string | null,
+  fromKey: string, toKey: string,
+): string {
+  // an unresolved end has no number to range over — show the keys, the same
+  // honest placeholder a single unresolved \ref already shows
+  if (from === null || to === null) return `${fromKey}${RANGE_JOIN}${toKey}`
+  const name = kind === null ? undefined : crefName(kind, cmd === 'Crefrange', true)
+  // each endpoint is parenthesized on its own: "eqs. (1) to (3)", measured
+  const body = (n: string) => (kind === 'equation' ? `(${n})` : n)
+  const span = `${body(from)}${RANGE_JOIN}${body(to)}`
+  return name ? `${name} ${span}` : span
 }
 
 /** derived text changed inside a block: update the pristine-markup seal on
