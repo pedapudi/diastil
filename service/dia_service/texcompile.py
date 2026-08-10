@@ -498,6 +498,142 @@ def biblatex_bibtex_backend_finding(
 
 
 # ---------------------------------------------------------------------------
+# biblatex's DEFAULT backend with no biber installed (issue #23)
+# ---------------------------------------------------------------------------
+#
+# The other half of #23, and the common one: `\usepackage{biblatex}` with no
+# backend option at all uses biber, and biber is a separate program that
+# tectonic does not bundle and this tool deliberately does not download (see
+# tex.biber_path() for why there is no managed install). On a machine with
+# no biber, measured on corpus/tex/biblatex/biblatex.tex with the
+# backend=bibtex option removed, against the managed tectonic 0.15.0:
+#
+#   note: Running external tool biber ...
+#   error: No such file or directory (os error 2)
+#
+# and tectonic exits 1 having written main.log but NO PDF. The job then
+# reports `status: "error"` with `detail: None` and twenty parsed findings,
+# every one of them a warning and not one of them naming the cause: fifteen
+# "Citation 'x' undefined", an "Empty bibliography", and — worst of the lot
+# — biblatex's own "Please (re)run Biber on the file", which is advice the
+# user cannot act on, because there is no Biber to run. That reads exactly
+# like a broken document, which is what this finding exists to stop.
+#
+# The console line naming biber is the only place the real cause is ever
+# written down — main.log has no idea biber is missing — and self.log is
+# not it: CompileJob.run overwrites the console stream with the richer
+# main.log from disk. Hence `console` as an input of its own here, and a
+# local in run() held back from that overwrite.
+#
+# A raw engine (pdflatex/xelatex, and latexmk when its biber run fails)
+# takes the other shape: it carries on and DOES emit a PDF, one where every
+# \cite prints the undefined-citation mark and \printbibliography prints
+# nothing. Same cause, different visible damage, so the message forks on it
+# rather than claiming one symptom for both.
+#
+# Unlike the backend=bibtex case above, installing biber is exactly the fix
+# here — which is why this finding refuses to fire when biber IS present.
+
+# `\usepackage{biblatex}` / `\usepackage[opts]{biblatex}`, options captured
+# so the backend option inside them can be read out.
+_BIBLATEX_USEPACKAGE = re.compile(
+    r"\\usepackage\s*(?:\[(?P<opts>[^\]]*)\])?\s*\{biblatex\}")
+# any `backend=` value: biber (the default, stated) or bibtex/bibtex8/
+# bibtexu (opted out of biber, and then this is #27's finding, not ours)
+_BACKEND_OPTION = re.compile(r"\bbackend\s*=\s*(?P<backend>\w+)")
+# biblatex.sty's own plea, emitted by the .sty on any engine whenever the
+# .bbl it needs is not there — which is every run when biber never ran.
+# Case-sensitive on purpose: the bibtex backend emits the same sentence
+# with "BibTeX" in it, and that one is #27's, not this one. Captured
+# verbatim: service/tests/logs/biblatex-biber-missing.log.
+_RERUN_BIBER = re.compile(r"Please \(re\)run Biber on the file")
+# tectonic announcing the external tool it is about to exec — it only ever
+# says this for biblatex's default backend. Captured verbatim:
+# service/tests/logs/biblatex-biber-missing-console.log.
+_TECTONIC_RUNNING_BIBER = re.compile(r"Running external tool biber")
+# the version biblatex stamps into the log, e.g.
+# `Package: biblatex 2022/02/02 v3.17 programmable bibliographies (PK/MW)`.
+# Named in the message because biber and biblatex are version-locked and
+# the newest biber is the wrong one for an older bundled biblatex.
+_BIBLATEX_VERSION = re.compile(r"Package: biblatex \S+ v(?P<v>[\d.]+)")
+
+
+def _uses_default_biber_backend(source: str) -> bool | None:
+    """True when `source` loads biblatex and leaves it on biber, False when
+    it loads biblatex and names another backend, None when the source says
+    nothing about biblatex at all (empty, or not the main file). The third
+    answer is what keeps a log-only caller working."""
+    m = _BIBLATEX_USEPACKAGE.search(source)
+    if m is None:
+        return None
+    backend = _BACKEND_OPTION.search(m.group("opts") or "")
+    return backend is None or backend.group("backend") == "biber"
+
+
+def biblatex_biber_missing_finding(
+    source: str = "", log: str = "", console: str = "",
+    biber: str | None = None, pdf: bool = True,
+) -> TexError | None:
+    """A finding for the problems drawer when a default-backend biblatex
+    document was compiled with no biber to compile it with, or None.
+
+    `biber` is tex.biber_path()'s answer — a path, or None for "not
+    installed". A present biber makes this None unconditionally: this
+    finding is about the program being absent, and a document that failed
+    for some other reason must not be told to install what it already has.
+
+    `pdf` says whether the run produced one, because that is what decides
+    which of the two symptoms the user is looking at (see above).
+
+    Any one of the three tell-tales is enough, for the same reason as
+    biblatex_bibtex_backend_finding: a caller may hold only the source
+    (checking before compiling), only a log, or only the engine console.
+    A source that explicitly names a non-biber backend vetoes all of
+    them — that document is #27's case, not this one."""
+    if biber is not None:
+        return None
+    from_source = _uses_default_biber_backend(source)
+    if from_source is False:
+        return None
+    if not (
+        from_source
+        or _RERUN_BIBER.search(log)
+        or _TECTONIC_RUNNING_BIBER.search(console)
+    ):
+        return None
+    symptom = (
+        "Nothing resolved the citations: every inline citation prints as an "
+        "undefined-citation mark and \\printbibliography prints an empty "
+        "list, while the rest of the document — text, math, "
+        "cross-references, figures — is unaffected."
+        if pdf else
+        "The engine stopped at the point it went to run biber, so this run "
+        "produced no PDF at all — nothing in the document itself is at fault."
+    )
+    version = _BIBLATEX_VERSION.search(log)
+    lock = (
+        " Biber and biblatex are version-locked, and this compile loaded "
+        f"biblatex v{version.group('v')}, so install the biber release that "
+        "matches it rather than the newest one."
+        if version else ""
+    )
+    return TexError(
+        level="warning" if pdf else "error",
+        file=None,
+        line=None,
+        message=(
+            "biblatex is on its default biber backend, but no biber is "
+            "installed — nothing named biber is on PATH, and it is not "
+            "something tectonic bundles or this tool can install for you. "
+            f"{symptom} Installing biber is the fix "
+            f"({BIBER_HOMEPAGE}).{lock} Switching the document to "
+            "backend=bibtex is not a fix — it compiles, but can print the "
+            "wrong citation text."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # synctex
 # ---------------------------------------------------------------------------
 
@@ -1608,7 +1744,13 @@ class CompileJob:
             self.detail = f"engine failed to start: {exc}"
 
         self.duration = time.monotonic() - started
-        self.log = "".join(chunks)
+        # The console stream, kept before the disk log displaces it below:
+        # it is the ONLY place a wrapper engine's own failures appear at all
+        # (tectonic's "Running external tool biber ..." / "error: No such
+        # file or directory" never reach main.log), and one of those is the
+        # missing-biber cause biblatex_biber_missing_finding reports.
+        console = "".join(chunks)
+        self.log = console
         # The log on disk is richer than the console stream (tectonic prints
         # a summary but writes the full TeX log to main.log), so prefer it.
         disk_log = self.workdir / "main.log"
@@ -1625,7 +1767,8 @@ class CompileJob:
         if self._cancelled:
             self.status = "cancelled"
         elif self.status == "running":
-            if self.pdf_path.is_file() and self.pdf_path.stat().st_size > 0:
+            produced_pdf = self.pdf_path.is_file() and self.pdf_path.stat().st_size > 0
+            if produced_pdf:
                 self.status = "ok"
                 self.pages = _page_count(self.log, self.pdf_path)
                 # a real PDF is exactly the case parse_log's findings do not
@@ -1641,6 +1784,19 @@ class CompileJob:
                 self.status = "error"
                 if not self.errors and not self.detail:
                     self.detail = "the engine produced no PDF and no parseable error"
+            # The other half of #23, and it rides on BOTH outcomes: a missing
+            # biber kills the compile outright under tectonic and merely
+            # empties the bibliography under a raw engine. Measured: neither
+            # outcome named the cause anywhere the user could see it — the
+            # failing one reported twenty warnings, zero errors and a null
+            # detail. Mutually exclusive with the finding above by
+            # construction: that one needs backend=bibtex, this one refuses
+            # to fire when any non-biber backend is named.
+            finding = biblatex_biber_missing_finding(
+                source=self._source_text(), log=self.log, console=console,
+                biber=tex.biber_path(), pdf=produced_pdf)
+            if finding is not None:
+                self.errors.append(finding)
 
         self.emit({"type": "done", **self.status_dict()})
         with self._cond:
