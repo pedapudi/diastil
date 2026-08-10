@@ -60,6 +60,7 @@ import { batch, setInlineHtml } from '../model/ops'
 import { syncedDocOp, topBlockOf } from '../doc/sync'
 import { type CropFlag, cropShowing, flagCrops, peekBlock } from '../doc/blockmirror'
 import { flashBlock } from './docview'
+import { setFindCounts } from './outline'
 
 /* ---------- the matcher (pure) ---------- */
 
@@ -552,6 +553,14 @@ function paint(): void {
   // a count is a number in the margin, not a shade, and it is the only
   // answer at all where the highlight registry is missing.
   flagCrops(cropCounts())
+  // ...and the matches that are on no screen at all. Both answers above are
+  // LOCAL — a shade on the match you stand on, a tab on a picture you can
+  // see — and "3 / 41" does not say where the other forty went. The outline
+  // is the document's own table of contents and it is already open in the
+  // column beside the paper, so the counts go there, per section. Ahead of
+  // the canPaint bail with the other two, and for the same reason: it is a
+  // number in the chrome, not a shade in the prose.
+  setFindCounts(matchesByBlock())
   if (!canPaint || !registry) return
   const rest: Range[] = []
   for (const [i, m] of hits.entries()) {
@@ -597,6 +606,48 @@ function cropCounts(): Map<HTMLElement, CropFlag> {
   const out = new Map<HTMLElement, CropFlag>()
   for (const [crop, e] of seen) out.set(crop, { count: e.count, pick: () => land(e.first) })
   return out
+}
+
+/** Every match against the block holding it, for the outline's per-section
+ * counts.
+ *
+ * The block that HOLDS the text, not the one whose picture shows it
+ * (cropCounts' key): the outline's rows are headings, and which crop the
+ * compile happened to set a run-in heading inside says nothing about which
+ * section it reads under.
+ *
+ * The current match IS counted here, unlike on a crop tab. The tab sits
+ * beside a picture the reader is looking at, where the bar's own number
+ * would be a second copy of itself; the outline is a map of the whole
+ * document, and a section reading "2" while the reader stands on the third
+ * match inside it would be wrong about the document. O(hits), and hits is
+ * capped at MAX_HITS, so a one-letter needle over a book costs one pass over
+ * the 5000 the matcher already stopped at. */
+function matchesByBlock(): Map<HTMLElement, number> {
+  const doc = state.doc
+  const out = new Map<HTMLElement, number>()
+  if (!doc) return out
+  for (const m of hits) {
+    if (!m.node.isConnected) continue
+    // A match with no block is the derived title header — unwritable, but
+    // still somewhere the reader can scroll to. The outline asks which part
+    // of the paper the words are IN, not who is allowed to rewrite them, so
+    // it takes the article child holding them and the outline's title line
+    // (which is that header) carries the count. Measured on llama.tex with
+    // "the": 688 in the bar and 687 in the column, and the missing one was
+    // in the byline.
+    const block = m.block ?? articleChildOf(doc, m.node)
+    if (!block) continue
+    out.set(block, (out.get(block) ?? 0) + 1)
+  }
+  return out
+}
+
+/** the top-level article child holding this node, header included */
+function articleChildOf(doc: Doc, node: Node): HTMLElement | null {
+  let cur: Element | null = node.parentElement
+  while (cur && cur.parentElement !== doc.article) cur = cur.parentElement
+  return cur instanceof HTMLElement ? cur : null
 }
 
 /** Scroll the current match into view. Called after paint, so a mirrored

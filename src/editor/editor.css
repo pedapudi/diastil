@@ -768,3 +768,22 @@
 .de-docrail button:hover { color: var(--accent); border-color: var(--accent); }
 .de-docrail button:disabled { opacity: .35; cursor: default; }
 .de-docrail button:disabled:hover { color: var(--ink-soft); border-color: var(--rule-soft); }
+
+/* ---------- outline find counts (editor/outline.ts) ----------
+ * A second badge beside the amber open-comment one, in the accent the find
+ * bar shades its matches with — the eye reads the two counts as different
+ * questions without having to read the numbers. Same pill as the comment
+ * badge (same class, this one only recolours it) because it answers the
+ * same shape of question about the same section.
+ *
+ * It hangs LEFT of the comment badge, and both keep margin-left:auto, so
+ * the pair sits flush right and the amber count does not move when a search
+ * opens: the outline is a fixed 132px column beside the paper and a count
+ * that shuffles the rows on every keystroke is worse than no count at all.
+ * The title line's badge is not inside a button, so it says so with the
+ * cursor; a heading row's already does. */
+.de-outline-find {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent);
+  cursor: pointer;
+}
