@@ -72,6 +72,7 @@ Inside `article.dia-doc`:
 | verbatim / lstlisting / minted | `pre.dia-verbatim[data-dia-env]` |
 | `\textbf` `\textit` `\emph` `\texttt` `\underline` `\textsc` | `strong` `i` `em` `code` `u` `span.dia-smallcaps` |
 | `\ref` family | `a.dia-ref[data-dia-ref][data-dia-ref-cmd]` — text is DERIVED (resolved number) |
+| `\crefrange` | `a.dia-ref.dia-refrange[data-dia-ref-from][data-dia-ref-to]` — a RANGE, so it carries two ends and NO `data-dia-ref`; text is DERIVED |
 | `\cite` family | `a.dia-cite[data-dia-cite][data-dia-cite-opt][data-dia-cite-pre][data-dia-cite-cmd]` — text is DERIVED (author-year from the compile's .bbl, once one exists); `[key]` otherwise |
 | `\footnote` | `span.dia-footnote` |
 | `\url` / `\href` | `a.dia-url[href]` |
@@ -96,7 +97,8 @@ display only, never emitted.
 Persisted document attributes beyond PROFILE.md §7, the complete list:
 `data-dia-doc-version` · `data-dia-float` (`doc/float`, error: figure ·
 table) · `data-dia-label` · `data-dia-env` · `data-dia-ref` ·
-`data-dia-ref-cmd` · `data-dia-cite` · `data-dia-cite-opt` ·
+`data-dia-ref-cmd` · `data-dia-ref-from` · `data-dia-ref-to` ·
+`data-dia-cite` · `data-dia-cite-opt` ·
 `data-dia-cite-cmd` · `data-dia-cite-pre` · `data-dia-graphic-opts` ·
 `data-dia-graphic-path` · `data-dia-colspec` · `data-dia-expand` ·
 `data-dia-rule` · `data-dia-trailing-rule` · `data-dia-colspan-spec` ·

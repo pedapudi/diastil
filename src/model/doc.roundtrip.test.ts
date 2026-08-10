@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { loadDoc, loadDocFromTex, serializeDoc, exportTex, splitCommentsTrailer, EMPTY_COMMENTS } from './doc'
-import { validateDocHtml } from './validate'
+import { validateDocHtml, DOC_ATTRS } from './validate'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const repo = join(here, '..', '..')
@@ -338,5 +338,31 @@ describe('doc profile validation', () => {
       expect(r.status, r.stderr).toBe(0)
       expect(JSON.parse(r.stdout.trim()), 'python verdict matches TS').toBe(expectOk)
     }
+  })
+})
+
+/* ---------- the two allowlists themselves ---------- */
+
+/* The lockstep case above validates one SAMPLE artifact, which can only ever
+ * exercise the attributes that sample happens to use — so it cannot see the
+ * two DOC_ATTRS lists drifting apart. They did: \crefrange's two ends were
+ * added to the TS list alone, and a saved document containing a range passed
+ * validateDocHtml while the daemon's validate_doc_html rejected it as an
+ * unknown dialect attribute. Compare the SETS, not a sample. */
+describe('the two validators allow exactly the same attributes', () => {
+  it('DOC_ATTRS is identical in TypeScript and Python', () => {
+    const probe = spawnSync('python3', ['--version'])
+    if (probe.status !== 0) return // no python here — the mirror runs in service CI
+    const r = spawnSync('python3', ['-c', [
+      'import sys, json',
+      `sys.path.insert(0, ${JSON.stringify(join(repo, 'service'))})`,
+      'from dia_service.validate import DOC_ATTRS',
+      'print(json.dumps(sorted(DOC_ATTRS)))',
+    ].join('\n')], { encoding: 'utf-8' })
+    expect(r.status, r.stderr).toBe(0)
+    const py: string[] = JSON.parse(r.stdout.trim())
+    const ts = [...DOC_ATTRS].sort()
+    expect(py.filter((a) => !DOC_ATTRS.has(a)), 'in Python, missing from TypeScript').toEqual([])
+    expect(ts.filter((a) => !py.includes(a)), 'in TypeScript, missing from Python').toEqual([])
   })
 })

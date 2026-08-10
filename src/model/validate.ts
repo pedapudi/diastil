@@ -50,7 +50,7 @@ const EDITOR_ONLY_ATTRS = new Set([
 ])
 
 /** persisted document-profile attributes beyond the deck set (DOC-PROFILE §3) */
-const DOC_ATTRS = new Set([
+export const DOC_ATTRS = new Set([
   'data-dia-doc-version',
   'data-dia-float', // figure|table — a float's kind
   'data-dia-label', // \label key, on floats/sections/math (and its dia-label span form)
