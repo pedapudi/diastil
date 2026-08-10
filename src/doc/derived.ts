@@ -49,11 +49,12 @@ export interface DerivedNumber {
 export type NumberSource = (cmd: string, key: string, kind: RefKind | null) => DerivedNumber | null
 
 /** marks a ref whose number came from our counters rather than the engine.
- * A CLASS and a TOOLTIP rather than a stylesheet rule: the doc stylesheet
- * lives in model/doc.ts, and a marker that needs no CSS is one that works
- * in the editor, in a saved document and in the compiled-mirror pane alike.
- * The class is the hook — inspect surfaces and any later styling pass key
- * off it without this module changing. */
+ * A CLASS and a TOOLTIP: this module writes both and owns neither pixel of
+ * the result. The rule that makes the class visible lives with the rest of
+ * the document's look in model/doc.ts's defaultDocThemeCss — the THEME
+ * stylesheet, not the editor-base one, because serializeDoc keeps the theme
+ * and drops the base, so the marking survives into a saved artifact and
+ * into the compiled-mirror pane rather than being an editor-only hint. */
 export const PROVISIONAL_CLASS = 'dia-ref-provisional'
 export const PROVISIONAL_TITLE =
   'provisional number — counted by diastil, not by LaTeX; compile to resolve it'
@@ -66,6 +67,108 @@ let numberSource: NumberSource | null = null
  * half, and so tests can pin the resolution rules with a fake .aux. */
 export function setNumberSource(fn: NumberSource | null): void {
   numberSource = fn
+}
+
+/* ---------- the document's own words for the kinds ----------
+ *
+ * The .aux records a label's KIND and never the word printed for it, so
+ * \autoref and \cref are rendered here from name tables — and a document is
+ * free to rewrite those tables in its preamble. \crefname{figure}{diagram}
+ * {diagrams} means every \cref to a figure prints "diagram", and nothing in
+ * the .aux hints at it. So the preamble's declarations win over the
+ * measured defaults below, exactly the way setRenderMacros lets the
+ * preamble's \newcommand bodies win over the renderer's own idea of a
+ * macro. */
+
+/** cleveref's four forms for one kind: \crefname{type}{sg}{pl} and
+ * \Crefname{type}{Sg}{Pl}. Plurals are carried but not yet printed —
+ * parse.ts hands `\cref{a,b}` over as the single key "a,b", so a multi-ref
+ * group never reaches refDisplay as a group today. Storing them keeps the
+ * seam whole rather than making the parser drop what it mined. */
+export interface CrefName { sg?: string; pl?: string; Sg?: string; Pl?: string }
+
+/** The preamble's reference-word declarations, as minePreamble mines them.
+ * Every field optional: the overwhelmingly common document declares none of
+ * these, and that document must keep rendering exactly as it did. */
+export interface RefNameMeta {
+  /** \crefname / \Crefname, keyed by cleveref's type name */
+  crefNames?: Record<string, CrefName>
+  /** \<type>autorefname (hyperref), keyed by the anchor kind */
+  refNames?: Record<string, string>
+  /** babel's / polyglossia's main language, if the document names one */
+  language?: string
+}
+
+let crefOverrides: Record<string, CrefName> = {}
+let autorefOverrides: Record<string, string> = {}
+/** true when the document declared a language the tables below were NOT
+ * measured in — see builtinAllowed for what that costs */
+let foreignLanguage = false
+
+/** Install the preamble's reference words. Takes the whole meta rather than
+ * three positional arguments (setRenderMacros's shape) because the three
+ * fields only make sense together: `language` decides whether the built-in
+ * tables may answer at all, so a caller that passed two of three would be
+ * asking a question this module cannot answer. Called once per mount, so
+ * loading a second document replaces the first's vocabulary wholesale. */
+export function setRefNames(meta?: RefNameMeta): void {
+  crefOverrides = meta?.crefNames ?? {}
+  autorefOverrides = meta?.refNames ?? {}
+  foreignLanguage = meta?.language !== undefined && !ENGLISH.has(meta.language.trim().toLowerCase())
+}
+
+/** babel's and polyglossia's names for English, dialects included. A
+ * document that declares one of these is still an English document, so the
+ * measured tables stay RIGHT for it — suppressing them there would be a
+ * regression dressed up as caution. */
+const ENGLISH = new Set([
+  'english', 'american', 'usenglish', 'american english',
+  'british', 'ukenglish', 'britishenglish', 'british english',
+  'canadian', 'australian', 'newzealand',
+])
+
+/** May the built-in (English, measured) name tables answer, given what the
+ * document declared for this kind?
+ *
+ * NO, when the document declared some other language and did not declare
+ * the name itself. babel and cleveref translate these words internally —
+ * a German document prints "Abschnitt 1" where AUTOREF_NAMES says "section
+ * 1" — and we do not have those translations. Typing a German table from
+ * memory is precisely the invention this file's tables exist to avoid:
+ * every entry in them was read off a real compile.
+ *
+ * So a declared foreign language with no declared names degrades to the
+ * bare NUMBER, the same degradation an unknown kind already gets. The
+ * asymmetry is deliberate: "1" is incomplete, but "section 1" inside German
+ * prose is WRONG in a way that reads as the author's own text. A compile
+ * does not rescue this either — the .aux carries the number and the kind,
+ * never the word — so the fix is the document saying \crefname, and that
+ * path works. */
+function builtinAllowed(declared: string | undefined): boolean {
+  return declared === undefined && !foreignLanguage
+}
+
+/** \autoref's word for a kind: \<kind>autorefname if the document set one,
+ * then hyperref's measured default. */
+function autorefName(kind: RefKind): string | undefined {
+  const declared = autorefOverrides[kind]
+  return builtinAllowed(declared) ? AUTOREF_NAMES[kind] : declared
+}
+
+/** \cref's / \Cref's word for a kind, with cleveref's own fallback between
+ * the two cases: \crefname alone also supplies the capitalized forms, by
+ * uppercasing the first letter. The reverse is NOT done — lowercasing
+ * "Diagram" is harmless in English and wrong in German, where the noun is
+ * capitalized by grammar, so a document that declared only \Crefname keeps
+ * that word as it wrote it. */
+function crefName(kind: RefKind, cap: boolean): string | undefined {
+  const own = crefOverrides[kind]
+  const declared = cap ? own?.Sg ?? upperFirst(own?.sg) : own?.sg
+  return builtinAllowed(declared) ? CREF_NAMES[kind]?.[cap ? 1 : 0] : declared
+}
+
+function upperFirst(s: string | undefined): string | undefined {
+  return s === undefined ? undefined : s.charAt(0).toUpperCase() + s.slice(1)
 }
 
 export function refreshDerived(article: HTMLElement): void {
@@ -168,7 +271,13 @@ function applyRefText(ref: HTMLElement, n: DerivedNumber, article: HTMLElement):
  * mixture of cased and uncased ("Figure 1", but "section 1"), and
  * cleveref's \cref abbreviates where \Cref does not ("fig. 1" / "Figure 1")
  * — neither is derivable from the other. A kind with no measured entry
- * degrades to the bare number rather than to an invented word. */
+ * degrades to the bare number rather than to an invented word.
+ *
+ * These are DEFAULTS. They hold for a document that leaves the vocabulary
+ * alone, which is most of them; setRefNames above puts the preamble's own
+ * \crefname / \…autorefname ahead of every entry here, and takes them all
+ * off the table when the document declares a language they were not
+ * measured in. */
 
 /** hyperref's \…autorefname defaults, keyed by the label kind. Measured. */
 const AUTOREF_NAMES: Record<string, string> = {
@@ -207,13 +316,12 @@ export function refDisplay(
     case 'eqref':
       return `(${number})`
     case 'autoref': {
-      const name = kind === null ? undefined : AUTOREF_NAMES[kind]
+      const name = kind === null ? undefined : autorefName(kind)
       return name ? `${name} ${number}` : number
     }
     case 'cref':
     case 'Cref': {
-      const pair = kind === null ? undefined : CREF_NAMES[kind]
-      const name = pair?.[cmd === 'Cref' ? 1 : 0]
+      const name = kind === null ? undefined : crefName(kind, cmd === 'Cref')
       // cleveref parenthesizes an equation's number and nothing else's:
       // "eq. (1)" / "Equation (1)", but "fig. 1"
       const body = kind === 'equation' ? `(${number})` : number

@@ -16,7 +16,7 @@ import { parseLatex } from '../latex/parse'
 import { setRenderMacros } from '../latex/render'
 import { DocSource } from '../latex/source'
 import { DocProject, composeProject, markUnresolved, resolveInputPath } from '../latex/project'
-import { refreshDerived } from '../doc/derived'
+import { refreshDerived, setRefNames, type RefNameMeta } from '../doc/derived'
 import { DOC_RUNTIME } from '../doc/runtime'
 import { freshId, scopeToHost, unscopeFromHost } from './parse'
 
@@ -240,6 +240,12 @@ function mountDoc(host: HTMLElement, input: MountInput): Doc {
   const preamble = parsedDoc.blocks[0]
   const pmeta = preamble?.kind === 'preamble' ? preamble.meta : undefined
   setRenderMacros(pmeta?.textMacros, pmeta?.quietMacros)
+  // …and the same handoff for the words \autoref and \cref print, which a
+  // preamble may rename (\crefname, \…autorefname) and which the .aux never
+  // records. The cast is the seam: minePreamble is growing these three keys
+  // in a parallel change, and until PreambleMeta declares them this reads
+  // them structurally. When it does, the cast is the only thing to delete.
+  setRefNames(pmeta as RefNameMeta | undefined)
   const project = new DocProject(mainPathOf(input.texName), source, input.files)
   const rendered = composeProject(project)
   root.appendChild(rendered.article)
@@ -556,6 +562,19 @@ pre.dia-verbatim { font-family: var(--dia-face-label); font-size: 0.85em; line-h
   overflow-x: auto; }
 code.dia-verb { font-family: var(--dia-face-label); font-size: 0.9em; }
 a.dia-ref, a.dia-cite { color: var(--dia-accent); text-decoration: none; }
+/* A number diastil counted rather than one LaTeX printed (doc/derived.ts
+ * sets the class and the tooltip). It must read as UNCONFIRMED and not as
+ * broken: before the first compile EVERY ref in the document is
+ * provisional, so anything alarm-shaped — red, a badge, a filled background
+ * — would paint a healthy document as one full of errors. A dotted
+ * underline in the ref's own accent is the weakest mark that still reads at
+ * body size, and it is the "unverified" vocabulary rather than the "wrong"
+ * one. It clears itself: the class comes off the moment the .aux answers.
+ * Lives in the THEME sheet, so it rides into the saved artifact and the
+ * compiled-mirror pane; dia-editor-base would have kept it in the editor. */
+a.dia-ref.dia-ref-provisional { text-decoration: underline dotted;
+  text-decoration-thickness: 1px; text-underline-offset: 0.22em;
+  text-decoration-color: color-mix(in srgb, var(--dia-accent) 50%, transparent); }
 a.dia-url { color: var(--dia-accent); }
 .dia-footnote { font-size: 0.82em; color: var(--dia-ink-soft); }
 .dia-footnote::before { content: "\\2020\\00a0"; color: var(--dia-accent); }
