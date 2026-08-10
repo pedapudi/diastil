@@ -12,7 +12,7 @@
  * reproducible as gap + block + gap + … (see stitch()). Gaps hold only
  * inter-block whitespace, paragraph breaks, and full-line comments. */
 
-import { lex, tilesExactly } from './lex'
+import { lex, overlaySpecLength, tilesExactly } from './lex'
 import type { LxToken, Span } from './lex'
 
 /* ---------- tree ---------- */
@@ -36,8 +36,8 @@ export type LxBlock =
    * (beamer's \begin{frame}{Title} and the block family) — see
    * TITLED_WRAPPERS: without it, consuming the argument would DELETE every
    * slide heading in a deck from the reading surface. */
-  | { kind: 'wrapper'; span: Span; env: string; body: LxBlock[]; title?: LxInline[] }
-  | { kind: 'list'; span: Span; env: 'itemize' | 'enumerate' | 'description'; items: LxListItem[]; srcEnv?: string }
+  | { kind: 'wrapper'; span: Span; env: string; body: LxBlock[]; title?: LxInline[]; overlay?: Span }
+  | { kind: 'list'; span: Span; env: 'itemize' | 'enumerate' | 'description'; items: LxListItem[]; srcEnv?: string; overlay?: Span }
   | { kind: 'float'; span: Span; env: 'figure' | 'table'; starred: boolean; caption?: LxInline[]; label?: string; graphics: LxGraphic[]; body: LxBlock[] }
   | { kind: 'tabular'; span: Span; colspec: string; rows: LxTabRow[]; trailingRule?: string }
   /** display math: \[…\], $$…$$, or a math environment */
@@ -96,12 +96,20 @@ export interface PreambleMeta {
    * so a package default is only right for a document that said nothing. */
   language?: string
 }
-export interface LxListItem { span: Span; term?: LxInline[]; blocks: LxBlock[] }
+/** `term` is `\item[…]`'s bracket argument. For a description list it IS the
+ * term; for itemize/enumerate the same bracket sets a CUSTOM BULLET
+ * (beamer.tex writes `\item[$\to$]`) — rendered and re-emitted either way,
+ * because an argument the DOM carries no node for is an argument an edited
+ * list silently deletes from the file.
+ *
+ * `overlay` is a beamer overlay specification's own span (`\item<1->`). */
+export interface LxListItem { span: Span; term?: LxInline[]; blocks: LxBlock[]; overlay?: Span }
 export interface LxGraphic { span: Span; path: string; opts?: string }
 
 export type LxInline =
   | { kind: 'text'; span: Span; text: string }
-  | { kind: 'style'; span: Span; cmd: StyleCmd; inner: LxInline[] }
+  /** `overlay` is beamer's spec on the style command itself: `\textbf<2>{…}` */
+  | { kind: 'style'; span: Span; cmd: StyleCmd; inner: LxInline[]; overlay?: Span }
   | { kind: 'math'; span: Span; tex: string }
   /** keys, plural: cleveref takes a LIST — `\cref{fig:a,fig:b}` sets
    * "figs. 1 and 2", and a consecutive list sets a range. Read as one
@@ -178,10 +186,11 @@ const WRAPPER_OPTIONAL_BRACE_ARGS: Record<string, number> = {
   frame: 1,
   // beamer DECLARES the block family's title required, but reading it as
   // required would mean a title written on the line BELOW \begin{block}
-  // (or absent, or preceded by an overlay spec `<2->` the brace matcher
-  // will not step over) silently deletes the group it lands on. Optional
-  // costs nothing when the title is where beamer wants it, and degrades to
-  // "title shows as the block's first prose" when it is not.
+  // (or absent) silently deletes the group it lands on. Optional costs
+  // nothing when the title is where beamer wants it, and degrades to
+  // "title shows as the block's first prose" when it is not. (An overlay
+  // spec before the title — `\begin{block}<2->{…}` — used to defeat the
+  // brace matcher too; it is a token now, stepped over in parseEnv.)
   block: 1, alertblock: 1, exampleblock: 1,
 }
 
@@ -230,6 +239,12 @@ const SYMBOL_CMD: Record<string, string> = {
 const STYLE_DECL: Record<string, StyleCmd> = {
   bf: 'bf', bfseries: 'bf', it: 'it', itshape: 'it', em: 'em', tt: 'tt', ttfamily: 'tt', sc: 'sc', scshape: 'sc',
 }
+/* One grammar per command set. \crefrange{a}{b} is deliberately absent: it
+ * takes TWO brace groups and means a RANGE, where a ref node's `keys` is a
+ * comma LIST — the same field with a different meaning, which is how a
+ * resolver quietly starts printing "figs. 1 and 5" for "figs. 1 to 5". No
+ * corpus fixture uses it, so there is no measurement to justify the risk;
+ * as an island it stays honest and the compiled mirror sets it correctly. */
 const REF_CMDS = new Set(['ref', 'eqref', 'autoref', 'cref', 'Cref', 'pageref'])
 // biblatex's "capitalize the first cite of a sentence" companions —
 // \Autocite, \Parencite, \Textcite — carry the same {keys} grammar as their
@@ -452,9 +467,13 @@ function parseDisplayMath(cur: Cursor, at: number, hi: number): { block: LxBlock
 function parseEnv(cur: Cursor, open: number, close: number, name: string): LxBlock {
   const span = { start: cur.toks[open].span.start, end: cur.toks[close].span.end }
   const base = starless(name)
+  // `\begin{frame}<2->` — the lexer only emits an overlay token where the
+  // \begin tag can legally carry one, so finding it here is enough
+  const head = cur.toks[open + 1]
+  const overlay = open + 1 < close && head?.kind === 'overlay' ? head.span : undefined
 
-  if (LIST_ENVS.has(base)) return parseList(cur, open, close, base as 'itemize' | 'enumerate' | 'description', span)
-  if (LIST_ALIAS[base]) return parseList(cur, open, close, LIST_ALIAS[base], span, name)
+  if (LIST_ENVS.has(base)) return parseList(cur, open, close, base as 'itemize' | 'enumerate' | 'description', span, undefined, overlay)
+  if (LIST_ALIAS[base]) return parseList(cur, open, close, LIST_ALIAS[base], span, name, overlay)
   if (FLOAT_ENVS[base]) return parseFloatEnv(cur, open, close, FLOAT_ENVS[base], name.endsWith('*'), span)
   if (base === 'tabular') return parseTabular(cur, open, close, span)
   if (MATH_ENVS.has(base)) {
@@ -475,8 +494,11 @@ function parseEnv(cur: Cursor, open: number, close: number, name: string): LxBlo
     // skip declared argument groups (multicols takes {n}) and any optional
     // [..] (a theorem's display name); a brace group after an argument-less
     // wrapper is CONTENT
-    let lo = open + 1
-    let afterPos = cur.toks[open].span.end
+    // an overlay spec sits between the \begin tag and every argument, so it
+    // is stepped over FIRST — without that, matchBracketGroup/matchBraceGroup
+    // stop dead on its token and a `\begin{block}<2->{Title}` loses its title
+    let lo = overlay ? open + 2 : open + 1
+    let afterPos = overlay ? overlay.end : cur.toks[open].span.end
     let last: Group | null = null
     const b = matchBracketGroup(cur, lo, close)
     if (b) { lo = b.close + 1; afterPos = b.closeSpan.end }
@@ -501,15 +523,15 @@ function parseEnv(cur: Cursor, open: number, close: number, name: string): LxBlo
       const title = parseInline(cur, last.lo, last.hi)
       // an empty title argument (`\begin{frame}{}`) is no title at all
       if (title.some((n) => !(n.kind === 'text' && n.text.trim() === ''))) {
-        return { kind: 'wrapper', span, env: base, body, title }
+        return { kind: 'wrapper', span, env: base, body, title, overlay }
       }
     }
-    return { kind: 'wrapper', span, env: base, body }
+    return { kind: 'wrapper', span, env: base, body, overlay }
   }
   return { kind: 'island', span, reason: `unknown environment ${name}` }
 }
 
-function parseList(cur: Cursor, open: number, close: number, env: 'itemize' | 'enumerate' | 'description', span: Span, srcEnv?: string): LxBlock {
+function parseList(cur: Cursor, open: number, close: number, env: 'itemize' | 'enumerate' | 'description', span: Span, srcEnv?: string, overlay?: Span): LxBlock {
   // find \item boundaries at THIS nesting depth only
   let depth = 0
   const marks: number[] = []
@@ -527,7 +549,10 @@ function parseList(cur: Cursor, open: number, close: number, env: 'itemize' | 'e
     const itemHi = m + 1 < marks.length ? marks[m + 1] : close
     let lo = at + 1
     let term: LxInline[] | undefined
-    // description items: \item[term]
+    // beamer's grammar is `\item<overlay>[label]`, in that order
+    const ov = lo < itemHi && cur.toks[lo]?.kind === 'overlay' ? cur.toks[lo].span : undefined
+    if (ov) lo++
+    // \item[…]: a description list's term, an itemize's custom bullet
     const bracket = matchBracketGroup(cur, lo, itemHi)
     if (bracket) {
       term = parseInline(cur, bracket.lo, bracket.hi)
@@ -536,10 +561,10 @@ function parseList(cur: Cursor, open: number, close: number, env: 'itemize' | 'e
     const blocks = parseBlocks(cur, lo, itemHi)
     const spanEnd = blocks.length
       ? blocks[blocks.length - 1].span.end
-      : (bracket ? cur.toks[bracket.close].span.end : cur.toks[at].span.end)
-    items.push({ span: { start: cur.toks[at].span.start, end: spanEnd }, term, blocks })
+      : (bracket ? cur.toks[bracket.close].span.end : ov ? ov.end : cur.toks[at].span.end)
+    items.push({ span: { start: cur.toks[at].span.start, end: spanEnd }, term, blocks, overlay: ov })
   }
-  return srcEnv ? { kind: 'list', span, env, items, srcEnv } : { kind: 'list', span, env, items }
+  return { kind: 'list', span, env, items, srcEnv, overlay }
 }
 
 function parseFloatEnv(cur: Cursor, open: number, close: number, env: 'figure' | 'table', starred: boolean, span: Span): LxBlock {
@@ -945,6 +970,16 @@ function parseInline(cur: Cursor, lo: number, hi: number): LxInline[] {
       continue
     }
 
+    if (t.kind === 'overlay') {
+      // an overlay spec no construct claimed (a fuzz slice that cut its
+      // command away, an environment this parser islands anyway): show the
+      // literal bytes, exactly as before the spec had a token of its own.
+      // Its span still covers them, so an edit re-emits them unchanged.
+      out.push({ kind: 'text', span: t.span, text: cur.slice(t.span) })
+      i++
+      continue
+    }
+
     // stray brackets/ampersands outside their structural role are literal
     if (t.kind === 'bopen' || t.kind === 'bclose' || t.kind === 'amp') {
       out.push({ kind: 'text', span: t.span, text: t.kind === 'bopen' ? '[' : t.kind === 'bclose' ? ']' : '&' })
@@ -1055,10 +1090,13 @@ function parseInlineCs(cur: Cursor, at: number, hi: number): { inline: LxInline;
 
   const style = STYLE_CMD[name]
   if (style) {
-    const g = matchBraceGroup(cur, at + 1, hi)
+    // beamer overloads these with an overlay spec: `\textbf<2>{…}`
+    const ovTok = cur.toks[at + 1]
+    const overlay = at + 1 < hi && ovTok?.kind === 'overlay' ? ovTok.span : undefined
+    const g = matchBraceGroup(cur, overlay ? at + 2 : at + 1, hi)
     if (g) {
       return {
-        inline: { kind: 'style', span: { start: t.span.start, end: cur.toks[g.close].span.end }, cmd: style, inner: parseInline(cur, g.lo, g.hi) },
+        inline: { kind: 'style', span: { start: t.span.start, end: cur.toks[g.close].span.end }, cmd: style, inner: parseInline(cur, g.lo, g.hi), overlay },
         next: g.close + 1,
       }
     }
@@ -1158,12 +1196,22 @@ function parseInlineCs(cur: Cursor, at: number, hi: number): { inline: LxInline;
   // unknown command: consume it and any directly attached [..]/{..} argument
   // groups — the standard heuristic; the island's span stays exact either way
   let end = at + 1
-  for (;;) {
-    const b = matchBracketGroup(cur, end, hi)
-    if (b) { end = b.close + 1; continue }
-    const g = matchBraceGroup(cur, end, hi)
-    if (g) { end = g.close + 1; continue }
-    break
+  if (end < hi && cur.toks[end]?.kind === 'overlay') {
+    // …with one exception. A command carrying an overlay spec is one of
+    // beamer's, and every beamer overlay command puts CONTENT in the group
+    // after the spec (\only<2>{…}, \uncover<2->{…}, \alert<3>{…}). Swallowing
+    // that group into the island would paint a slide's prose as raw mono —
+    // the defect the wrapper work just removed from this same deck. So the
+    // spec joins the island, tight against its command, and the scan stops.
+    end++
+  } else {
+    for (;;) {
+      const b = matchBracketGroup(cur, end, hi)
+      if (b) { end = b.close + 1; continue }
+      const g = matchBraceGroup(cur, end, hi)
+      if (g) { end = g.close + 1; continue }
+      break
+    }
   }
   return {
     inline: { kind: 'island', span: { start: t.span.start, end: end > at + 1 ? cur.toks[end - 1].span.end : t.span.end } },
@@ -1348,9 +1396,12 @@ const NO_TYPE_BARE = new Set([
   'backmatter', 'onehalfspacing', 'singlespacing', 'doublespacing',
   'phantomsection', 'nopagebreak', 'pagebreak', 'linebreak', 'newline',
   'begingroup', 'endgroup', 'bgroup', 'egroup', 'ignorespaces',
-  // beamer's overlay break: it splits a slide into steps and inks nothing.
-  // Left visible it sets raw mono \pause in the middle of a slide's prose.
-  'pause',
+  // beamer's overlay breaks: they split a slide into steps and ink nothing.
+  // Left visible they set raw mono in the middle of a slide's prose.
+  // \onslide is here for its BARE form — `\onslide<4->` and `\onslide<4->{…}`
+  // both leave the group beside them to be read as ordinary content, exactly
+  // as the source's own braces already were.
+  'pause', 'onslide',
 ])
 
 /** Would the engine set NOTHING for this source? True for pure setup and
@@ -1370,7 +1421,13 @@ export function setsNoType(slice: string): boolean {
         const name = m[0].replace(/\*$/, '')
         const j = i + 1 + m[0].length
         if (NO_TYPE_ARG.has(name)) { i = consumeArgs(s, j); continue }
-        if (NO_TYPE_BARE.has(name)) { i = j; continue }
+        // a bare switch's own overlay spec is stepped over with it: without
+        // that, `\onslide<4->` reads as four visible characters and every
+        // beamer switch stays loud on the surface. Confined to NO_TYPE_BARE
+        // on purpose — after any other command the name has already made
+        // `visible` non-empty, so the spec cannot change the answer, and a
+        // narrower rule cannot misfire on a `<` that is a relation.
+        if (NO_TYPE_BARE.has(name)) { i = j + overlaySpecLength(s, j); continue }
         if (NO_TYPE_ASSIGN.has(name)) {
           const rhs = /^\s*=?\s*-?[\d.]+\s*(?:pt|mm|cm|em|ex|sp|in|bp|pc|fil{1,3})?/.exec(s.slice(j))
           i = j + (rhs ? rhs[0].length : 0)

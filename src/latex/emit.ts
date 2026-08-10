@@ -14,6 +14,7 @@
 
 import { blockMemo, captionMemo, tabularCellMemo, wrapTitleMemo } from './render'
 import { setsNoType } from './parse'
+import { overlaySpecLength } from './lex'
 
 const EDITOR_ATTRS = ['data-dia-id', 'contenteditable', 'spellcheck', 'data-dia-selected', 'data-dia-current']
 
@@ -25,6 +26,14 @@ export function cleanOuter(el: HTMLElement): string {
     if (node.classList.contains('dia-editor-artifact')) node.remove()
   }
   return clone.outerHTML
+}
+
+/** the beamer overlay specification render.ts parked on an element, ready to
+ * concatenate — `<1->` or the empty string. Every reconstruction that writes
+ * a `\item`, a `\begin` tag or a style command has to consult this, or the
+ * spec is dropped from the file the first time that block is edited. */
+function overlayOf(el: HTMLElement): string {
+  return el.getAttribute('data-dia-overlay') ?? ''
 }
 
 /** LaTeX for a rendered block element — memo bytes when unedited,
@@ -148,7 +157,7 @@ function emitEnvWithChildren(el: HTMLElement, slice: string | null, env: string)
     return `${head}\n${inner}\n${part.tail}`
   }
   const arg = title ? `{${emitInlines(title.childNodes)}}` : ''
-  return `\\begin{${env}}${arg}\n${inner}\n\\end{${env}}`
+  return `\\begin{${env}}${overlayOf(el)}${arg}\n${inner}\n\\end{${env}}`
 }
 
 /** replace the content of the LAST brace argument hugging `\begin{env}` in
@@ -161,6 +170,7 @@ function replaceLastBraceArg(head: string, env: string, replacement: string): st
   let i = head.indexOf('}', beginTag.length)
   if (i < 0) return null
   i++
+  i += overlaySpecLength(head, i)
   let last: { open: number; close: number } | null = null
   for (;;) {
     if (head[i] === '[') {
@@ -193,26 +203,36 @@ function emitList(el: HTMLElement): string {
     const children = [...el.children]
     for (let i = 0; i < children.length; i++) {
       if (!children[i].matches('dt')) continue
-      const term = emitInlines(children[i].childNodes)
+      const dt = children[i] as HTMLElement
+      const term = emitInlines(dt.childNodes)
       const dd = children[i + 1]?.matches('dd') ? children[i + 1] : null
       const body = dd ? emitItemBody(dd as HTMLElement) : ''
-      parts.push(`\\item[${term}] ${body}`.trimEnd())
+      parts.push(`\\item${overlayOf(dt)}[${term}] ${body}`.trimEnd())
     }
-    return `\\begin{description}\n${parts.join('\n')}\n\\end{description}`
+    return `\\begin{description}${overlayOf(el)}\n${parts.join('\n')}\n\\end{description}`
   }
   // an aliased list (itemizepacked…) keeps its original environment name
   const env = el.getAttribute('data-dia-env') ?? (el.matches('ol') ? 'enumerate' : 'itemize')
   const items = [...el.children]
     .filter((c) => c.matches('li'))
-    .map((li) => `\\item ${emitItemBody(li as HTMLElement)}`.trimEnd())
-  return `\\begin{${env}}\n${items.join('\n')}\n\\end{${env}}`
+    .map((c) => {
+      const li = c as HTMLElement
+      // the custom bullet goes back in its BRACKET, where the grammar puts
+      // it — emitItemBody skips the element so it is never written twice
+      const label = li.querySelector<HTMLElement>(':scope > span.dia-item-label')
+      const bracket = label ? `[${emitInlines(label.childNodes)}]` : ''
+      return `\\item${overlayOf(li)}${bracket} ${emitItemBody(li)}`.trimEnd()
+    })
+  return `\\begin{${env}}${overlayOf(el)}\n${items.join('\n')}\n\\end{${env}}`
 }
 
 /** an item body is inline flow unless it holds nested block elements */
 function emitItemBody(host: HTMLElement): string {
-  const blockish = [...host.children].some((c) =>
-    c.matches('ul, ol, dl, figure, table, div.dia-math, pre.dia-verbatim, div.dia-tex-island, p'))
-  if (!blockish) return emitInlines(host.childNodes)
+  const nodes = [...host.childNodes]
+    .filter((n) => !(n instanceof HTMLElement && n.matches('span.dia-item-label')))
+  const blockish = nodes.some((c) =>
+    c instanceof HTMLElement && c.matches('ul, ol, dl, figure, table, div.dia-math, pre.dia-verbatim, div.dia-tex-island, p'))
+  if (!blockish) return emitInlines(nodes)
   const parts: string[] = []
   let inlineRun: Node[] = []
   const flush = () => {
@@ -222,7 +242,7 @@ function emitItemBody(host: HTMLElement): string {
       inlineRun = []
     }
   }
-  for (const node of host.childNodes) {
+  for (const node of nodes) {
     if (node instanceof HTMLElement && node.matches('ul, ol, dl, figure, table, div.dia-math, pre.dia-verbatim, div.dia-tex-island, p')) {
       flush()
       parts.push(emitBlockTex(node))
@@ -436,13 +456,13 @@ function emitInline(node: Node): string {
   if (node.matches('span.dia-label')) return `\\label{${node.getAttribute('data-dia-label') ?? ''}}`
   if (node.matches('span.dia-tex-island')) return node.textContent ?? ''
   if (node.matches('code.dia-verb')) return emitVerb(node.textContent ?? '')
-  if (node.matches('span.dia-smallcaps')) return `\\textsc{${emitInlines(node.childNodes)}}`
-  if (node.matches('span.dia-sans')) return `\\textsf{${emitInlines(node.childNodes)}}`
+  if (node.matches('span.dia-smallcaps')) return `\\textsc${overlayOf(node)}{${emitInlines(node.childNodes)}}`
+  if (node.matches('span.dia-sans')) return `\\textsf${overlayOf(node)}{${emitInlines(node.childNodes)}}`
   if (node.matches('br')) return ' \\\\ '
 
   const wrap: Record<string, string> = { STRONG: 'textbf', B: 'textbf', EM: 'emph', I: 'textit', CODE: 'texttt', U: 'underline' }
   const cmd = wrap[node.tagName]
-  if (cmd) return `\\${cmd}{${emitInlines(node.childNodes)}}`
+  if (cmd) return `\\${cmd}${overlayOf(node)}{${emitInlines(node.childNodes)}}`
 
   // unknown inline element (pasted span/mark/…): transparent
   return emitInlines(node.childNodes)
@@ -663,6 +683,10 @@ export function partitionEnv(slice: string, env: string): { head: string; tail: 
   let i = slice.indexOf('}', beginTag.length)
   if (i < 0) return null
   i++
+  // a beamer overlay spec sits before every argument (`\begin{frame}<2->{T}`)
+  // — stepping over it is what keeps the title group inside the head, where
+  // replaceLastBraceArg can find it (that walk mirrors this one exactly)
+  i += overlaySpecLength(slice, i)
   // argument groups hugging \begin{env}: [..] and balanced {..} — a
   // frame's {\model{} in One Slide} title nests a macro call, so this
   // must count brace depth rather than stop at the first `}` (issue #20)

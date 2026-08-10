@@ -616,6 +616,81 @@ describe('setsNoType', () => {
   })
 })
 
+describe('overlay specifications attach to the construct they modify', () => {
+  const slice = (src: string, s: { start: number; end: number } | undefined) =>
+    s === undefined ? undefined : src.slice(s.start, s.end)
+
+  it('an \\item keeps its spec and its bracket, in beamer\'s own order', () => {
+    const src = DOC('\\begin{itemize}\\item<1-> a\\item<2->[$\\to$] b\\end{itemize}')
+    const [list] = body(src)
+    const l = list as Extract<LxBlock, { kind: 'list' }>
+    expect(l.items.map((i) => slice(src, i.overlay))).toEqual(['<1->', '<2->'])
+    // the spec is gone from the prose it used to sit in front of
+    const first = l.items[0].blocks[0] as Extract<LxBlock, { kind: 'para' }>
+    expect(first.inline.map((n) => (n.kind === 'text' ? n.text : n.kind)).join('')).toBe(' a')
+    expect(l.items[1].term).toBeTruthy()
+  })
+
+  it('an environment keeps the spec on its \\begin tag, title and all', () => {
+    const src = DOC('\\begin{frame}<3->{Slide Title}\nProse.\n\\end{frame}')
+    const [wrap] = body(src)
+    const w = wrap as Extract<LxBlock, { kind: 'wrapper' }>
+    expect(slice(src, w.overlay)).toBe('<3->')
+    // the title is still found: the spec used to stop the brace matcher dead
+    expect(w.title).toBeTruthy()
+  })
+
+  it('a style command keeps its own spec', () => {
+    const src = DOC('Reveal \\textbf<2>{this} later.')
+    const [para] = body(src)
+    const p = para as Extract<LxBlock, { kind: 'para' }>
+    const style = p.inline.find((n) => n.kind === 'style') as Extract<LxInline, { kind: 'style' }>
+    expect(slice(src, style.overlay)).toBe('<2>')
+    expect(p.inline.some((n) => n.kind === 'text' && n.text.includes('<2>'))).toBe(false)
+  })
+
+  it('an unknown overlay command islands WITH its spec and stops there', () => {
+    // \only<2>{…} puts CONTENT in that group — swallowing it into the island
+    // would paint a slide's prose as raw mono
+    const src = DOC('\\only<2>{real prose here}')
+    const [para] = body(src)
+    const p = para as Extract<LxBlock, { kind: 'para' }>
+    const island = p.inline.find((n) => n.kind === 'island')!
+    expect(slice(src, island.span)).toBe('\\only<2>')
+    expect(p.inline.some((n) => n.kind === 'text' && n.text.includes('real prose here'))).toBe(true)
+  })
+
+  it('a spec no construct claimed stays literal text, spanning its own bytes', () => {
+    // a fuzz slice that cut the \begin away, or an environment we island
+    const src = DOC('\\begin{onlyenv}<2>\nx\n\\end{onlyenv}')
+    const [island] = body(src)
+    expect(island.kind).toBe('island')
+    expect(slice(src, island.span)).toContain('<2>')
+  })
+
+  it('every cut of an overlay-heavy source still stitches back', () => {
+    // the corpus fuzz samples 25 random slices per fixture; this one is
+    // exhaustive over a source built to land a cut INSIDE every spec, which
+    // is where a lexer that guessed at `<` would lose or duplicate bytes
+    const src = '\\begin{frame}<2->{T}\n\\begin{itemize}<+->\n\\item<1-> a $x<y$ \\textbf<3>{b}\n\\end{itemize}\n\\onslide<4->{c}\n\\end{frame}\n'
+    for (let a = 0; a <= src.length; a++) {
+      for (let b = a; b <= src.length; b++) {
+        const cut = src.slice(a, b)
+        const doc = parseLatex(cut)
+        expect(spansSane(doc), `[${a},${b})`).toBe(true)
+        expect(stitch(doc) === cut, `[${a},${b}) stitches`).toBe(true)
+      }
+    }
+  })
+
+  it('\\onslide is furniture, spec included — it inks nothing', () => {
+    expect(setsNoType('\\onslide<4->')).toBe(true)
+    expect(setsNoType('\\pause<3>')).toBe(true)
+    // and the rule is confined to switches: a real command stays visible
+    expect(setsNoType('\\alert<2>')).toBe(false)
+  })
+})
+
 describe('setsNoType assignments', () => {
   it('consumes TeX parameter assignments', () => {
     expect(setsNoType('\\looseness=-1')).toBe(true)

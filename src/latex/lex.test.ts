@@ -80,3 +80,39 @@ describe('lex', () => {
     expect(kinds('[x] & y')).toEqual(['bopen', 'text', 'bclose', 'text', 'amp', 'text'])
   })
 })
+
+describe('beamer overlay specifications', () => {
+  it('gets its own token after the commands and environments that take one', () => {
+    expect(kinds('\\item<1-> a')).toEqual(['cs', 'overlay', 'text'])
+    expect(kinds('\\onslide<4->{x}')).toEqual(['cs', 'overlay', 'open', 'text', 'close'])
+    expect(kinds('\\textbf<2>{x}')).toEqual(['cs', 'overlay', 'open', 'text', 'close'])
+    expect(kinds('\\begin{frame}<3->{T}')).toEqual(['envbegin', 'overlay', 'open', 'text', 'close'])
+    expect(kinds('\\begin{itemize}<+->')).toEqual(['envbegin', 'overlay'])
+    expect(texts('\\item<beamer:1-|handout:0> a')[1]).toBe('<beamer:1-|handout:0>')
+  })
+
+  it('leaves `<` alone everywhere a document may legitimately write one', () => {
+    const ordinary = [
+      // math: `<` is a relation, and \textless exists for the text case
+      '$a < b$', '$a<b$', '\\alpha<\\beta', 'x \\le y < z',
+      // prose and code that happens to hold angle brackets
+      'the <title> element', 'Vec<String, u32>', '</head>',
+      // right command, wrong shape: a bare word is not a spec
+      '\\item<title> a', '\\item<> a', '\\emph<see appendix>{x}',
+      // right shape, wrong position: a space breaks the attachment, and
+      // \section is not an overlay-taking command
+      '\\item <1-> a', '\\section<1->{x}', 'plain <1-> text',
+      // a spec never crosses a brace, a backslash or a line
+      '\\item<1\\to2> a', '\\item<1-\n2> a',
+    ]
+    for (const src of ordinary) {
+      expect(kinds(src), JSON.stringify(src)).not.toContain('overlay')
+      expect(tilesExactly(lex(src), src), JSON.stringify(src)).toBe(true)
+    }
+  })
+
+  it('still tiles exactly with specs in play', () => {
+    const src = '\\begin{frame}<2->{T}\n\\begin{itemize}<+->\n\\item<1-> a $x<y$\n\\end{itemize}\n\\end{frame}'
+    expect(tilesExactly(lex(src), src)).toBe(true)
+  })
+})

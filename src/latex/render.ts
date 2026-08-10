@@ -10,6 +10,7 @@
 import temml from 'temml'
 import { setsNoType } from './parse'
 import type { LxBlock, LxDoc, LxInline, PreambleMeta } from './parse'
+import type { Span } from './lex'
 
 export interface RenderedBlock {
   el: HTMLElement
@@ -208,6 +209,7 @@ function renderBlockInner(b: LxBlock, src: string): HTMLElement {
       const div = document.createElement('div')
       div.className = `dia-wrap dia-wrap-${b.env}`
       div.setAttribute('data-dia-env', b.env)
+      setOverlay(div, b.overlay, src)
       if (b.title) {
         // the heading lives in the \begin line's own argument, so it gets no
         // block and no span of its own — it is rendered first, memoized like
@@ -224,8 +226,10 @@ function renderBlockInner(b: LxBlock, src: string): HTMLElement {
     case 'list': {
       if (b.env === 'description') {
         const dl = document.createElement('dl')
+        setOverlay(dl, b.overlay, src)
         for (const item of b.items) {
           const dt = document.createElement('dt')
+          setOverlay(dt, item.overlay, src)
           if (item.term) dt.append(...renderInlines(item.term, src))
           const dd = document.createElement('dd')
           appendItemBlocks(dd, item.blocks, src)
@@ -235,8 +239,21 @@ function renderBlockInner(b: LxBlock, src: string): HTMLElement {
       }
       const list = document.createElement(b.env === 'enumerate' ? 'ol' : 'ul')
       if (b.srcEnv) list.setAttribute('data-dia-env', b.srcEnv)
+      setOverlay(list, b.overlay, src)
       for (const item of b.items) {
         const li = document.createElement('li')
+        setOverlay(li, item.overlay, src)
+        // an itemize/enumerate \item[…] sets a CUSTOM BULLET (beamer.tex's
+        // `\item[$\to$]`). It is shown, not just carried, because a marker
+        // the reader cannot see is a marker they cannot remove — and it is
+        // its own element so emit.ts can lift it back into the bracket
+        // instead of writing it twice, once there and once as body prose.
+        if (item.term) {
+          const label = document.createElement('span')
+          label.className = 'dia-item-label'
+          label.append(...renderInlines(item.term, src))
+          li.appendChild(label)
+        }
         appendItemBlocks(li, item.blocks, src)
         list.appendChild(li)
       }
@@ -347,6 +364,16 @@ function renderBlockInner(b: LxBlock, src: string): HTMLElement {
   }
 }
 
+/** A beamer overlay specification rides as an attribute, never as text.
+ * `<1->` is stage direction, not prose: painting it would put the literal
+ * characters back in the reader's sentence (the defect), and dropping it
+ * would delete it from the file on the next edit (much worse). The exact
+ * source bytes on data-dia-overlay are what emit.ts writes back, so the
+ * round trip is byte-identical whether or not the block was edited. */
+function setOverlay(el: HTMLElement, overlay: Span | undefined, src: string): void {
+  if (overlay) el.setAttribute('data-dia-overlay', src.slice(overlay.start, overlay.end))
+}
+
 /** a list item with one paragraph renders inline; anything richer nests */
 function appendItemBlocks(host: HTMLElement, blocks: LxBlock[], src: string): void {
   if (blocks.length === 1 && blocks[0].kind === 'para') {
@@ -423,6 +450,7 @@ function renderInline(node: LxInline, src: string): Node {
       const el = document.createElement(STYLE_TAG[node.cmd] ?? 'span')
       if (node.cmd === 'sc') el.className = 'dia-smallcaps'
       if (node.cmd === 'sf') el.className = 'dia-sans'
+      setOverlay(el, node.overlay, src)
       el.append(...renderInlines(node.inner, src))
       return el
     }
