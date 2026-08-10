@@ -17,14 +17,16 @@ interface Row {
   find: HTMLElement | null
 }
 
+const HEADING = 'h1.dia-sec, h2.dia-sec, h3.dia-sec, h4.dia-sec, h5.dia-sec'
+
 let host: HTMLElement | null = null
 let rows: Row[] = []
-/* The title line doubles as the row for everything ABOVE the first heading.
+/* The front line is the row for everything ABOVE the first heading.
  * There is real prose up there — on llama.tex "foundation" is two matches
  * before \section{Introduction}, the title's own words and the abstract's —
  * and a locator that quietly drops them is lying about where the matches
- * are. A document with no \title has no header line to hang them on; the
- * bar's own total still counts them. */
+ * are. It is the derived title header when there is a \title, and a plain
+ * name-of-the-file line when there is not (rebuild argues that case). */
 let front: Row | null = null
 /** matches per block while the find bar is open, else null (see setFindCounts) */
 let findByBlock: Map<HTMLElement, number> | null = null
@@ -71,17 +73,44 @@ function rebuild(): void {
   host.replaceChildren()
 
   const blocks = state.blocks()
+  // blocks above the first heading — all of them when there is no heading
+  const first = blocks.findIndex((b) => b.matches(HEADING))
+  const above = first < 0 ? blocks.length : first
+
   const title = state.doc.article.querySelector('.dia-doc-header .dia-title')?.textContent
-  if (title) {
+  /* The front line exists whenever there is anything above the first
+   * heading to speak for — with a \title that is the derived header (which
+   * is itself the first block, so `above` is at least 1), and without one it
+   * is every block up there with no header to hang them on.
+   *
+   * `dia new --doc` scaffolds a \title, but a .tex someone starts by hand
+   * often has none, and then the whole top of the document — an abstract, a
+   * lead paragraph, all of a heading-less note — was counted by the find bar
+   * and shown on no row at all. Only a document whose very first block is a
+   * heading gets no front line, because there is nothing above it to point
+   * at and a row that can never say anything is just noise in a 132px
+   * column. The line is decided HERE, at rebuild, never from the search:
+   * a row that came and went with the count would shuffle every heading
+   * under it on each keystroke. */
+  if (above > 0) {
     const t = document.createElement('div')
     t.className = 'de-outline-title'
-    t.textContent = title
+    if (title) t.textContent = title
+    else {
+      // state.doc.title is the model's own answer to "what is this document
+      // called" and it already falls back to the file name (model/doc.ts),
+      // which is what the tab and the export's <title> say. Dimmed, so it
+      // never reads as a \title the document does not have.
+      t.classList.add('de-outline-noname')
+      t.textContent = state.doc.title || 'untitled'
+      t.title = 'this document has no \\title — the top of the file, above the first heading'
+    }
     host.append(t)
     front = { el: t, blockIndex: 0, badge: null, find: null }
   }
-  const openPerBlock = openCommentsByBlock()
+
   blocks.forEach((b, i) => {
-    if (!b.matches('h1.dia-sec, h2.dia-sec, h3.dia-sec, h4.dia-sec, h5.dia-sec')) return
+    if (!b.matches(HEADING)) return
     const level = Number(b.tagName[1]) - 1 // h2 → 1
     const row = document.createElement('button')
     row.type = 'button'
@@ -95,22 +124,58 @@ function rebuild(): void {
     rows.push({ el: row, blockIndex: i, badge: null, find: null })
   })
 
-  // a section's count is every open thread from its heading up to the next
-  // heading at the same level or higher — what a reader would call "in here"
-  rows.forEach((r, n) => {
-    const until = rows[n + 1]?.blockIndex ?? blocks.length
+  const openPerBlock = openCommentsByBlock()
+  for (const s of spans(blocks)) {
     let count = 0
-    for (let i = r.blockIndex; i < until; i++) count += openPerBlock.get(i) ?? 0
-    if (count === 0) return
+    for (let i = s.from; i < s.until; i++) count += openPerBlock.get(i) ?? 0
+    if (count === 0) continue
     const badge = document.createElement('span')
     badge.className = 'de-outline-badge'
     badge.textContent = String(count)
-    badge.title = `${count} open comment${count === 1 ? '' : 's'} in this section`
-    r.el.append(badge)
-    r.badge = badge
-  })
+    const where = s.row === front ? 'before the first heading' : 'in this section'
+    badge.title = `${count} open comment${count === 1 ? '' : 's'} ${where}`
+    // the front line is a div with no handler of its own, so its badge
+    // carries the same jump a heading row's button already gives
+    if (s.row === front) badge.addEventListener('click', () => goToBlock(s.row.blockIndex))
+    s.row.el.append(badge)
+    s.row.badge = badge
+  }
   paintFindBadges() // a rebuild mid-search must not lose the search
   trackCurrent(state.currentBlock)
+}
+
+/** Every row against the half-open block range it speaks for.
+ *
+ * The range is EXCLUSIVE — it stops at the next heading of ANY level, so a
+ * subsection's matches are the subsection's and not also its parent's. Both
+ * badges read this, so the two numbers in the column answer the same shape
+ * of question; a roll-up on one and not the other would be worse than
+ * either rule alone.
+ *
+ * Two reasons it is not a roll-up:
+ *
+ *  - A BADGE IS A CLICK TARGET. Clicking it scrolls to that row's block, so
+ *    the number has to count what the reader finds when they land. A
+ *    \section whose subsections hold the twelve matches would show 12 and
+ *    then put the reader on a heading with nothing marked anywhere under it
+ *    before the next row's heading. The count and the landing must agree.
+ *  - EVERY MATCH IS ON EXACTLY ONE ROW, so the column's numbers add up to
+ *    the find bar's own total (outline.test.ts asserts the sum). A parent
+ *    counting its child's matches too would count them twice and the column
+ *    would stop being an inventory of the document.
+ *
+ * Nothing is hidden by this: the outline never collapses, so a parent's
+ * subsections are always drawn directly under it, indented, and a silent
+ * parent over a child reading 12 is a file tree, not an omission. The one
+ * genuine omission — matches with no row ANYWHERE, above the first heading
+ * — is what the front line is for. */
+function spans(blocks: HTMLElement[]): { row: Row; from: number; until: number }[] {
+  const out: { row: Row; from: number; until: number }[] = []
+  if (front) out.push({ row: front, from: 0, until: rows[0]?.blockIndex ?? blocks.length })
+  rows.forEach((r, n) => {
+    out.push({ row: r, from: r.blockIndex, until: rows[n + 1]?.blockIndex ?? blocks.length })
+  })
+  return out
 }
 
 /** open threads counted against the index of the block they anchor to */
@@ -143,15 +208,11 @@ function openCommentsByBlock(): Map<number, number> {
 function paintFindBadges(): void {
   if (!host) return
   const blocks = findByBlock ? state.blocks() : []
-  const under = (from: number, until: number): number => {
-    if (!findByBlock) return 0
-    let n = 0
-    for (let i = from; i < until; i++) n += findByBlock.get(blocks[i]) ?? 0
-    return n
+  for (const s of spans(blocks)) {
+    let count = 0
+    if (findByBlock) for (let i = s.from; i < s.until; i++) count += findByBlock.get(blocks[i]) ?? 0
+    setFindBadge(s.row, count)
   }
-  const firstHeading = rows[0]?.blockIndex ?? blocks.length
-  if (front) setFindBadge(front, under(0, firstHeading))
-  rows.forEach((r, n) => setFindBadge(r, under(r.blockIndex, rows[n + 1]?.blockIndex ?? blocks.length)))
 }
 
 function setFindBadge(row: Row, count: number): void {
@@ -165,7 +226,7 @@ function setFindBadge(row: Row, count: number): void {
     badge.className = 'de-outline-badge de-outline-find'
     // A heading row IS a button, so a click on the badge inside it runs the
     // row's own handler and the reader lands where every other click on that
-    // row lands. The title line is a div and has no handler of its own, so
+    // row lands. The front line is a div and has no handler of its own, so
     // its badge carries the same call.
     if (row === front) badge.addEventListener('click', () => goToBlock(row.blockIndex))
     // ahead of the comment badge: both hug the right edge, so the amber
