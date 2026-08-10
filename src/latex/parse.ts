@@ -31,8 +31,12 @@ export type LxBlock =
   | { kind: 'para'; span: Span; inline: LxInline[] }
   | { kind: 'abstract'; span: Span; body: LxBlock[] }
   /** transparent/decorative wrappers (center, quote, framed, multicols…) —
-   * kept as a block so their interiors stay first-class structure */
-  | { kind: 'wrapper'; span: Span; env: string; body: LxBlock[] }
+   * kept as a block so their interiors stay first-class structure.
+   * `title` is the environment's own heading argument where it has one
+   * (beamer's \begin{frame}{Title} and the block family) — see
+   * TITLED_WRAPPERS: without it, consuming the argument would DELETE every
+   * slide heading in a deck from the reading surface. */
+  | { kind: 'wrapper'; span: Span; env: string; body: LxBlock[]; title?: LxInline[] }
   | { kind: 'list'; span: Span; env: 'itemize' | 'enumerate' | 'description'; items: LxListItem[]; srcEnv?: string }
   | { kind: 'float'; span: Span; env: 'figure' | 'table'; starred: boolean; caption?: LxInline[]; label?: string; graphics: LxGraphic[]; body: LxBlock[] }
   | { kind: 'tabular'; span: Span; colspec: string; rows: LxTabRow[]; trailingRule?: string }
@@ -77,6 +81,20 @@ export interface PreambleMeta {
   /** parameterless macros whose bodies provably set no type (\notsotiny =
    * a font-size switch) — the renderer may hide their bare calls */
   quietMacros?: string[]
+  /** cleveref's own words per reference type, from \crefname{type}{sg}{pl}
+   * and \Crefname{type}{Sg}{Pl}. Both commands write into ONE record per
+   * type, because both name the same type and a document routinely gives
+   * only one of them. Absent entirely when the document declares none. */
+  crefNames?: Record<string, { sg?: string; pl?: string; Sg?: string; Pl?: string }>
+  /** hyperref's \autoref word per type, from a \newcommand/\renewcommand/
+   * \providecommand of \<type>autorefname. Keyed by TYPE (`figure`), not by
+   * macro name, so it lines up with crefNames above. */
+  refNames?: Record<string, string>
+  /** the document's main language, from babel's options (the `main=` key
+   * when present, else the last option that is not a key=value setting) or
+   * polyglossia's \setmainlanguage. Reference words are language-dependent,
+   * so a package default is only right for a document that said nothing. */
+  language?: string
 }
 export interface LxListItem { span: Span; term?: LxInline[]; blocks: LxBlock[] }
 export interface LxGraphic { span: Span; path: string; opts?: string }
@@ -85,7 +103,11 @@ export type LxInline =
   | { kind: 'text'; span: Span; text: string }
   | { kind: 'style'; span: Span; cmd: StyleCmd; inner: LxInline[] }
   | { kind: 'math'; span: Span; tex: string }
-  | { kind: 'ref'; span: Span; cmd: string; key: string }
+  /** keys, plural: cleveref takes a LIST — `\cref{fig:a,fig:b}` sets
+   * "figs. 1 and 2", and a consecutive list sets a range. Read as one
+   * opaque key the whole reference resolved to nothing. Same split rule
+   * as cite's keys, and for the same reason. */
+  | { kind: 'ref'; span: Span; cmd: string; keys: string[] }
   /** opt = the post-note; pre = the pre-note when \cite[pre][post]{…} */
   | { kind: 'cite'; span: Span; cmd: string; keys: string[]; opt?: string; pre?: string }
   | { kind: 'footnote'; span: Span; inner: LxInline[] }
@@ -128,11 +150,22 @@ const WRAPPER_ENVS = new Set([
   // beamer's slide — see WRAPPER_OPTIONAL_BRACE_ARGS: its title is an
   // OPTIONAL brace arg, unlike every entry in WRAPPER_BRACE_ARGS below
   'frame',
+  // beamer's in-slide layout and callouts. Measured 2026-08-09: columns +
+  // column + block + alertblock were 0.361 of beamer.tex's 0.375 raw-tex
+  // ratio, islanded whole by `unknown environment` — and they hold the
+  // deck's ORDINARY PROSE, not decoration. Structurally they are the same
+  // shape as the wrappers above: `columns` is a bare container, `column`
+  // takes a width exactly as minipage does, and the block family takes a
+  // title exactly as \begin{frame}{Title} does.
+  'columns', 'column', 'block', 'alertblock', 'exampleblock',
 ])
 /** required brace-argument counts for wrappers that take them */
 const WRAPPER_BRACE_ARGS: Record<string, number> = {
   multicols: 1, minipage: 1, subfigure: 1, subtable: 1, spacing: 1,
   addmargin: 1, adjustwidth: 2,
+  // a beamer column's {0.5\textwidth} is a dimension, never body — the
+  // same argument minipage takes, read the same way
+  column: 1,
 }
 /** OPTIONAL leading brace-argument counts. Unlike WRAPPER_BRACE_ARGS (a
  * REQUIRED count — the scanner just stops early if the group is missing,
@@ -143,7 +176,22 @@ const WRAPPER_BRACE_ARGS: Record<string, number> = {
  * it is a title, not a frame body that happens to open with `{...}`. */
 const WRAPPER_OPTIONAL_BRACE_ARGS: Record<string, number> = {
   frame: 1,
+  // beamer DECLARES the block family's title required, but reading it as
+  // required would mean a title written on the line BELOW \begin{block}
+  // (or absent, or preceded by an overlay spec `<2->` the brace matcher
+  // will not step over) silently deletes the group it lands on. Optional
+  // costs nothing when the title is where beamer wants it, and degrades to
+  // "title shows as the block's first prose" when it is not.
+  block: 1, alertblock: 1, exampleblock: 1,
 }
+
+/** wrappers whose LAST consumed brace argument is a heading a reader must
+ * see. A consumed argument rides in no block and is emitted by nobody, so
+ * for these it is parsed as inlines and shown — a deck whose every slide
+ * heading vanished into the \begin line would be a worse import than the
+ * islands this all replaced. `column`'s argument is a WIDTH, so it is
+ * deliberately not here. */
+const TITLED_WRAPPERS = new Set(['frame', 'block', 'alertblock', 'exampleblock'])
 
 /** theorem-like environments — wrappers whose head the theme styles
  * (numbering is the compiled mirror's job, not ours) */
@@ -429,6 +477,7 @@ function parseEnv(cur: Cursor, open: number, close: number, name: string): LxBlo
     // wrapper is CONTENT
     let lo = open + 1
     let afterPos = cur.toks[open].span.end
+    let last: Group | null = null
     const b = matchBracketGroup(cur, lo, close)
     if (b) { lo = b.close + 1; afterPos = b.closeSpan.end }
     for (let args = WRAPPER_BRACE_ARGS[base] ?? 0; args > 0; args--) {
@@ -436,6 +485,7 @@ function parseEnv(cur: Cursor, open: number, close: number, name: string): LxBlo
       if (!g) break
       lo = g.close + 1
       afterPos = g.closeSpan.end
+      last = g
     }
     // OPTIONAL brace args (frame's title): each candidate must survive
     // matchOptionalBraceArg's disambiguation before it is taken
@@ -444,8 +494,17 @@ function parseEnv(cur: Cursor, open: number, close: number, name: string): LxBlo
       if (!g) break
       lo = g.close + 1
       afterPos = g.closeSpan.end
+      last = g
     }
-    return { kind: 'wrapper', span, env: base, body: parseBlocks(cur, lo, close) }
+    const body = parseBlocks(cur, lo, close)
+    if (last && TITLED_WRAPPERS.has(base)) {
+      const title = parseInline(cur, last.lo, last.hi)
+      // an empty title argument (`\begin{frame}{}`) is no title at all
+      if (title.some((n) => !(n.kind === 'text' && n.text.trim() === ''))) {
+        return { kind: 'wrapper', span, env: base, body, title }
+      }
+    }
+    return { kind: 'wrapper', span, env: base, body }
   }
   return { kind: 'island', span, reason: `unknown environment ${name}` }
 }
@@ -484,7 +543,7 @@ function parseList(cur: Cursor, open: number, close: number, env: 'itemize' | 'e
 }
 
 function parseFloatEnv(cur: Cursor, open: number, close: number, env: 'figure' | 'table', starred: boolean, span: Span): LxBlock {
-  const sink: FloatSink = { graphics: [], body: [] }
+  const sink: FloatSink = { env, graphics: [], body: [] }
   let i = open + 1
   const placement = matchBracketGroup(cur, i, close)
   if (placement) i = placement.close + 1
@@ -492,7 +551,14 @@ function parseFloatEnv(cur: Cursor, open: number, close: number, env: 'figure' |
   return { kind: 'float', span, env, starred, caption: sink.caption, label: sink.label, graphics: sink.graphics, body: sink.body }
 }
 
-interface FloatSink { caption?: LxInline[]; label?: string; graphics: LxGraphic[]; body: LxBlock[] }
+interface FloatSink { env: 'figure' | 'table'; caption?: LxInline[]; label?: string; graphics: LxGraphic[]; body: LxBlock[] }
+
+/** sub-float COMMANDS with the `[caption]{content}` grammar — subfig's
+ * \subfloat and the older subfigure package's \subfigure. (The subcaption
+ * package's \begin{subfigure} environment is a different construct and is
+ * already a wrapper; \subcaptionbox takes its caption in a BRACE and is
+ * left alone rather than read with the wrong grammar.) */
+const SUBFLOAT_CMDS = new Set(['subfigure', 'subfloat'])
 
 /** how deep a chain of nested brace groups the float scanner will follow.
  * Real floats bottom out at two or three ({\small \resizebox{w}{h}{…}}); the
@@ -546,6 +612,55 @@ function scanFloatLevel(cur: Cursor, lo: number, hi: number, sink: FloatSink, to
       continue
     }
     if (t.kind === 'cs') {
+      // A SECTIONING command at float level. Papers use a bare float as a
+      // page-break hack (llama: `\begin{figure*}\section{MMLU}\end{figure*}`,
+      // and one more that carries a whole appendix opening), and the heading
+      // inside is a real heading nobody could see: runBearsProse cannot
+      // rescue it, because its only prose sits inside the title GROUP, where
+      // the filter deliberately refuses to look. Reading the command itself
+      // is exact where widening that filter would not be — it is the same
+      // move \caption and \includegraphics already get. parseSection's
+      // island fallback is declined on purpose: a \section the scanner could
+      // not read is left in its run rather than shown as command bytes.
+      if (SECTION_LEVEL[t.name] !== undefined) {
+        const r = parseSection(cur, i, hi)
+        if (r.block.kind === 'section') {
+          flushRun(i)
+          sink.body.push(r.block)
+          i = r.next
+          continue
+        }
+      }
+      // \subfloat[sub-caption]{panel}: the panel's own caption, in a
+      // BRACKET where runBearsProse (depth-0 text only) can never see it —
+      // palm2's two panels carry a sentence each. Read as a nested float so
+      // the prose stays WITH its graphic instead of being hoisted to the end
+      // of the outer figure, and so render/emit reuse the float machinery
+      // they already have (emit.ts patches the bracket, see emitFloat).
+      if (SUBFLOAT_CMDS.has(t.name)) {
+        const b = matchBracketGroup(cur, i + 1, hi)
+        const g = matchBraceGroup(cur, b ? b.close + 1 : i + 1, hi)
+        if (g) {
+          flushRun(i)
+          const sub: FloatSink = { env: sink.env, graphics: [], body: [] }
+          scanFloatLevel(cur, g.lo, g.hi, sub, true, depth + 1)
+          const caption = b ? parseInline(cur, b.lo, b.hi) : []
+          sink.body.push({
+            kind: 'float',
+            span: { start: t.span.start, end: cur.toks[g.close].span.end },
+            env: sub.env,
+            starred: false,
+            // `\subfigure[]{…}` (palm's own idiom) declares an EMPTY
+            // sub-caption — no caption at all, not an empty one
+            caption: caption.some((n) => !(n.kind === 'text' && n.text.trim() === '')) ? caption : sub.caption,
+            label: sub.label,
+            graphics: sub.graphics,
+            body: sub.body,
+          })
+          i = g.close + 1
+          continue
+        }
+      }
       if (top && t.name === 'caption') {
         const b = matchBracketGroup(cur, i + 1, hi)
         const g = matchBraceGroup(cur, b ? b.close + 1 : i + 1, hi)
@@ -952,8 +1067,9 @@ function parseInlineCs(cur: Cursor, at: number, hi: number): { inline: LxInline;
   if (REF_CMDS.has(name)) {
     const g = matchBraceGroup(cur, at + 1, hi)
     if (g) {
+      const keys = groupText(cur, g).split(',').map((k) => k.trim()).filter(Boolean)
       return {
-        inline: { kind: 'ref', span: { start: t.span.start, end: cur.toks[g.close].span.end }, cmd: name, key: groupText(cur, g) },
+        inline: { kind: 'ref', span: { start: t.span.start, end: cur.toks[g.close].span.end }, cmd: name, keys },
         next: g.close + 1,
       }
     }
@@ -1232,6 +1348,9 @@ const NO_TYPE_BARE = new Set([
   'backmatter', 'onehalfspacing', 'singlespacing', 'doublespacing',
   'phantomsection', 'nopagebreak', 'pagebreak', 'linebreak', 'newline',
   'begingroup', 'endgroup', 'bgroup', 'egroup', 'ignorespaces',
+  // beamer's overlay break: it splits a slide into steps and inks nothing.
+  // Left visible it sets raw mono \pause in the middle of a slide's prose.
+  'pause',
 ])
 
 /** Would the engine set NOTHING for this source? True for pure setup and
@@ -1336,6 +1455,8 @@ function minePreamble(src: string): PreambleMeta {
   if (macros.size > 0) meta.textMacros = Object.fromEntries(macros)
   if (quiet.length > 0) meta.quietMacros = quiet
 
+  mineRefNaming(src, meta)
+
   for (const key of ['title', 'author', 'date'] as const) {
     const at = src.search(new RegExp(`\\\\${key}\\s*\\{`))
     if (at < 0) continue
@@ -1351,4 +1472,82 @@ function minePreamble(src: string): PreambleMeta {
     }
   }
   return meta
+}
+
+/** How a document names its own REFERENCES: cleveref's \crefname/\Crefname,
+ * hyperref's \<type>autorefname, and the language the words come from. A
+ * paper that renames "figure" to "Fig." or writes in German means every
+ * \cref in it reads wrong when resolved against the package default, and
+ * the defaults are the only thing available without this.
+ *
+ * Read from a COMMENT-STRIPPED copy (the same strip setsNoType uses):
+ * preambles carry alternative declarations parked behind `%`, and mining
+ * one of those is worse than mining nothing. Values are kept verbatim, not
+ * trimmed — the trailing space in `{Fig.~}` is the author's spacing. A
+ * document that declares none of these leaves all three keys absent. */
+function mineRefNaming(src: string, meta: PreambleMeta): void {
+  const bare = src.replace(/(^|[^\\])%[^\n]*/g, '$1')
+
+  const crefNames: Record<string, { sg?: string; pl?: string; Sg?: string; Pl?: string }> = {}
+  for (const m of bare.matchAll(/\\(c|C)refname\s*(?=\{)/g)) {
+    const args = braceArgsAt(bare, m.index + m[0].length, 3)
+    if (!args) continue
+    const type = args[0].trim()
+    if (!type) continue
+    // \crefname and \Crefname name the SAME type — one record, so a
+    // document that declares only the lowercase form still has a home for
+    // the uppercase one if it appears later
+    const rec = (crefNames[type] ??= {})
+    if (m[1] === 'c') { rec.sg = args[1]; rec.pl = args[2] }
+    else { rec.Sg = args[1]; rec.Pl = args[2] }
+  }
+  if (Object.keys(crefNames).length > 0) meta.crefNames = crefNames
+
+  const refNames: Record<string, string> = {}
+  for (const m of bare.matchAll(/\\(?:new|renew|provide)command\*?\s*(?:\{\s*\\([a-zA-Z]+)\s*\}|\\([a-zA-Z]+))\s*(?=\{)/g)) {
+    const name = m[1] ?? m[2]
+    if (name === 'autorefname' || !name.endsWith('autorefname')) continue
+    const args = braceArgsAt(bare, m.index + m[0].length, 1)
+    if (!args) continue
+    refNames[name.slice(0, -'autorefname'.length)] = args[0]
+  }
+  if (Object.keys(refNames).length > 0) meta.refNames = refNames
+
+  // babel: `main=` wins outright when present, because that is exactly what
+  // it means; otherwise babel's own rule is that the LAST language option
+  // is the main one. key=value options (shorthands=off, provide=*) are not
+  // languages and must not be mistaken for the last one.
+  const babel = bare.match(/\\usepackage\s*\[([^\]]*)\]\s*\{[^}]*\bbabel\b[^}]*\}/)
+  if (babel) {
+    const opts = babel[1].split(',').map((o) => o.trim()).filter(Boolean)
+    const main = opts.find((o) => /^main\s*=/.test(o))
+    const lang = main ? main.replace(/^main\s*=\s*/, '') : [...opts].reverse().find((o) => !o.includes('='))
+    if (lang) meta.language = lang
+  }
+  // polyglossia states the main language outright, and a document loading
+  // it is not also using babel — so it simply wins
+  const poly = bare.match(/\\set(?:main|default)language\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}/)
+  if (poly) meta.language = poly[1].trim()
+}
+
+/** contents of `n` consecutive balanced {…} groups starting at `from`
+ * (whitespace between them skipped), or null when fewer are there */
+function braceArgsAt(src: string, from: number, n: number): string[] | null {
+  const out: string[] = []
+  let i = from
+  for (let k = 0; k < n; k++) {
+    while (i < src.length && /\s/.test(src[i])) i++
+    if (src[i] !== '{') return null
+    let depth = 0
+    let j = i
+    for (; j < src.length; j++) {
+      if (src[j] === '\\') { j++; continue }
+      if (src[j] === '{') depth++
+      else if (src[j] === '}' && --depth === 0) break
+    }
+    if (j >= src.length) return null
+    out.push(src.slice(i + 1, j))
+    i = j + 1
+  }
+  return out
 }

@@ -47,6 +47,48 @@ describe('parseLatex structure', () => {
     expect(pre.meta.author).toBe('A \\and B')
   })
 
+  describe('reference naming mined from the preamble', () => {
+    const metaOf = (preamble: string) => {
+      const doc = parse(`\\documentclass{article}\n${preamble}\n\\begin{document}\nx\n\\end{document}\n`)
+      return (doc.blocks[0] as Extract<LxBlock, { kind: 'preamble' }>).meta
+    }
+
+    it('a document that renames nothing carries none of the keys', () => {
+      const meta = metaOf('\\title{T}')
+      expect(meta.crefNames).toBeUndefined()
+      expect(meta.refNames).toBeUndefined()
+      expect(meta.language).toBeUndefined()
+    })
+
+    it('\\crefname and \\Crefname write into one record per type', () => {
+      const meta = metaOf('\\crefname{figure}{fig.}{figs.}\n\\Crefname{figure}{Fig.}{Figs.}\n\\crefname{equation}{eq.}{eqs.}')
+      expect(meta.crefNames).toEqual({
+        figure: { sg: 'fig.', pl: 'figs.', Sg: 'Fig.', Pl: 'Figs.' },
+        equation: { sg: 'eq.', pl: 'eqs.' },
+      })
+    })
+
+    it('a \\crefname parked behind a comment is not mined', () => {
+      expect(metaOf('% \\crefname{figure}{fig.}{figs.}').crefNames).toBeUndefined()
+    })
+
+    it('\\<type>autorefname is keyed by TYPE, in every \\newcommand spelling', () => {
+      const meta = metaOf('\\renewcommand{\\figureautorefname}{Fig.}\n\\newcommand\\tableautorefname{Tbl.}\n\\providecommand{\\sectionautorefname}{§}')
+      expect(meta.refNames).toEqual({ figure: 'Fig.', table: 'Tbl.', section: '§' })
+    })
+
+    it('babel: main= wins, else the last option that is not a setting', () => {
+      expect(metaOf('\\usepackage[english,ngerman]{babel}').language).toBe('ngerman')
+      expect(metaOf('\\usepackage[main=english,french]{babel}').language).toBe('english')
+      expect(metaOf('\\usepackage[french,shorthands=off]{babel}').language).toBe('french')
+      expect(metaOf('\\usepackage{babel}').language).toBeUndefined()
+    })
+
+    it('polyglossia states the main language outright', () => {
+      expect(metaOf('\\usepackage{polyglossia}\n\\setmainlanguage[variant=british]{english}').language).toBe('english')
+    })
+  })
+
   it('parses a fragment without \\documentclass as plain body', () => {
     const blocks = parse('Just a paragraph.').blocks
     expect(blocks).toHaveLength(1)
@@ -119,12 +161,26 @@ describe('parseLatex structure', () => {
   })
 
   it('float furniture stays out of the body — only prose-bearing runs become blocks', () => {
-    // \centering, sizing declarations, comments and a \subfloat's bracketed
-    // caption are not float-level prose: parsing them as paragraphs would
-    // island their command bytes back onto the surface as visible junk
-    const [fig] = body(DOC('\\begin{figure}\n\\centering\n\\small\n% a comment\n\\subfloat[Left panel]{\\includegraphics{a.png}}\n\\caption{C}\n\\end{figure}'))
+    // \centering, sizing declarations and comments are not float-level
+    // prose: parsing them as paragraphs would island their command bytes
+    // back onto the surface as visible junk
+    const [fig] = body(DOC('\\begin{figure}\n\\centering\n\\small\n% a comment\n\\includegraphics{a.png}\n\\caption{C}\n\\end{figure}'))
     const f = fig as Extract<LxBlock, { kind: 'float' }>
     expect(f.body).toHaveLength(0)
+  })
+
+  it('a \\subfloat panel is a nested float carrying its bracket sub-caption', () => {
+    // the sub-caption is real prose the reader must see, and it belongs to
+    // the panel, not to the outer figure — which is also what keeps the
+    // furniture around it (\centering, \small) out of the body
+    const [fig] = body(DOC('\\begin{figure}\n\\centering\n\\small\n% a comment\n\\subfloat[Left panel]{\\includegraphics{a.png}}\n\\caption{C}\n\\end{figure}'))
+    const f = fig as Extract<LxBlock, { kind: 'float' }>
+    expect(f.body.map((b) => b.kind)).toEqual(['float'])
+    const sub = f.body[0] as Extract<LxBlock, { kind: 'float' }>
+    expect(sub.graphics.map((g) => g.path)).toEqual(['a.png'])
+    expect(sub.caption!.map((n) => (n.kind === 'text' ? n.text : '')).join('')).toBe('Left panel')
+    // the outer caption is still the outer one — never the panel's
+    expect(f.caption!.map((n) => (n.kind === 'text' ? n.text : '')).join('')).toBe('C')
   })
 
   it('float body prose keeps its inline structure', () => {
@@ -286,6 +342,58 @@ describe('parseLatex structure', () => {
       // the title bytes are NOT re-emitted as a body paragraph
       expect(bodyText(inner, full)).not.toContain('One Slide')
     })
+
+    it('a consumed title is CARRIED on the wrapper, never silently dropped', () => {
+      const [w] = body(DOC('\\begin{frame}{Outline}\\tableofcontents\\end{frame}'))
+      const title = (w as Extract<LxBlock, { kind: 'wrapper' }>).title!
+      expect(title.map((n) => (n.kind === 'text' ? n.text : '')).join('')).toBe('Outline')
+    })
+
+    it('an empty title argument is no title', () => {
+      const [w] = body(DOC('\\begin{frame}{}\\titlepage\\end{frame}'))
+      expect((w as Extract<LxBlock, { kind: 'wrapper' }>).title).toBeUndefined()
+    })
+  })
+
+  describe('beamer columns and the block family', () => {
+    // measured 2026-08-09: islanded whole, these three were 0.361 of
+    // beamer.tex's 0.375 raw-tex ratio, and they hold the deck's prose
+    const wrap = (src: string) => {
+      const [w] = body(DOC(src))
+      expect(w.kind).toBe('wrapper')
+      return w as Extract<LxBlock, { kind: 'wrapper' }>
+    }
+
+    it('columns nests column wrappers, each swallowing its width', () => {
+      const w = wrap('\\begin{columns}\n\\begin{column}{0.5\\textwidth}\nLeft prose.\n\\end{column}\n'
+        + '\\begin{column}{0.5\\textwidth}\nRight prose.\n\\end{column}\n\\end{columns}')
+      expect(w.env).toBe('columns')
+      expect(w.body.map((b) => b.kind)).toEqual(['wrapper', 'wrapper'])
+      const left = w.body[0] as Extract<LxBlock, { kind: 'wrapper' }>
+      expect(left.env).toBe('column')
+      // the WIDTH is an argument, not a heading — and not body prose either
+      expect(left.title).toBeUndefined()
+      expect(left.body.map((b) => b.kind)).toEqual(['para'])
+    })
+
+    it('block and alertblock take a title and keep their prose as blocks', () => {
+      for (const env of ['block', 'alertblock', 'exampleblock']) {
+        const w = wrap(`\\begin{${env}}{This talk}\nA training recipe that induces \\emph{block} sparsity.\n\\end{${env}}`)
+        expect(w.env).toBe(env)
+        expect(w.title!.map((n) => (n.kind === 'text' ? n.text : '')).join('')).toBe('This talk')
+        const para = w.body[0] as Extract<LxBlock, { kind: 'para' }>
+        expect(para.kind).toBe('para')
+        expect(para.inline.some((n) => n.kind === 'style')).toBe(true)
+      }
+    })
+
+    it('a block title on the line BELOW \\begin stays prose rather than vanishing', () => {
+      // beamer calls the title required; reading it as required would let a
+      // group anywhere below the begin line be deleted from the tree
+      const w = wrap('\\begin{block}\n{Not really a title}\nBody.\n\\end{block}')
+      expect(w.title).toBeUndefined()
+      expect(w.body.map((b) => b.kind)).toContain('para')
+    })
   })
 
   describe('float body groups — content behind a brace (issue #21)', () => {
@@ -339,9 +447,33 @@ describe('parseLatex structure', () => {
       expect(f.body).toHaveLength(0)
     })
 
-    it('\\subfigure{…}: the image is found, the sub-caption bracket is not body', () => {
+    it('\\subfigure[]{…}: the image is found, and an EMPTY bracket is no caption', () => {
+      // palm.tex's own idiom — `\subfigure[]{…}` declares no sub-caption at
+      // all, so the panel must not sprout an empty figcaption
       const f = float('\\begin{figure}[t]\n\\subfigure[]{\n\\centering\n\\includegraphics[width=0.48\\linewidth]{a.pdf}\n}\n\\caption{C}\n\\end{figure}')
-      expect(f.graphics.map((g) => g.path)).toEqual(['a.pdf'])
+      const sub = f.body[0] as Extract<LxBlock, { kind: 'float' }>
+      expect(sub.kind).toBe('float')
+      expect(sub.graphics.map((g) => g.path)).toEqual(['a.pdf'])
+      expect(sub.caption).toBeUndefined()
+    })
+
+    it('a bare float used as a page-break hack still shows its \\section', () => {
+      // llama.tex: `\begin{figure*}\section{MMLU}\end{figure*}`. The heading
+      // is real content at float level; runBearsProse cannot see it, because
+      // its prose lives inside the title group.
+      const f = float('\\begin{figure*}\n\\section{MMLU}\n\\end{figure*}')
+      expect(f.body.map((b) => b.kind)).toEqual(['section'])
+      const sec = f.body[0] as Extract<LxBlock, { kind: 'section' }>
+      expect(sec.inline.map((n) => (n.kind === 'text' ? n.text : '')).join('')).toBe('MMLU')
+    })
+
+    it('a \\section inside a float takes the \\label that follows it', () => {
+      // \label after \section binds to the SECTION counter, not the float's
+      const f = float('\\begin{figure*}\n\\section{Generations}\n\\label{sec:prompt}\nSome prose.\n\\end{figure*}')
+      const sec = f.body[0] as Extract<LxBlock, { kind: 'section' }>
+      expect(sec.label).toBe('sec:prompt')
+      expect(f.label).toBeUndefined()
+      expect(f.body.map((b) => b.kind)).toEqual(['section', 'para'])
     })
 
     it('an unrecognized environment behind a brace islands honestly rather than vanishing', () => {
@@ -390,7 +522,10 @@ describe('parseLatex inline', () => {
 
   it('refs, cites with options, labels', () => {
     const inline = inlineOf('see \\ref{sec:a}, \\cite[p.~3]{knuth84,lamport94} \\label{here}')
-    expect(inline.find((n) => n.kind === 'ref')).toMatchObject({ key: 'sec:a' })
+    expect(inline.find((n) => n.kind === 'ref')).toMatchObject({ keys: ['sec:a'] })
+    // a ref's node is plural because cleveref's argument is a LIST
+    expect(inlineOf('\\cref{fig:a, fig:b,fig:c}').find((n) => n.kind === 'ref'))
+      .toMatchObject({ cmd: 'cref', keys: ['fig:a', 'fig:b', 'fig:c'] })
     const cite = inline.find((n) => n.kind === 'cite') as Extract<LxInline, { kind: 'cite' }>
     expect(cite.keys).toEqual(['knuth84', 'lamport94'])
     expect(cite.opt).toBe('p.~3')

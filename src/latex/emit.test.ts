@@ -30,6 +30,17 @@ describe('unedited blocks emit exact bytes', () => {
     }
   })
 
+  it('a multi-key \\cref survives an edit to the paragraph around it', () => {
+    // the keys ride comma-joined on data-dia-ref, exactly as one key did
+    const src = 'See \\cref{fig:a,fig:b} and \\ref{sec:one} for detail.\n'
+    const [{ el }] = renderPairs(src)
+    el.firstChild!.textContent = 'Read '
+    const out = emitBlockTex(el)
+    expect(out).toContain('\\cref{fig:a,fig:b}')
+    expect(out).toContain('\\ref{sec:one}')
+    expect(out.startsWith('Read ')).toBe(true)
+  })
+
   it('…including after the derived-ref pass rewrote link texts', () => {
     const src = '\\section{One}\\label{sec:one}\n\nSee \\ref{sec:one} here.\n'
     const pairs = renderPairs(src)
@@ -208,6 +219,21 @@ describe('caption group edits are surgical (issue #17 acceptance)', () => {
       // the label(s), byte-identical, survive exactly once each
       for (const label of labels) expect(out.split(label)).toHaveLength(2)
     }
+  })
+
+  it('palm2.tex: a \\subfigure panel shows its bracket sub-caption, and an edit patches THAT bracket', () => {
+    const src = readFileSync(join(repo, 'corpus', 'tex', 'palm2.tex'), 'utf-8')
+    const target = renderPairs(src).find(({ slice }) => slice.includes('\\label{fig:palm2-canary-training-data}'))!
+    const panels = [...target.el.querySelectorAll<HTMLElement>(':scope > figure.dia-figure')]
+    expect(panels).toHaveLength(2)
+    expect(panels[0].querySelector('figcaption')!.textContent)
+      .toBe('Canary extraction rate. We use all available canaries inserted for a language.')
+    panels[1].querySelector('figcaption')!.textContent = 'Extraction rate.'
+    const out = emitBlockTex(target.el)
+    expect(out).toContain('\\subfigure[Extraction rate.]{\\includegraphics[width=0.48\\linewidth]{figs/memorization/palm2_mem_size_final.pdf}}')
+    // the OTHER panel and the float's own caption are byte-untouched
+    expect(out).toContain('\\subfigure[Canary extraction rate. We use all available canaries inserted for a language.]')
+    expect(out).toBe(target.slice.replace('Training data extraction rate.', 'Extraction rate.'))
   })
 
   it('llama.tex tab:dataset: a % comment inside the group survives too, and only the prose bytes differ', () => {
@@ -462,10 +488,68 @@ describe('beamer round-trips (issue #20 acceptance)', () => {
   it('an edited frame re-emits \\begin{frame}{Title} with the original title bytes preserved', () => {
     const src = '\\begin{frame}{\\model{} in One Slide}\nOld body.\n\\end{frame}'
     const [{ el }] = renderPairs(src)
-    el.querySelector('p')!.textContent = 'New body.'
+    el.querySelector('p:not(.dia-wrap-title)')!.textContent = 'New body.'
     const out = emitBlockTex(el)
     expect(out.startsWith('\\begin{frame}{\\model{} in One Slide}')).toBe(true)
     expect(out).toContain('New body.')
     expect(out.trim().endsWith('\\end{frame}')).toBe(true)
+  })
+
+  it('a frame title is SHOWN, and editing it reaches the \\begin line', () => {
+    // the title argument rides in no block: consuming it without rendering
+    // it deleted every slide heading from the reading surface
+    const src = '\\begin{frame}[fragile]{Block Size, By Layer}\nBody.\n\\end{frame}'
+    const [{ el }] = renderPairs(src)
+    const title = el.querySelector('p.dia-wrap-title')!
+    expect(title.textContent).toBe('Block Size, By Layer')
+    title.textContent = 'Block Size'
+    const out = emitBlockTex(el)
+    // only the title group changed — the [fragile] option survives, and the
+    // title is not duplicated into the body it was consumed from
+    expect(out.startsWith('\\begin{frame}[fragile]{Block Size}')).toBe(true)
+    expect(out).toContain('Body.')
+    expect(out).not.toContain('Block Size, By Layer')
+    expect(out.trim().endsWith('\\end{frame}')).toBe(true)
+  })
+
+  it('a block\'s title is its own, and its prose is real structure', () => {
+    const src = '\\begin{block}{This talk}\nA training \\emph{recipe}.\n\\end{block}'
+    const [{ el }] = renderPairs(src)
+    expect(el.querySelector('p.dia-wrap-title')!.textContent).toBe('This talk')
+    expect(el.querySelector('p:not(.dia-wrap-title)')!.textContent!.trim()).toBe('A training recipe.')
+    expect(emitBlockTex(el)).toBe(src)
+  })
+
+  it('a title edit and a body edit in the same frame both land', () => {
+    // the child cursor starts past the begin line; shortening the title
+    // moves that line's end, and a cursor left behind would drop the body
+    // edit without a word
+    const src = '\\begin{frame}{A Very Long Slide Heading}\n  Body prose.\n\\end{frame}'
+    const [{ el }] = renderPairs(src)
+    el.querySelector('p.dia-wrap-title')!.textContent = 'Short'
+    el.querySelector('p:not(.dia-wrap-title)')!.textContent = '\n  New prose.\n'
+    expect(emitBlockTex(el)).toBe('\\begin{frame}{Short}\n  New prose.\n\\end{frame}')
+  })
+
+  it('editing prose two levels down a frame changes ONLY that prose', () => {
+    // the block's body is newly-visible content (it used to be one island);
+    // reaching it must not reflow the slide around it — the second block,
+    // the comment, and every blank line stay exactly as written
+    const src = '\\begin{frame}{Limits}\n  % a note\n  \\begin{block}{One}\n    First prose.\n  \\end{block}\n\n  \\begin{alertblock}{Two}\n    Second prose.\n  \\end{alertblock}\n\\end{frame}'
+    const [{ el }] = renderPairs(src)
+    const target = [...el.querySelectorAll('p:not(.dia-wrap-title)')]
+      .find((p) => p.textContent!.includes('First prose.'))!
+    target.textContent = '\n    Rewritten prose.\n  '
+    expect(emitBlockTex(el)).toBe(src.replace('First prose.', 'Rewritten prose.'))
+  })
+
+  it('a beamer column\'s width argument is NOT mistaken for a title', () => {
+    const src = '\\begin{column}{0.5\\textwidth}\nPanel prose.\n\\end{column}'
+    const [{ el }] = renderPairs(src)
+    expect(el.querySelector('p.dia-wrap-title')).toBeNull()
+    el.querySelector('p')!.textContent = 'New prose.'
+    const out = emitBlockTex(el)
+    expect(out.startsWith('\\begin{column}{0.5\\textwidth}')).toBe(true)
+    expect(out).toContain('New prose.')
   })
 })

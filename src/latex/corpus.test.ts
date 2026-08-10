@@ -93,7 +93,9 @@ const ISLAND_CEILINGS: Record<string, number> = {
  * while 36% of the deck is islands nested one level down is exactly the shape
  * of blindness that let `\input` ship broken behind a green corpus: an
  * `\input{chapters/intro}` is a PARA holding an island INLINE, so it scores
- * perfectly whether or not the chapter was ever opened.
+ * perfectly whether or not the chapter was ever opened. (That beamer row is
+ * the ORIGINAL measurement, kept because it is why this ratchet exists — the
+ * gap it names has since been closed; see the fixture's own note below.)
  *
  * Why THIS numerator and not raw bytes. An island is not automatically a
  * defect — it is the parser honestly refusing to guess, and render.ts is
@@ -118,14 +120,20 @@ const RAW_TEX_CEILINGS: Record<string, number> = {
   // the measurement rounded up in the 4th decimal — no slack, same as the
   // entries above. Where the bytes come from, and whether it is a gap:
   //
-  // beamer: a real gap, not an artifact. 0.361 of it is three environments —
-  // columns/block/alertblock — islanded whole by `unknown environment`, and
-  // they hold the deck's ORDINARY PROSE ("A training recipe that induces
-  // block sparsity \emph{during}…"). They are the same shape as the wrappers
-  // parse.ts already handles, block/alertblock taking a title argument just
-  // like \begin{frame}{Title} does. Worth attacking; this ceiling is where
-  // the win gets banked.
-  'beamer/beamer.tex': 0.375,
+  // beamer: was 0.375, of which 0.361 was three environments —
+  // columns/block/alertblock — islanded whole by `unknown environment`
+  // while holding the deck's ORDINARY PROSE ("A training recipe that induces
+  // block sparsity \emph{during}…"). Re-measured 2026-08-09 at 0.1088 after
+  // they joined WRAPPER_ENVS beside \frame (columns/column/block/alertblock/
+  // exampleblock; column's {width} is a required arg like minipage's, the
+  // block family's title an OPTIONAL one like frame's) and \pause joined
+  // NO_TYPE_BARE. What is left is honest: 0.099 of it is one tikzpicture,
+  // unrepresentable as structure and shown typeset by the compiled mirror,
+  // and the rest is \titlepage / \tableofcontents / a bare \onslide, plus
+  // the 8 bytes of `\model{}` in one frame's TITLE — newly counted because
+  // that title is newly PAINTED (see the wrapper branch in blockBytes).
+  // Trading 8 counted bytes for nine visible slide headings is the deal.
+  'beamer/beamer.tex': 0.1117,
   // cot: two different things summed. 0.241 is tikzpicture inside floats —
   // honest, unrepresentable as structure, and the compiled mirror shows it
   // typeset (same call as the ISLAND_CEILINGS note above). The other 0.110
@@ -234,7 +242,10 @@ function rawTexRatio(src: string, blocks: LxBlock[]): number {
         }
       }
       if (b.kind === 'section' || b.kind === 'para') n += inlineBytes(b.inline)
-      else if (b.kind === 'abstract' || b.kind === 'wrapper') n += blockBytes(b.body)
+      // a titled wrapper's heading is PAINTED (render.ts p.dia-wrap-title),
+      // so an island inside it is on the surface like any other
+      else if (b.kind === 'wrapper') n += inlineBytes(b.title ?? []) + blockBytes(b.body)
+      else if (b.kind === 'abstract') n += blockBytes(b.body)
       else if (b.kind === 'float') {
         if (b.caption) n += inlineBytes(b.caption)
         n += blockBytes(b.body)
