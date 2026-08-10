@@ -218,6 +218,20 @@ export class DocProject {
     return this.owner.get(id) ?? null
   }
 
+  /** Forget a block entirely: its span in whichever file holds it AND its
+   * entry in the owner map.
+   *
+   * Dropping only the span is what a single-file editor could get away
+   * with. Here a block whose span is gone but whose owner still names the
+   * file it LEFT sends the next edit's patch into that file — at offsets
+   * its bytes have vacated. A cross-file move drops on one side and binds
+   * on the other, so this is the half that has to be complete. */
+  unbind(id: string): void {
+    const path = this.owner.get(id)
+    if (path !== undefined) this.sourceOfPath(path)?.drop(id)
+    this.owner.delete(id)
+  }
+
   /** A project path from a file name as the COMPILE names it, or null when
    * it names nothing this project holds (a .sty, a class, a font).
    *

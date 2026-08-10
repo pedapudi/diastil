@@ -83,7 +83,11 @@ export function syncedBlockOp(doc: Doc, blockEl: HTMLElement, domOps: Op[], labe
  * block id owns which stretch afterwards. The inverse is then literally the
  * same op with the sides swapped: undo restores the region's original bytes
  * verbatim (not a re-emission that might reformat them), and every byte
- * outside the region is untouched by construction, in both directions. */
+ * outside the region is untouched by construction, in both directions.
+ *
+ * A region belongs to ONE file. An edit may own a region in each of two
+ * files — that is what a move across a chapter boundary is — and regionsOp
+ * below says why the two are one op rather than two. */
 
 const BLOCK_SEP = '\n\n'
 
@@ -91,51 +95,123 @@ const BLOCK_SEP = '\n\n'
 interface RegionBind { id: string; start: number; end: number }
 interface SourceRegion { text: string; binds: RegionBind[] }
 
-function regionOp(
-  doc: Doc, source: DocSource, domOps: Op[], start: number,
-  before: SourceRegion, after: SourceRegion, label: string, by?: 'you' | 'copilot',
-): Op {
+/** one file's share of a structural edit: a contiguous region of the file
+ * at `path`, by its exact bytes on both sides */
+interface FileEdit { path: string; start: number; before: SourceRegion; after: SourceRegion }
+
+/** One or more per-file region rewrites, applied and inverted as ONE op.
+ *
+ * Nearly every structural edit owns a region of a single file. A move
+ * ACROSS a file boundary owns two — a removal in the file the block leaves,
+ * an insertion in the file it joins — and they are one op here rather than
+ * two composed regionOps because of the half-apply. Each region check
+ * happens at ITS OWN apply time, so a composed pair would cheerfully delete
+ * the paragraph from the first file and then refuse the second: the block
+ * would exist in no file at all, and the only copy of its bytes would be
+ * the op's own `before`. So EVERY premise is checked before ANY byte moves.
+ *
+ * That check is sound only because the regions are in DIFFERENT files:
+ * patching one file cannot move another's offsets, so a premise verified up
+ * front is still true when its turn comes. Two regions of the SAME file
+ * would not have that property — the second's offsets would already be
+ * stale — so that is refused rather than ordered-around. */
+function regionsOp(doc: Doc, domOps: Op[], edits: FileEdit[], label: string, by?: 'you' | 'copilot'): Op {
   return {
     label,
     author: author(by),
     apply() {
-      // the region's bytes are this op's premise. If the source moved under
-      // it — a source-view session between apply and redo — patching by
-      // offset would rewrite bytes the op never owned, so it does nothing
-      // and says so rather than corrupting the one thing it protects.
-      if (source.text.slice(start, start + before.text.length) !== before.text) {
-        console.error(`dia-doc: "${label}" no longer matches its source region — nothing applied`)
-        return
+      const sources: DocSource[] = []
+      for (const e of edits) {
+        const source = doc.project.sourceOfPath(e.path)
+        if (!source) {
+          console.error(`dia-doc: "${label}" names ${e.path}, which the project does not hold — nothing applied`)
+          return
+        }
+        if (sources.includes(source)) {
+          console.error(`dia-doc: "${label}" claims two regions of ${e.path} at once — nothing applied`)
+          return
+        }
+        sources.push(source)
+      }
+      // the regions' bytes are this op's premise. If a source moved under it
+      // — a source-view session between apply and redo — patching by offset
+      // would rewrite bytes the op never owned, so it does nothing and says
+      // so rather than corrupting the one thing it protects. ALL premises
+      // first: a partially applied cross-file move loses a block.
+      for (let i = 0; i < edits.length; i++) {
+        const e = edits[i]
+        if (sources[i].text.slice(e.start, e.start + e.before.text.length) !== e.before.text) {
+          console.error(`dia-doc: "${label}" no longer matches its region in ${e.path} — nothing applied`)
+          return
+        }
       }
       for (const o of domOps) o.apply()
-      source.patch(start, start + before.text.length, after.text)
-      for (const b of before.binds) source.drop(b.id)
-      for (const b of after.binds) source.bind(b.id, { start: start + b.start, end: start + b.end })
+      for (let i = 0; i < edits.length; i++) {
+        const e = edits[i]
+        sources[i].patch(e.start, e.start + e.before.text.length, e.after.text)
+      }
+      // EVERY drop before ANY bind. A cross-file move drops the block's
+      // binding in the file it left and binds it in the file it joined; run
+      // per-edit in edit order, the undo direction would bind first and drop
+      // second, and the moved block would come back bound to nothing —
+      // still on screen, still editable-looking, its edits reaching no file.
+      for (let i = 0; i < edits.length; i++) {
+        for (const b of edits[i].before.binds) {
+          sources[i].drop(b.id)
+          doc.project.unbind(b.id)
+        }
+      }
+      // through the PROJECT, not the DocSource: a bind that set the span but
+      // not the owner map left the block answering its old file (or, for a
+      // block the project never bound at all, the main file) on the next
+      // write — a patch aimed at another file's coordinates
+      for (const e of edits) {
+        for (const b of e.after.binds) {
+          doc.project.bind(b.id, e.path, { start: e.start + b.start, end: e.start + b.end })
+        }
+      }
     },
     invert() {
       const inverses = [...domOps].reverse().map((o) => o.invert())
-      return regionOp(doc, source, inverses, start, after, before, `un-${label}`, author(by))
+      const swapped = edits.map((e) => ({ path: e.path, start: e.start, before: e.after, after: e.before }))
+      return regionsOp(doc, inverses, swapped, `un-${label}`, author(by))
     },
   }
 }
 
-/** the file a block's bytes actually live in. In a multi-file project a
- * block rendered from an \input'd chapter binds its span in THAT chapter's
- * DocSource, and a structural op that patched doc.source by those offsets
- * would rewrite the main file at a chapter's coordinates. Single-file
- * documents answer doc.source, exactly as before. */
-function sourceOf(doc: Doc, el: Element): DocSource {
+/** the single-file case, which is all but one of the callers */
+function regionOp(
+  doc: Doc, path: string, domOps: Op[], start: number,
+  before: SourceRegion, after: SourceRegion, label: string, by?: 'you' | 'copilot',
+): Op {
+  return regionsOp(doc, domOps, [{ path, start, before, after }], label, by)
+}
+
+/** the project file a block's bytes actually live in. In a multi-file
+ * project a block rendered from an \input'd chapter binds its span in THAT
+ * chapter's DocSource, and a structural op that patched doc.source by those
+ * offsets would rewrite the main file at a chapter's coordinates. Every
+ * composed block is bound with its path (model/doc, doc/reconcile); a block
+ * the project never bound can only be in the main file, which is what a
+ * single-file document has always answered. */
+function pathOf(doc: Doc, el: Element): string {
   const id = el.getAttribute('data-dia-id')
-  return (id && doc.project.sourceOfId(id)) || doc.source
+  return (id && doc.project.fileOfId(id)) || doc.project.mainPath
+}
+
+function sourceOf(doc: Doc, el: Element): DocSource {
+  return doc.project.sourceOfPath(pathOf(doc, el)) ?? doc.source
 }
 
 /** the two blocks of a region must live in the SAME file: a region is a
- * contiguous run of bytes, and two files have no bytes between them. A
- * cross-file structural edit is refused rather than guessed — the same rule
- * that keeps an \input nested in an environment from being spliced. */
-function sharedSource(doc: Doc, a: Element, b: Element): DocSource | null {
-  const sa = sourceOf(doc, a)
-  return sa === sourceOf(doc, b) ? sa : null
+ * contiguous run of bytes, and two files have no bytes between them. Ops
+ * that REWRITE across the pair (a join re-emits the merged block) are
+ * refused rather than guessed — the same rule that keeps an \input nested
+ * in an environment from being spliced. A move does not rewrite, so it gets
+ * a two-region op instead (moveAcrossFilesOp). */
+function sharedPath(doc: Doc, a: Element, b: Element): string | null {
+  const pa = pathOf(doc, a)
+  return pa === pathOf(doc, b) ? pa : null
 }
 
 function blockSpan(doc: Doc, el: Element): Span | null {
@@ -168,7 +244,8 @@ export function insertBlockOp(
 
   // the new block joins the file its neighbour lives in; with no neighbour
   // there is only the main file to join
-  const source = ref ? sourceOf(doc, ref) : doc.source
+  const path = ref ? pathOf(doc, ref) : doc.project.mainPath
+  const source = doc.project.sourceOfPath(path) ?? doc.source
   let at: number
   if (ref) {
     // the seam is the ref block's own edge, so the gap between two blocks —
@@ -185,7 +262,7 @@ export function insertBlockOp(
 
   const { text, offset } = seated(source, at, tex)
   const index = ref ? [...doc.article.children].indexOf(ref) + (where === 'after' ? 1 : 0) : doc.article.children.length
-  return regionOp(doc, source, [insertEl(doc.article, index, el, label, by)], at,
+  return regionOp(doc, path, [insertEl(doc.article, index, el, label, by)], at,
     { text: '', binds: [] },
     { text, binds: [{ id, start: offset, end: offset + tex.length }] },
     label, by)
@@ -223,7 +300,21 @@ export function removeBlockOp(doc: Doc, el: HTMLElement, label: string, by?: 'yo
   const id = el.getAttribute('data-dia-id')
   const span = blockSpan(doc, el)
   if (!id || !span) return null
+  const path = pathOf(doc, el)
   const source = sourceOf(doc, el)
+  const { start, end } = removalRegion(doc, el, source, span)
+  return regionOp(doc, path, [removeEl(el, label, by)], start,
+    { text: source.text.slice(start, end), binds: [{ id, start: span.start - start, end: span.end - start }] },
+    { text: '', binds: [] },
+    label, by)
+}
+
+/** the bytes a block takes with it when it leaves: its own span plus ONE
+ * separator (see removeBlockOp). Shared with the cross-file move, whose
+ * departure side is exactly a removal — a block that crosses a chapter
+ * boundary must not leave a stacked blank line behind any more than a
+ * deleted one does. */
+function removalRegion(doc: Doc, el: HTMLElement, source: DocSource, span: Span): { start: number; end: number } {
   let { start, end } = span
   // only a neighbour in the SAME file can lend its separator
   const nextSpan = blockSpanOfNeighbour(doc, el, 1, source)
@@ -233,21 +324,22 @@ export function removeBlockOp(doc: Doc, el: HTMLElement, label: string, by?: 'yo
   } else if (prevSpan && prevSpan.end <= start) {
     start -= (/\s*$/.exec(source.text.slice(prevSpan.end, start)) ?? [''])[0].length
   }
-  return regionOp(doc, source, [removeEl(el, label, by)], start,
-    { text: source.text.slice(start, end), binds: [{ id, start: span.start - start, end: span.end - start }] },
-    { text: '', binds: [] },
-    label, by)
+  return { start, end }
 }
 
 /** swap a block with its neighbour: the two slices EXCHANGE places and the
  * whitespace between them stays where it is, so a move relocates bytes
- * rather than re-emitting (and thereby reformatting) either block */
+ * rather than re-emitting (and thereby reformatting) either block.
+ *
+ * When the neighbour lives in another file there is nothing to exchange —
+ * see moveAcrossFilesOp. */
 export function moveBlockOp(doc: Doc, el: HTMLElement, dir: -1 | 1, label: string, by?: 'you' | 'copilot'): Op | null {
   const other = neighbourBlock(doc, el, dir)
   if (!other) return null
   const [first, second] = dir < 0 ? [other, el] : [el, other]
-  const source = sharedSource(doc, first, second)
-  if (!source) return null
+  const path = sharedPath(doc, first, second)
+  if (!path) return moveAcrossFilesOp(doc, el, other, dir, label, by)
+  const source = sourceOf(doc, first)
   const fs = blockSpan(doc, first)
   const ss = blockSpan(doc, second)
   const fid = first.getAttribute('data-dia-id')
@@ -258,10 +350,95 @@ export function moveBlockOp(doc: Doc, el: HTMLElement, dir: -1 | 1, label: strin
   const sep = source.text.slice(fs.end, ss.start)
   const b = source.text.slice(ss.start, ss.end)
   const index = [...doc.article.children].indexOf(second) + 1
-  return regionOp(doc, source, [moveEl(first, doc.article, index, label, by)], fs.start,
+  return regionOp(doc, path, [moveEl(first, doc.article, index, label, by)], fs.start,
     { text: a + sep + b, binds: bindPair(fid, a, sep, sid, b) },
     { text: b + sep + a, binds: bindPair(sid, b, sep, fid, a) },
     label, by)
+}
+
+/** Move a block PAST a neighbour that lives in another file: out of the
+ * file it was in, into the file the neighbour is in.
+ *
+ * Within one file a move is a swap — the two slices exchange places and the
+ * whitespace between them stays put. Across a boundary there is no "between
+ * them", so the move is a removal in the departure file and an insertion in
+ * the arrival file, and the block's OWN bytes travel: a move relocates, it
+ * does not re-emit (and thereby reformat) the paragraph.
+ *
+ * The arrival region is the NEIGHBOUR's span, not the empty seam beside it,
+ * for the same reason every other region carries its bytes: the neighbour's
+ * exact text is then the op's premise, so an insertion whose offset has
+ * drifted refuses instead of splicing a paragraph into the middle of one.
+ *
+ * The composed order is preserved by construction. The article is the files
+ * flattened in \input order, `other` is the block adjacent to `el` in that
+ * flattening, and `el` lands immediately beside `other` on the far side —
+ * so a fresh compose of the edited files rebuilds exactly the order now on
+ * screen, and the next recompose cannot bounce the block back to its old
+ * file (its bytes are no longer there to be found). */
+function moveAcrossFilesOp(
+  doc: Doc, el: HTMLElement, other: HTMLElement, dir: -1 | 1, label: string, by?: 'you' | 'copilot',
+): Op | null {
+  const id = el.getAttribute('data-dia-id')
+  const oid = other.getAttribute('data-dia-id')
+  const fromPath = pathOf(doc, el)
+  const toPath = pathOf(doc, other)
+  const from = doc.project.sourceOfPath(fromPath)
+  const to = doc.project.sourceOfPath(toPath)
+  const span = blockSpan(doc, el)
+  const otherSpan = blockSpan(doc, other)
+  // `from === to` cannot happen through sharedPath, but a move that wrote
+  // two regions of one file would patch the second at stale offsets, and
+  // that is the failure this whole shape exists to prevent
+  if (!id || !oid || !from || !to || from === to || !span || !otherSpan) return null
+
+  // the departure: the block's own span plus one separator, exactly as a
+  // delete would take it
+  const leave = removalRegion(doc, el, from, span)
+  const gone = from.text.slice(leave.start, leave.end)
+  // the arrival: the block's bytes, seated at the seam beside `other`.
+  // Trimmed first because the seam's separators are computed HERE, from the
+  // destination's own gap — a span that carried its own leading newline
+  // would otherwise stack them onto seated()'s.
+  const tex = from.text.slice(span.start, span.end).trim()
+  if (!tex) return null
+  const otherTex = to.text.slice(otherSpan.start, otherSpan.end)
+  const at = dir > 0 ? otherSpan.end : otherSpan.start
+  const { text: payload, offset } = seated(to, at, tex)
+  const arrival: SourceRegion = dir > 0
+    ? {
+      text: otherTex + payload,
+      binds: [
+        { id: oid, start: 0, end: otherTex.length },
+        { id, start: otherTex.length + offset, end: otherTex.length + offset + tex.length },
+      ],
+    }
+    : {
+      text: payload + otherTex,
+      binds: [
+        { id, start: offset, end: offset + tex.length },
+        { id: oid, start: payload.length, end: payload.length + otherTex.length },
+      ],
+    }
+
+  // the DOM move is the same one a same-file move makes: `first` steps past
+  // `second`, which for either direction leaves el on the far side of other
+  const [first, second] = dir < 0 ? [other, el] : [el, other]
+  const index = [...doc.article.children].indexOf(second) + 1
+  return regionsOp(doc, [moveEl(first, doc.article, index, label, by)], [
+    {
+      path: fromPath,
+      start: leave.start,
+      before: { text: gone, binds: [{ id, start: span.start - leave.start, end: span.end - leave.start }] },
+      after: { text: '', binds: [] },
+    },
+    {
+      path: toPath,
+      start: otherSpan.start,
+      before: { text: otherTex, binds: [{ id: oid, start: 0, end: otherTex.length }] },
+      after: arrival,
+    },
+  ], label, by)
 }
 
 function bindPair(firstId: string, a: string, sep: string, secondId: string, b: string): RegionBind[] {
@@ -281,6 +458,7 @@ export function splitBlockOp(
   const tailId = tailEl.getAttribute('data-dia-id')
   const span = blockSpan(doc, el)
   if (!id || !tailId || !span) return null
+  const path = pathOf(doc, el)
   const source = sourceOf(doc, el)
 
   const headTex = emitAs(el, headHtml)
@@ -288,7 +466,7 @@ export function splitBlockOp(
   const after = headTex + BLOCK_SEP + tailTex
   const index = [...doc.article.children].indexOf(el) + 1
   const domOps = [setInlineHtml(el, headHtml, by), insertEl(doc.article, index, tailEl, label, by)]
-  return regionOp(doc, source, domOps, span.start,
+  return regionOp(doc, path, domOps, span.start,
     { text: source.text.slice(span.start, span.end), binds: [{ id, start: 0, end: span.end - span.start }] },
     {
       text: after,
@@ -300,20 +478,28 @@ export function splitBlockOp(
     label, by)
 }
 
-/** join a block into the one before it — the inverse shape of a split */
+/** join a block into the one before it — the inverse shape of a split.
+ *
+ * Still refused across a file boundary, and it is a different refusal from
+ * the move's. A join REWRITES: the two blocks become one re-emitted block,
+ * which has to end up in one file, and neither answer is the user's — the
+ * chapter that keeps the merged prose loses it from the other file's view,
+ * and pressing Backspace at the top of a chapter is not a request to
+ * dissolve the chapter boundary. */
 export function joinBlocksOp(
   doc: Doc, first: HTMLElement, second: HTMLElement, merged: string, label: string, by?: 'you' | 'copilot',
 ): Op | null {
   const fid = first.getAttribute('data-dia-id')
   const sid = second.getAttribute('data-dia-id')
-  const source = sharedSource(doc, first, second)
+  const path = sharedPath(doc, first, second)
+  const source = sourceOf(doc, first)
   const fs = blockSpan(doc, first)
   const ss = blockSpan(doc, second)
-  if (!fid || !sid || !fs || !ss || !source || ss.start < fs.end) return null
+  if (!fid || !sid || !fs || !ss || !path || ss.start < fs.end) return null
 
   const joined = emitAs(first, merged)
   const domOps = [setInlineHtml(first, merged, by), removeEl(second, label, by)]
-  return regionOp(doc, source, domOps, fs.start,
+  return regionOp(doc, path, domOps, fs.start,
     {
       text: source.text.slice(fs.start, ss.end),
       binds: bindPair(fid, source.text.slice(fs.start, fs.end),

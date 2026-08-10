@@ -9,7 +9,7 @@
 import type { Doc } from '../model/doc'
 import { state } from '../state'
 import { insertEl, removeEl } from '../model/ops'
-import { canMoveDocBlock, moveDocBlock, removeDocBlock, topBlockOf } from '../doc/sync'
+import { canMoveDocBlock, moveCrossesInto, moveDocBlock, removeDocBlock, topBlockOf } from '../doc/sync'
 import { canStudio, isSceneArt, openStudio, studioSession, type StudioSession } from '../studio/studio'
 import { newDrawingOnSlide } from '../studio/svgimport'
 import {
@@ -171,11 +171,16 @@ export function docEntries(doc: Doc, target: Element, block: HTMLElement): Entry
 
 function moveEntry(doc: Doc, block: HTMLElement, dir: -1 | 1): Entry {
   const can = canMoveDocBlock(doc, block, dir)
+  // a move at a chapter seam leaves one file and joins another; the surface
+  // shows continuous prose, so the verb has to say which file (doc/sync)
+  const into = can ? moveCrossesInto(doc, block, dir) : null
   return {
     label: dir < 0 ? 'move block up' : 'move block down',
     run: () => { moveDocBlock(doc, block, dir) },
     disabled: !can,
-    hint: can ? undefined : `nothing ${dir < 0 ? 'above' : 'below'} to trade places with`,
+    hint: can
+      ? (into ? `moves this block into ${into}` : undefined)
+      : `nothing ${dir < 0 ? 'above' : 'below'} to trade places with`,
   }
 }
 

@@ -32,6 +32,17 @@ function mount(tex = SAMPLE) {
   return { doc, host }
 }
 
+/** the same, for a main file with \input'd chapters */
+function mountProject(main: string, files: Record<string, string>) {
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const doc = loadDocFromTex(main, host, 'main.tex', files)
+  state.deck = null
+  state.doc = doc
+  state.resetLog()
+  return { doc, host }
+}
+
 const labels = (entries: ReturnType<typeof docEntries>): string[] =>
   entries.filter((e): e is Item => typeof e !== 'symbol').map((e) => e.label)
 
@@ -105,6 +116,22 @@ describe('document context menu', () => {
     expect(exportTex(doc)).toContain('Second paragraph.\n\nFirst paragraph.')
     state.undo()
     expect(exportTex(doc)).toBe(SAMPLE)
+  })
+
+  it('a move across a chapter seam names the file it moves into', () => {
+    const { doc, host } = mountProject(
+      '\\documentclass{article}\n\\begin{document}\n\n\\input{a}\n\n\\input{b}\n\n\\end{document}\n',
+      { 'a.tex': 'Alpha one.\n\nAlpha two.\n', 'b.tex': 'Beta one.\n' },
+    )
+    const ps = [...doc.article.querySelectorAll<HTMLElement>('p')]
+    const [first, last] = [ps[0], ps[1]] // both a.tex; ps[2] is b.tex
+    // a move inside one file needs no warning; the seam one does — nothing
+    // in continuous prose shows that the block is about to change file
+    expect(find(docEntries(doc, first, first), 'move block down').hint).toBeUndefined()
+    const across = find(docEntries(doc, last, last), 'move block down')
+    expect(across.hint).toBe('moves this block into b.tex')
+    expect(across.disabled).toBeFalsy()
+    host.remove()
   })
 
   it('right-clicking a block opens the menu; the header keeps the native one', () => {
