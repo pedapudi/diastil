@@ -44,6 +44,13 @@ export const tabularCellMemo = new WeakMap<HTMLElement, TabCellSlot[]>()
  * \label, comments — are never disturbed just because the float was. */
 export const captionMemo = new WeakMap<HTMLElement, string>()
 
+/** a titled wrapper's heading (beamer's \begin{frame}{Title}), memoized the
+ * same way and for the same reason: emit.ts must be able to tell "the title
+ * itself was edited" from "something else in the environment was", so an
+ * untouched title's bytes — macro calls, spacing, escapes — stay exactly as
+ * written even when the environment around it is rebuilt. */
+export const wrapTitleMemo = new WeakMap<HTMLElement, string>()
+
 export interface RenderedDoc {
   article: HTMLElement
   blocks: RenderedBlock[]
@@ -201,6 +208,16 @@ function renderBlockInner(b: LxBlock, src: string): HTMLElement {
       const div = document.createElement('div')
       div.className = `dia-wrap dia-wrap-${b.env}`
       div.setAttribute('data-dia-env', b.env)
+      if (b.title) {
+        // the heading lives in the \begin line's own argument, so it gets no
+        // block and no span of its own — it is rendered first, memoized like
+        // a figcaption, and emit.ts patches it back into that argument
+        const t = document.createElement('p')
+        t.className = 'dia-wrap-title'
+        t.append(...renderInlines(b.title, src))
+        wrapTitleMemo.set(t, t.outerHTML)
+        div.appendChild(t)
+      }
       for (const child of b.body) div.appendChild(renderBlock(child, src))
       return div
     }
@@ -424,11 +441,15 @@ function renderInline(node: LxInline, src: string): Node {
     case 'ref': {
       const a = document.createElement('a')
       a.className = 'dia-ref'
-      a.setAttribute('data-dia-ref', node.key)
+      // the ATTRIBUTE stays one comma-joined string, exactly as it was when
+      // a ref could only hold one key: it is what emit.ts writes back into
+      // the {…} group, so `\cref{fig:a,fig:b}` round-trips byte-identically
+      // and a single-key ref is untouched. Splitting is the reader's job.
+      a.setAttribute('data-dia-ref', node.keys.join(','))
       a.setAttribute('data-dia-ref-cmd', node.cmd)
-      // text is DERIVED — refreshDerived resolves numbers; the key is the
+      // text is DERIVED — refreshDerived resolves numbers; the keys are the
       // honest placeholder until then
-      a.textContent = node.key
+      a.textContent = node.keys.join(', ')
       return a
     }
     case 'cite': {

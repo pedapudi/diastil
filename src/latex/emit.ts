@@ -12,7 +12,7 @@
  * Contract (tested): emitBlockTex(render(parse(x))) === slice(x) unedited,
  * and for edited blocks the emission re-parses to an equivalent tree. */
 
-import { blockMemo, captionMemo, tabularCellMemo } from './render'
+import { blockMemo, captionMemo, tabularCellMemo, wrapTitleMemo } from './render'
 import { setsNoType } from './parse'
 
 const EDITOR_ATTRS = ['data-dia-id', 'contenteditable', 'spellcheck', 'data-dia-selected', 'data-dia-current']
@@ -99,17 +99,92 @@ export function emitBlockTex(el: HTMLElement): string {
 /* ---------- block helpers ---------- */
 
 /** \begin{env}…\end{env} with the interior rebuilt from child blocks; the
- * original begin line (with its argument groups) and end line survive */
+ * original begin line (with its argument groups) and end line survive.
+ *
+ * A titled environment (beamer's frame/block/…) renders its heading as a
+ * p.dia-wrap-title that is NOT a body block: its bytes live in the begin
+ * line's own argument. So it is kept out of the interior, and patched into
+ * that argument only when the title itself changed — the same rule, and the
+ * same reason, as a float's \caption. */
 function emitEnvWithChildren(el: HTMLElement, slice: string | null, env: string): string {
+  const title = el.querySelector<HTMLElement>(':scope > p.dia-wrap-title')
+  const titleTex = title !== null && cleanOuter(title) !== wrapTitleMemo.get(title)
+    ? emitInlines(title.childNodes)
+    : null
+  const part = slice ? partitionEnv(slice, env) : null
+
+  // SURGICAL first, the same way a float reconstructs: patch the title into
+  // the \begin line's own argument and every EDITED child into its own
+  // original bytes, so unedited siblings — and the whitespace, comments and
+  // islands between them — keep the bytes they had. A beamer frame carries
+  // a whole slide; reflowing all of it because one paragraph inside one
+  // block changed is exactly the diff nobody asked for. The child cursor
+  // starts past the begin line so a child can never be matched against the
+  // title's bytes (a one-word title and a one-word paragraph do collide).
+  if (slice && part) {
+    let out = slice
+    // the cursor must move with the patch: a title edit that SHORTENS the
+    // begin line would otherwise leave the cursor inside the first child's
+    // bytes, and a child the search cannot find is a child whose edit is
+    // silently dropped. The patch is confined to the head, so the head's
+    // length shifts by exactly the patch's length delta.
+    let headLen = part.head.length
+    if (titleTex !== null) {
+      const patched = replaceLastBraceArg(slice, env, titleTex)
+      if (patched !== null) { headLen += patched.length - slice.length; out = patched }
+    }
+    out = spliceEditedChildren(el, out, headLen)
+    if (out !== slice) return out
+  }
+
+  // fallback: an edit the splice could not account for — a child added or
+  // removed, loose text of the environment's own that no child block owns
   const inner = [...el.children]
-    .filter((c) => !c.classList.contains('dia-editor-artifact'))
+    .filter((c) => c !== title && !c.classList.contains('dia-editor-artifact'))
     .map((c) => emitBlockTex(c as HTMLElement))
     .join('\n\n')
-  if (slice) {
-    const part = partitionEnv(slice, env)
-    if (part) return `${part.head}\n${inner}\n${part.tail}`
+  if (part) {
+    const head = titleTex !== null ? replaceLastBraceArg(part.head, env, titleTex) ?? part.head : part.head
+    return `${head}\n${inner}\n${part.tail}`
   }
-  return `\\begin{${env}}\n${inner}\n\\end{${env}}`
+  const arg = title ? `{${emitInlines(title.childNodes)}}` : ''
+  return `\\begin{${env}}${arg}\n${inner}\n\\end{${env}}`
+}
+
+/** replace the content of the LAST brace argument hugging `\begin{env}` in
+ * an environment's head — where a titled environment keeps its title. The
+ * scan mirrors partitionEnv's own argument walk exactly, so head and patch
+ * can never disagree about which group that is. */
+function replaceLastBraceArg(head: string, env: string, replacement: string): string | null {
+  const beginTag = `\\begin{${env}`
+  if (!head.startsWith(beginTag)) return null
+  let i = head.indexOf('}', beginTag.length)
+  if (i < 0) return null
+  i++
+  let last: { open: number; close: number } | null = null
+  for (;;) {
+    if (head[i] === '[') {
+      const c = head.indexOf(']', i)
+      if (c < 0) break
+      i = c + 1
+      continue
+    }
+    if (head[i] === '{') {
+      let depth = 0
+      let j = i
+      for (; j < head.length; j++) {
+        if (head[j] === '\\') { j++; continue }
+        if (head[j] === '{') depth++
+        else if (head[j] === '}' && --depth === 0) break
+      }
+      if (j >= head.length) break
+      last = { open: i, close: j }
+      i = j + 1
+      continue
+    }
+    break
+  }
+  return last ? head.slice(0, last.open + 1) + replacement + head.slice(last.close) : null
 }
 
 function emitList(el: HTMLElement): string {
@@ -177,7 +252,10 @@ function emitFloat(el: HTMLElement, slice: string | null): string {
     let out = slice
     if (cap && cleanOuter(cap) !== captionMemo.get(cap)) {
       const capTex = emitInlines(cap.childNodes)
-      const patched = replaceCaptionGroup(out, 'caption', capTex)
+      // a \subfloat panel keeps its caption in a BRACKET, so it has no
+      // \caption group to patch — try that shape before concluding the
+      // float never had a caption at all
+      const patched = replaceCaptionGroup(out, 'caption', capTex) ?? replaceSubfloatCaption(out, capTex)
       if (patched !== null) {
         out = patched
       } else {
@@ -226,9 +304,8 @@ function emitFloat(el: HTMLElement, slice: string | null): string {
  * fresh insert that never came from a parse) has no bytes to replace and is
  * left alone; the source view is the escape hatch, as for structural table
  * edits. */
-function spliceEditedChildren(host: HTMLElement, slice: string): string {
+function spliceEditedChildren(host: HTMLElement, slice: string, from = 0): string {
   let out = slice
-  let from = 0
   const visit = (parent: HTMLElement) => {
     for (const child of parent.children) {
       if (!(child instanceof HTMLElement) || child.classList.contains('dia-editor-artifact')) continue
@@ -442,6 +519,31 @@ export function replaceCommandGroup(slice: string, cmd: string, replacement: str
   const g = findCommandGroup(slice, cmd)
   if (!g) return null
   return slice.slice(0, g.open + 1) + replacement + slice.slice(g.close)
+}
+
+/** A `\subfloat[caption]{panel}` / `\subfigure[caption]{panel}` slice: the
+ * caption is the OPTIONAL BRACKET, and replacing it is what makes an edit
+ * to a sub-caption reach the file. A panel written without one gets the
+ * bracket inserted after the command name, which is where the grammar puts
+ * it. Bracket depth is counted (and `\x` skipped) so a caption holding its
+ * own `[…]` closes at the right place; null when the slice is not a
+ * sub-float at all, so the caller can fall through. */
+function replaceSubfloatCaption(slice: string, prose: string): string | null {
+  const m = /^\s*\\(?:subfloat|subfigure)\*?\s*/.exec(slice)
+  if (!m) return null
+  const at = m[0].length
+  if (slice[at] !== '[') return `${slice.slice(0, at)}[${prose}]${slice.slice(at)}`
+  let depth = 0
+  for (let i = at + 1; i < slice.length; i++) {
+    const c = slice[i]
+    if (c === '\\') { i++; continue }
+    if (c === '[') depth++
+    else if (c === ']') {
+      if (depth === 0) return slice.slice(0, at + 1) + prose + slice.slice(i)
+      depth--
+    }
+  }
+  return null
 }
 
 /** the main {title} group of a heading slice — after the command name, an
