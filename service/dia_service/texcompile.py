@@ -558,6 +558,27 @@ _TECTONIC_RUNNING_BIBER = re.compile(r"Running external tool biber")
 _BIBLATEX_VERSION = re.compile(r"Package: biblatex \S+ v(?P<v>[\d.]+)")
 
 
+def _biber_for_biblatex(biblatex_version: str) -> str | None:
+    """The biber release a given biblatex needs, or None if the pairing is
+    not one we can state.
+
+    biber and biblatex are version-locked and the lock is a plain rule biber
+    states in its own release notes: biber 2.N requires biblatex 3.N (2.20
+    -> 3.20, 2.18 -> 3.18, read off github.com/plk/biber/releases). Naming
+    the exact release matters because the obvious remedy is the wrong one:
+    tectonic's bundle carries biblatex 3.17, while Ubuntu 25.10 packages
+    biber 2.20 — so `apt install biber` yields a biber that biblatex 3.17
+    refuses, and the user has done the work for nothing.
+
+    Only the major/minor pair is mapped. A biblatex whose major is not 3 is
+    outside the rule we measured, and this says nothing rather than guess.
+    """
+    parts = biblatex_version.split(".")
+    if len(parts) < 2 or parts[0] != "3" or not parts[1].isdigit():
+        return None
+    return f"2.{parts[1]}"
+
+
 def _uses_default_biber_backend(source: str) -> bool | None:
     """True when `source` loads biblatex and leaves it on biber, False when
     it loads biblatex and names another backend, None when the source says
@@ -611,12 +632,18 @@ def biblatex_biber_missing_finding(
         "produced no PDF at all — nothing in the document itself is at fault."
     )
     version = _BIBLATEX_VERSION.search(log)
-    lock = (
-        " Biber and biblatex are version-locked, and this compile loaded "
-        f"biblatex v{version.group('v')}, so install the biber release that "
-        "matches it rather than the newest one."
-        if version else ""
-    )
+    lock = ""
+    if version:
+        loaded = version.group("v")
+        want = _biber_for_biblatex(loaded)
+        lock = (
+            " Biber and biblatex are version-locked, and this compile loaded "
+            f"biblatex v{loaded}, so install "
+            + (f"biber {want} specifically" if want else
+               "the biber release that matches it")
+            + " — a newer biber (including whatever your package manager "
+            "offers) will refuse this biblatex."
+        )
     return TexError(
         level="warning" if pdf else "error",
         file=None,

@@ -291,3 +291,49 @@ def test_a_machine_with_biber_compiles_without_comment(tmp_path, monkeypatch):
     job = texcompile.compile_sync(tex_source=DEFAULT_BACKEND_SOURCE, doc_id="d1")
     assert not any("no biber is installed" in e.message for e in job.errors)
     job.cleanup()
+
+
+# ---------------------------------------------------------------------------
+# the exact biber release, because the obvious remedy is the wrong one
+# ---------------------------------------------------------------------------
+
+def test_biber_for_biblatex_states_the_pairing():
+    """biber 2.N requires biblatex 3.N — read off biber's own release notes
+    (2.20 -> 3.20, 2.18 -> 3.18). Naming the release matters: tectonic's
+    bundle carries biblatex 3.17 while Ubuntu 25.10 packages biber 2.20, so
+    `apt install biber` produces a biber this biblatex refuses."""
+    from dia_service.texcompile import _biber_for_biblatex
+
+    assert _biber_for_biblatex("3.17") == "2.17"
+    assert _biber_for_biblatex("3.20") == "2.20"
+    assert _biber_for_biblatex("3.18") == "2.18"
+    # a version outside the rule we measured says nothing rather than guess
+    assert _biber_for_biblatex("4.1") is None
+    assert _biber_for_biblatex("3") is None
+    assert _biber_for_biblatex("") is None
+
+
+def test_missing_biber_finding_names_the_release_and_warns_off_the_newest():
+    """The remedy has to be actionable. 'Install biber' alone sends someone
+    to their package manager for a biber that will be rejected."""
+    from dia_service.texcompile import biblatex_biber_missing_finding
+
+    log = "Package: biblatex 2022/01/01 v3.17 programmable bibliographies\n" \
+          "Please (re)run Biber on the file:\n"
+    f = biblatex_biber_missing_finding(log=log, biber=None, pdf=False)
+    assert f is not None
+    assert "biber 2.17 specifically" in f.message
+    assert "package manager" in f.message
+    # and it still refuses the wrong turn #27's warning would invite
+    assert "backend=bibtex is not a fix" in f.message
+
+
+def test_missing_biber_finding_without_a_version_makes_no_claim():
+    """No biblatex version in the log, no claim about which biber to get."""
+    from dia_service.texcompile import biblatex_biber_missing_finding
+
+    f = biblatex_biber_missing_finding(log="Please (re)run Biber on the file:\n",
+                                       biber=None, pdf=False)
+    assert f is not None
+    assert "specifically" not in f.message
+    assert "2." not in f.message.split("version-locked")[-1][:40]
