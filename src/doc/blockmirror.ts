@@ -589,7 +589,15 @@ export function attachMirror(
 /** a crop's share of the document's measure, as a percentage */
 function pctOf(widthPt: number, measure: number): number {
   if (!(widthPt > 0) || !(measure > 0)) return 100
-  return Math.max(10, Math.min(100, (widthPt / measure) * 100))
+  // NO lower floor. The image inside a part scales to the part's width with
+  // its aspect ratio intact, so a floor does not merely widen a thin crop —
+  // it MAGNIFIES the picture. Measured on llama.tex: a listing whose parts
+  // are 26pt wide against a 512pt measure (5%) were floored to 10% and blown
+  // up 2.7x, turning one code block into 29 giant glyph fragments stacked
+  // 1904px tall. That is the exact opposite of what this function is for —
+  // attachMirror's contract is that a narrow block "stays that width instead
+  // of being blown up to fill".
+  return Math.min(100, (widthPt / measure) * 100)
 }
 
 /** Open a mirrored block for editing: the crop steps aside, the HTML form

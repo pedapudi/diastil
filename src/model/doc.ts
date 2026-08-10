@@ -180,7 +180,12 @@ function mountDoc(host: HTMLElement, input: MountInput): Doc {
     .de-mirror { display: block; margin: 0.42rem auto 0 0; cursor: text; }
     /* one part per (page, column) segment of the block's typeset output —
      * a paragraph that crossed a column break stacks its two portions */
-    .de-mirror-part { display: block; }
+    /* centred, not left-hugging: a single-column block of a two-column paper
+     * is genuinely half the measure, so left-aligning every crop piles all
+     * the slack on one side and the document reads as a narrow ribbon with a
+     * dead right margin. Balanced margins keep the same (uniform) scale and
+     * simply stop the page looking broken. A full-measure crop is unaffected. */
+    .de-mirror-part { display: block; margin-inline: auto; }
     /* a block whose words already appear inside a neighbour's crop (run-in
      * headings, math sharing a source line) or that typesets nothing
      * (\clearpage) hides rather than doubling; a content block the compile
