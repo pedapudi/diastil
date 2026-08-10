@@ -197,6 +197,22 @@ export function canMoveDocBlock(doc: Doc, block: HTMLElement, dir: -1 | 1): bool
   return topBlockOf(doc, block) === block && neighbourBlock(doc, block, dir) !== null
 }
 
+/** the project file a move would put the block IN, when that is not the
+ * file it is in now — else null.
+ *
+ * Worth surfacing because nothing on the document surface shows where one
+ * \input'd chapter ends and the next begins: the prose is continuous, and a
+ * move at that invisible line rewrites two files and changes which one the
+ * paragraph belongs to for good. The user should read that on the verb, not
+ * discover it in a diff. */
+export function moveCrossesInto(doc: Doc, block: HTMLElement, dir: -1 | 1): string | null {
+  const other = neighbourBlock(doc, block, dir)
+  if (!other) return null
+  const here = doc.project.fileOfId(block.getAttribute('data-dia-id') ?? '')
+  const there = doc.project.fileOfId(other.getAttribute('data-dia-id') ?? '')
+  return there !== null && there !== here ? there : null
+}
+
 /** split a block in two at the caret: `block` keeps `headHtml`, a fresh
  * sibling of the same shape takes `tailHtml` */
 export function splitDocBlock(

@@ -6,7 +6,7 @@
 
 import type { Doc } from '../model/doc'
 import { state } from '../state'
-import { canMoveDocBlock, moveDocBlock, removeDocBlock, topBlockOf } from '../doc/sync'
+import { canMoveDocBlock, moveCrossesInto, moveDocBlock, removeDocBlock, topBlockOf } from '../doc/sync'
 import { insertDocBlockAfter } from './textedit'
 
 let container: HTMLElement | null = null
@@ -115,6 +115,13 @@ function syncRail(): void {
   buttons[2].disabled = !canMoveDocBlock(doc, block, -1)
   buttons[3].disabled = !canMoveDocBlock(doc, block, 1)
   buttons[4].disabled = !canMoveDocBlock(doc, block, -1) && !canMoveDocBlock(doc, block, 1)
+  // at a chapter seam the arrow moves the block into ANOTHER FILE, which
+  // the continuous prose gives no sign of — the tooltip is the only place
+  // that can say so before the click (doc/sync moveCrossesInto)
+  for (const i of [2, 3] as const) {
+    const into = moveCrossesInto(doc, block, i === 2 ? -1 : 1)
+    buttons[i].title = into ? `${RAIL_VERBS[i].title}, into ${into}` : RAIL_VERBS[i].title
+  }
   // content coordinates: the rail is a child of the scroller, so it rides
   // the scroll instead of being re-placed on every frame
   const cr = container.getBoundingClientRect()
