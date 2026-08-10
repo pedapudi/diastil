@@ -217,6 +217,29 @@ describe('doc round-trip', () => {
     expect(serializeDoc(mountHtml(out))).toBe(out)
   })
 
+  it('a \\crefrange and a \\subcaptionbox survive .tex → .html → .tex', () => {
+    // neither is in the corpus, and both were previously islands. Now that
+    // they are structure, the round-trip is the only thing standing between
+    // "we parsed it" and "we deleted the author's bytes".
+    const tex = '\\documentclass{article}\n\\begin{document}\n'
+      + '\\begin{figure}\n\\centering\n'
+      + '\\subcaptionbox{Left\\label{sub:a}}[3cm][c]{\\includegraphics{a.png}}\n'
+      + '\\subcaptionbox*{Right}{\\includegraphics{b.png}}\n'
+      + '\\caption{Panels}\\label{fig:p}\n\\end{figure}\n\n'
+      + 'See \\crefrange{fig:a}{fig:c} and \\Crefrange{eq:x}{eq:z}.\n'
+      + '\\end{document}\n'
+    const s1 = serializeDoc(mountTex(tex))
+    const doc = mountHtml(s1)
+    expect(exportTex(doc)).toBe(tex)
+    expect(serializeDoc(doc)).toBe(s1)
+    // the range's two ends ride separate attributes, so nothing in the
+    // artifact ever presents them as one comma list
+    expect(s1).toContain('data-dia-ref-from="fig:a"')
+    expect(s1).toContain('data-dia-ref-to="fig:c"')
+    expect(s1).not.toContain('data-dia-ref="fig:a,fig:c"')
+    expect(validateDocHtml(s1).ok).toBe(true)
+  })
+
   // one fixture per document FAMILY the corpus covers (see corpus/tex/README.md
   // and issue #8) — a two-column conference paper, plus book/beamer/biblatex/
   // amsthm, each exercising presentation heuristics the others don't

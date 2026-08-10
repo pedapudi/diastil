@@ -146,12 +146,30 @@ function fields(s: string): string[] {
 export function auxRefText(
   labels: ReadonlyMap<string, AuxLabel>, cmd: string, key: string, domKind: RefKind | null,
 ): string | null {
+  const r = auxResolve(labels, cmd, key, domKind)
+  return r === null ? null : r.text
+}
+
+/** cleveref's OWN commands — the ones that print cleveref's vocabulary, so
+ * the `key@cref` kind is the one to name them by. \crefrange belongs here
+ * with \cref: measured, a section inside \appendix has anchor `section.A.1`
+ * but cref kind `subappendix`, and \crefrange over two of them prints
+ * "appendices A.1 to A.2". Resolving a range through the ANCHOR kind would
+ * have said "sections". */
+const CREF_FAMILY = new Set(['cref', 'Cref', 'crefrange', 'Crefrange'])
+
+/** the full engine answer for one label: the formatted text, plus the raw
+ * number and the kind it was named by. A range needs the latter two — see
+ * DerivedNumber in derived.ts. */
+function auxResolve(
+  labels: ReadonlyMap<string, AuxLabel>, cmd: string, key: string, domKind: RefKind | null,
+): { text: string; number: string; kind: RefKind | null } | null {
   const entry = labels.get(key)
   if (!entry) return null
-  const kind = (cmd === 'cref' || cmd === 'Cref')
+  const kind = CREF_FAMILY.has(cmd)
     ? entry.crefKind ?? entry.anchorKind ?? domKind
     : entry.anchorKind ?? domKind
-  return refDisplay(cmd, kind, entry.number, entry.page, key)
+  return { text: refDisplay(cmd, kind, entry.number, entry.page, key), number: entry.number, kind }
 }
 
 /* ---------- the snapshot: which document these numbers describe ---------- */
@@ -170,9 +188,9 @@ let snapshot: AuxSnapshot | null = null
 export function setAuxLabels(labels: Map<string, AuxLabel>, source: string | null): void {
   snapshot = { labels, source }
   setNumberSource((cmd, key, kind) => {
-    const text = auxRefText(labels, cmd, key, kind)
-    if (text === null) return null
-    return { text, provisional: !sourceUnchanged(source) }
+    const r = auxResolve(labels, cmd, key, kind)
+    if (r === null) return null
+    return { text: r.text, number: r.number, kind: r.kind, provisional: !sourceUnchanged(source) }
   })
 }
 

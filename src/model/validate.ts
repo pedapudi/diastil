@@ -56,6 +56,7 @@ const DOC_ATTRS = new Set([
   'data-dia-label', // \label key, on floats/sections/math (and its dia-label span form)
   'data-dia-env', // source environment name, on math blocks and wrappers
   'data-dia-ref', 'data-dia-ref-cmd', // \ref target key + command variant
+  'data-dia-ref-from', 'data-dia-ref-to', // \crefrange's two ends — a RANGE, never a key list
   'data-dia-cite', 'data-dia-cite-opt', 'data-dia-cite-pre', 'data-dia-cite-cmd', // \cite keys + post/pre notes + command variant
   'data-dia-graphic-path', // pdf/eps graphic slot path (browsers cannot <img> those)
   'data-dia-graphic-opts', // \includegraphics options, carried verbatim

@@ -480,6 +480,21 @@ function renderInline(node: LxInline, src: string): Node {
       a.textContent = node.keys.join(', ')
       return a
     }
+    case 'refrange': {
+      const a = document.createElement('a')
+      // dia-ref too, so it inherits the reference LOOK and the provisional
+      // marking; dia-refrange is what every reader keys on to know the two
+      // ends are a range. There is deliberately no data-dia-ref: a reader
+      // that asks for "the keys" must get nothing rather than a list, since
+      // a list of two means "and" where this means "to".
+      a.className = 'dia-ref dia-refrange'
+      a.setAttribute('data-dia-ref-cmd', node.cmd)
+      a.setAttribute('data-dia-ref-from', node.from)
+      a.setAttribute('data-dia-ref-to', node.to)
+      // DERIVED text, as for a plain ref — the keys are the placeholder
+      a.textContent = `${node.from} to ${node.to}`
+      return a
+    }
     case 'cite': {
       const a = document.createElement('a')
       a.className = 'dia-cite'
