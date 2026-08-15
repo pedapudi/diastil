@@ -19,7 +19,8 @@ import type { DocSource } from '../latex/source'
 import type { Doc } from '../model/doc'
 import { state } from '../state'
 import { grantFolderAndRecompile, onCompileState, type CompileState, type TexError } from './doccompile'
-import { flashBlock, scrollToBlock } from './docview'
+import { flashBlock } from './docview'
+import { navigateToDocumentBlock } from './docnavigate'
 import { folderGrantAvailable } from './folderGrant'
 
 let drawer: HTMLElement | null = null
@@ -167,7 +168,7 @@ function rowFor(f: TexError, doc: Doc | null): HTMLElement {
     row.addEventListener('click', () => {
       const el = blockForLine(doc as Doc, target.line, undefined, target.source)
       if (!el) return
-      scrollToBlock(el)
+      navigateToDocumentBlock(el)
       flashBlock(el)
     })
   }

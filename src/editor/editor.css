@@ -38,6 +38,22 @@
 }
 .de-respreview span { white-space: nowrap; display: block; }
 
+.de-artifact-switch {
+  display: inline-flex; align-items: center; gap: 6px; flex: none;
+  min-height: 27px; padding: 3px 8px;
+  border: 1px solid var(--rule); border-radius: 5px;
+  background: color-mix(in srgb, var(--panel) 72%, transparent);
+  color: var(--ink-soft); cursor: pointer;
+  font: 600 calc(10.5px * var(--dt-font-scale, 1))/1 var(--sans);
+  letter-spacing: .015em;
+}
+.de-artifact-switch:hover, .de-artifact-switch:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 65%, var(--rule));
+  color: var(--ink); background: var(--panel); outline: none;
+}
+.de-artifact-icon { color: var(--accent); font-size: 13px; line-height: 1; }
+.de-artifact-caret { color: var(--ink-faint); font-size: 11px; margin-left: 1px; }
+
 .de-crumbs {
   font-family: var(--mono);
   font-size: calc(11px * var(--dt-font-scale, 1));
@@ -123,11 +139,33 @@
 /* ---------- pages view (compiled PDF, page by page) ---------- */
 .de-pagecol { max-width: min(var(--de-deck-w, 980px), 100%); margin: 0 auto;
   padding: 18px 24px; }
-.de-page { display: block; width: 100%; margin: 0 0 16px; background: #fff;
+.de-page-sheet { position: relative; width: 100%; margin: 0 0 16px; background: #fff;
   border: 1px solid rgba(0, 0, 0, 0.14); box-shadow: 0 1px 5px rgba(0, 0, 0, 0.10);
-  cursor: default; user-select: none; }
+  overflow: visible; }
+.de-page { position: absolute; inset: 0; display: block; width: 100%; height: 100%;
+  object-fit: fill; cursor: text; user-select: none; }
+.de-page-selection { position: absolute; z-index: 2; pointer-events: none;
+  border: 2px solid color-mix(in srgb, var(--accent) 82%, white);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  box-shadow: 0 0 0 2px rgba(255,255,255,.78); border-radius: 2px; }
+.de-page-edit { position: absolute; z-index: 4; box-sizing: border-box;
+  min-width: 12rem; padding: 0; background: var(--paper, #fff); color: var(--ink, #161616);
+  border: 2px solid var(--accent); border-radius: 3px;
+  box-shadow: 0 7px 24px rgba(0,0,0,.22); }
+.de-page-edit-label { position: absolute; left: -2px; bottom: 100%; padding: 2px 7px;
+  border-radius: 3px 3px 0 0; background: var(--accent); color: #fff;
+  font: 600 9px/1.5 var(--mono, ui-monospace); letter-spacing: .05em; white-space: nowrap; }
+.de-page-edit-field { box-sizing: border-box; min-height: 2.2em; max-height: 15rem;
+  overflow: auto; padding: 7px 9px; outline: 0; background: var(--paper, #fff);
+  font: 15px/1.45 var(--serif, serif); white-space: pre-wrap; }
+.de-page-edit.is-dirty { border-style: dashed; }
+.de-page-edit.is-compiling .de-page-edit-label::after { content: ' · compiling…'; }
+.de-page-edit.is-error { border-color: #c43d35; }
+.de-page-edit.is-error .de-page-edit-label { background: #c43d35; }
 .de-pages-note { padding: 48px 24px; text-align: center;
   font-family: var(--sans); font-size: 13px; color: var(--ink-soft); }
+.de-page-a11y { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: normal; border: 0; }
 /* the article centers itself (theme measure); the wrap only caps width to
  * the zoom preset so s·m·l keep meaning something for documents */
 .de-docwrap { max-width: min(var(--de-deck-w, 980px), 100%); margin: 0 auto; padding: 0 24px; }

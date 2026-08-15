@@ -102,6 +102,23 @@ describe('op log', () => {
     expect(title.textContent).toBe('B')
   })
 
+  it('coalesces idle page-edit commits into one exact undo step', () => {
+    const root = fixture()
+    const st = new EditorState()
+    const title = root.querySelector<HTMLElement>('.dia-title')!
+    const initial = root.innerHTML
+    const at = st.log.entries.length
+    st.apply(setText(title, 'first pause'))
+    st.apply(setText(title, 'second pause'))
+    st.log.coalesceFrom(at, 'Edit text')
+    expect(st.log.entries).toHaveLength(1)
+    const final = root.innerHTML
+    st.undo()
+    expect(root.innerHTML).toBe(initial)
+    st.redo()
+    expect(root.innerHTML).toBe(final)
+  })
+
   it('property: seeded random op sequences undo to initial and redo to final', () => {
     for (const seed of [1, 42, 2026]) {
       const root = fixture()

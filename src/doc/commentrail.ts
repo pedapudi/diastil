@@ -12,7 +12,7 @@
 import type { Doc } from '../model/doc'
 import { state } from '../state'
 import { hov } from '../chrome/hovercard'
-import { scrollToBlock } from '../editor/docview'
+import { navigateToDocumentBlock } from '../editor/docnavigate'
 import { isMirrored } from './blockmirror'
 import {
   anchorFromRange, authorName, blockFor, commentStore, installComments,
@@ -199,7 +199,7 @@ function revealThread(t: CommentThread): void {
   const doc = state.doc
   if (!doc) return
   const block = blockFor(doc.article, t.anchor)
-  if (block) scrollToBlock(block)
+  if (block) navigateToDocumentBlock(block)
 }
 
 /** open the comments tab with one thread's reply box focused — the landing

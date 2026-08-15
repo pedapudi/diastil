@@ -59,8 +59,8 @@ import { state } from '../state'
 import { batch, setInlineHtml } from '../model/ops'
 import { syncedDocOp, topBlockOf } from '../doc/sync'
 import { type CropFlag, cropShowing, flagCrops, peekBlock } from '../doc/blockmirror'
-import { flashBlock } from './docview'
 import { setFindCounts } from './outline'
+import { navigateToDocumentBlock } from './docnavigate'
 
 /* ---------- the matcher (pure) ---------- */
 
@@ -658,6 +658,10 @@ function articleChildOf(doc: Doc, node: Node): HTMLElement | null {
 function reveal(m: DocMatch): void {
   const doc = state.doc
   if (!doc) return
+  if (m.block) {
+    navigateToDocumentBlock(m.block)
+    return
+  }
   const host = doc.root.host
   const scroller = host instanceof Element ? host.closest<HTMLElement>('.de-docscroll') : null
   if (!scroller) return
@@ -671,11 +675,6 @@ function reveal(m: DocMatch): void {
     }
     return
   }
-  const block = m.block
-  if (!block) return
-  const br = block.getBoundingClientRect()
-  scroller.scrollTo({ top: Math.max(0, scroller.scrollTop + (br.top - box.top) - 60) })
-  flashBlock(block)
 }
 
 /* ---------- small chrome helpers ---------- */

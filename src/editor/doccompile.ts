@@ -492,6 +492,15 @@ const auto = createAutoCompiler(async () => {
   await compileNow(doc)
 })
 
+/** A page edit has already observed its own idle window.  Cancel the normal
+ * post-op debounce and compile now, so the visible page starts catching up
+ * 650ms after typing stops rather than paying two debounce periods. */
+export function compilePageDraft(doc: Doc): Promise<CompileResult | null> {
+  auto.cancel()
+  if (!autoOn || !texAvailable()) return Promise.resolve(null)
+  return compileNow(doc)
+}
+
 /* the first compile of a document is not an edit — it is what makes the
  * native view a compiled render at all. It waits for an engine, because at
  * doc-loaded time the health poll has usually not answered yet. */

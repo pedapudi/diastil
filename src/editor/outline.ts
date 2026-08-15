@@ -5,7 +5,7 @@
  * (Compile-error badges arrive with their milestone.) */
 
 import { state } from '../state'
-import { scrollToBlock } from './docview'
+import { navigateToDocumentBlock } from './docnavigate'
 import { blockFor, commentStore } from '../doc/comments'
 
 interface Row {
@@ -246,7 +246,7 @@ function goToBlock(i: number): void {
   const block = state.blocks()[i]
   if (!block) return
   state.setCurrentBlock(i)
-  scrollToBlock(block)
+  navigateToDocumentBlock(block)
 }
 
 /** highlight the heading governing the current block */

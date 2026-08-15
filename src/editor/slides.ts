@@ -354,8 +354,33 @@ function loadDocument(
 /** Open: dialect files load directly; anything foreign hands off to the
  * import pipeline automatically — one button, no open-vs-import decision. */
 export async function openDeck(canvasHost: HTMLElement): Promise<void> {
+  return openArtifact(canvasHost)
+}
+
+/** Mode-specific doors used by the artifact switcher. Foreign HTML is a
+ * deck candidate; documents must be recognisable LaTeX or a saved doc
+ * artifact so choosing a workspace never silently lands in the other one. */
+export async function openDocumentFile(canvasHost: HTMLElement): Promise<void> {
+  return openArtifact(canvasHost, 'doc')
+}
+
+export async function openDeckFile(canvasHost: HTMLElement): Promise<void> {
+  return openArtifact(canvasHost, 'deck')
+}
+
+async function openArtifact(canvasHost: HTMLElement, wanted?: 'doc' | 'deck'): Promise<void> {
   const picked = await pickHtmlFile()
   if (!picked) return
+  const tex = looksLikeTex(picked.text, picked.name)
+  const detectedKind = picked.bytes ? 'deck' : tex ? 'doc' : dialectKind(picked.text)
+  if (wanted === 'doc' && detectedKind !== 'doc') {
+    alert('That file is a slide deck or foreign HTML. Choose Slides to open it.')
+    return
+  }
+  if (wanted === 'deck' && detectedKind === 'doc') {
+    alert('That file is a LaTeX document. Choose Document to open it.')
+    return
+  }
   detachFromFile()
   if (picked.bytes && looksLikePptx(picked.bytes, picked.name)) {
     try {
@@ -366,16 +391,15 @@ export async function openDeck(canvasHost: HTMLElement): Promise<void> {
     }
     return
   }
-  if (looksLikeTex(picked.text, picked.name)) {
+  if (tex) {
     fileHandle = picked.handle
     loadDocument('tex', picked.text, canvasHost, picked.name)
     return
   }
-  const kind = dialectKind(picked.text)
-  if (kind === 'doc') {
+  if (detectedKind === 'doc') {
     fileHandle = picked.handle
     loadDocument('html', picked.text, canvasHost, picked.name)
-  } else if (kind === 'deck') {
+  } else if (detectedKind === 'deck') {
     fileHandle = picked.handle
     loadDeckInto(picked.text, canvasHost, picked.name)
   } else {

@@ -54,6 +54,19 @@ describe('the topbar file doors', () => {
     expect(labels).toEqual(['open…', 'new deck', 'new document'])
   })
 
+  it('offers an honest document/slides workspace switcher', () => {
+    const switcher = app.querySelector<HTMLButtonElement>('.de-artifact-switch')!
+    expect(switcher.textContent).toContain('slides')
+    switcher.click()
+    const labels = [...document.querySelectorAll('.de-menu button')].map((b) => b.textContent ?? '')
+    expect(labels.some((label) => label.includes('document'))).toBe(true)
+    expect(labels).toContain('new document')
+    expect(labels).toContain('open document…')
+    expect(labels.some((label) => label.includes('slides'))).toBe(true)
+    expect(labels).toContain('new slide deck')
+    expect(labels).toContain('open slide deck…')
+  })
+
   it('starts a document when nothing is at stake, without asking', () => {
     const ask = vi.fn(() => false)
     vi.stubGlobal('confirm', ask)
@@ -61,6 +74,7 @@ describe('the topbar file doors', () => {
     expect(ask).not.toHaveBeenCalled()
     expect(state.doc?.texName).toBe('untitled.tex')
     expect(state.deck).toBeNull()
+    expect(app.querySelector('.de-artifact-switch')?.textContent).toContain('document')
   })
 
   it('keeps an edited document when the user declines', () => {

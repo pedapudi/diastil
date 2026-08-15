@@ -4,7 +4,7 @@
  * documents share this module, and the deck's Enter still means "done". */
 
 import { beforeEach, describe, expect, it } from 'vitest'
-import { docifyInlineMath, installTextEditing, isEditingText, startEdit } from './textedit'
+import { commitDocDraft, docDraftValue, docifyInlineMath, installTextEditing, isEditingText, startEdit } from './textedit'
 import { emitInlines } from '../latex/emit'
 import { state } from '../state'
 import { exportTex, loadDocFromTex } from '../model/doc'
@@ -42,6 +42,21 @@ describe('docifyInlineMath', () => {
   it('the enriched leaf emits back to $…$ LaTeX', () => {
     const out = docifyInlineMath('value $e^{i\\pi}$ here')
     expect(emitInlines(asNodes(out))).toBe('value $e^{i\\pi}$ here')
+  })
+})
+
+describe('detached page drafts', () => {
+  it('edits a raw LaTeX island verbatim, without interpreting its dollar signs as prose math', () => {
+    const tex = '\\documentclass{article}\n\\begin{document}\n\\begin{tikzpicture}\n\\node {$x$};\n\\end{tikzpicture}\n\\end{document}\n'
+    const doc = mount(tex)
+    const pre = doc.article.querySelector<HTMLElement>('.dia-tex-island pre')!
+    const next = '\\begin{tikzpicture}\n\\node {$y < z$};\n\\end{tikzpicture}'
+    expect(docDraftValue(pre).value).toContain('{$x$}')
+    expect(commitDocDraft(pre, next)).toBe(true)
+    expect(exportTex(doc)).toContain(next)
+    expect(exportTex(doc)).not.toContain('dia-math')
+    state.undo()
+    expect(exportTex(doc)).toBe(tex)
   })
 })
 

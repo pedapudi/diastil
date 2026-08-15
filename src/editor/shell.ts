@@ -33,12 +33,13 @@ import { buildSlideTree } from './tree'
 import { openCompare } from './compare'
 import {
   bootFromCli, confirmReplace, exportPptxAction, exportTexAction, newDeck, newDocument,
-  openDeck, pptxExportAvailable,
+  openDeck, openDeckFile, openDocumentFile, pptxExportAvailable,
   PPTX_EXPORT_HINT, PPTX_EXPORT_OFFLINE_HINT, presentDeck, presentDoc, saveDeck, saveDoc,
 } from './slides'
 import { mountDocView, activateDoc, deactivateDoc, scrollToBlock } from './docview'
-import { activatePages, deactivatePages, mountPagesView } from './pagesview'
-import { installBlockMirror, mirrorOn, setMirrorOn } from '../doc/blockmirror'
+import { activatePages, deactivatePages, mountPagesView, scrollToPageBlock } from './pagesview'
+import { configureDocumentNavigation, navigateToDocumentBlock } from './docnavigate'
+import { installBlockMirror } from '../doc/blockmirror'
 import { installBibliography } from '../doc/bibliography'
 import { installAuxNumbers } from '../doc/auxnumbers'
 import { mountOutline, showOutline } from './outline'
@@ -148,6 +149,26 @@ export function mountEditor(host: HTMLElement): void {
   respreview.setAttribute('role', 'note')
   respreview.setAttribute('aria-label', 'research preview')
   respreview.append(h('span', '', 'research'), h('span', '', 'preview'))
+  const artifactSwitch = h('button', 'de-artifact-switch') as HTMLButtonElement
+  artifactSwitch.type = 'button'
+  artifactSwitch.replaceChildren(h('span', 'de-artifact-icon', '◇'), document.createTextNode('workspace'), h('span', 'de-artifact-caret', '⌄'))
+  artifactSwitch.setAttribute('aria-haspopup', 'menu')
+  artifactSwitch.title = 'switch between document and slides workspaces'
+  artifactSwitch.addEventListener('click', () => {
+    const r = artifactSwitch.getBoundingClientRect()
+    const doc = state.mode === 'doc'
+    openMenu(r.left, r.bottom + 5, [
+      { label: `▤  document${doc ? '  ✓' : ''}`, run: () => {}, disabled: doc,
+        hint: doc ? 'current workspace' : 'LaTeX-backed papers and documents' },
+      { label: 'new document', run: () => doNew('doc'), hint: 'start a LaTeX article' },
+      { label: 'open document…', run: () => { void doOpenAs('doc') }, hint: '.tex or a saved diastil document' },
+      SEP,
+      { label: `▣  slides${!doc ? '  ✓' : ''}`, run: () => {}, disabled: !doc,
+        hint: !doc ? 'current workspace' : 'HTML and PowerPoint decks' },
+      { label: 'new slide deck', run: () => doNew('deck'), hint: 'start a presentation' },
+      { label: 'open slide deck…', run: () => { void doOpenAs('deck') }, hint: '.html or .pptx' },
+    ])
+  })
   const crumbs = h('div', 'de-crumbs')
 
   // one surface: the table. zoom replaces the old stage altitude's larger
@@ -189,11 +210,11 @@ export function mountEditor(host: HTMLElement): void {
   // happens when clean).
   const viewSeg = h('div', 'dn-seg')
   viewSeg.hidden = true
-  const segNative = segButton('native', () => setView('native'))
-  segNative.classList.add('dn-on')
-  segNative.title = 'the rendered document — edit prose in place'
+  const segNative = segButton('semantic', () => setView('native'))
+  segNative.title = 'the accessible HTML projection — fallback when compiled pages are unavailable'
   const segPages = segButton('pages', () => setView('pages'))
-  segPages.title = 'the compiled PDF, page by page — double-click a spot to edit it'
+  segPages.classList.add('dn-on')
+  segPages.title = 'the compiled document — double-click a block to edit without moving the page'
   const segSource = segButton('source', () => setView('source'))
   segSource.title = 'the raw LaTeX — the truth this document is compiled from'
   viewSeg.append(segNative, segPages, segSource)
@@ -202,14 +223,14 @@ export function mountEditor(host: HTMLElement): void {
   // which doc view is showing — the find bar's Ctrl+F belongs to the native
   // surface only (the source view runs its own find, the pages view shows
   // pictures of type there is no DOM text to search)
-  let docView: DocView = 'native'
+  let docView: DocView = 'pages'
   function setView(view: DocView): void {
     if (!state.doc) return
     docView = view
     segNative.classList.toggle('dn-on', view === 'native')
     segPages.classList.toggle('dn-on', view === 'pages')
     segSource.classList.toggle('dn-on', view === 'source')
-    if (view !== 'native') closeDocFind()
+    if (view === 'source') closeDocFind()
     deactivateSource() // commits when dirty; harmless when already closed
     deactivateDoc()
     deactivatePages()
@@ -217,7 +238,7 @@ export function mountEditor(host: HTMLElement): void {
     else if (view === 'pages') activatePages()
     else activateSource()
   }
-  function setSourceMode(on: boolean): void { setView(on ? 'source' : 'native') }
+  function setSourceMode(on: boolean): void { setView(on ? 'source' : 'pages') }
 
   /* open is a split button, the way save is: the button opens (the frequent
    * act), the caret holds the file doors that are not "open the one I have"
@@ -331,11 +352,6 @@ export function mountEditor(host: HTMLElement): void {
         run: () => setAutoCompile(!autoCompileOn()),
         hint: 'recompile a moment after every edit, so the native view keeps showing the real render',
       },
-      {
-        label: `show html ${mirrorOn() ? '—' : '✓'}`,
-        run: () => setMirrorOn(!mirrorOn()),
-        hint: 'show the dialect’s own rendering instead of the compiled crops, for this session',
-      },
       // only offered when the last failure is EXACTLY a blind compile
       // tripping on a missing file, and only where the API exists to fix it
       ...(s.blindMissing && folderGrantAvailable() ? [SEP, {
@@ -408,7 +424,7 @@ export function mountEditor(host: HTMLElement): void {
   }
   onCompileState(renderTexChip)
 
-  topbar.append(brand, respreview, crumbs, h('div', 'de-spacer'), viewSeg, seg, openSplit, saveSplit, pickerSlot, texChip, status)
+  topbar.append(brand, respreview, artifactSwitch, crumbs, h('div', 'de-spacer'), viewSeg, seg, openSplit, saveSplit, pickerSlot, texChip, status)
 
   /* ---------- layout ---------- */
 
@@ -614,8 +630,14 @@ export function mountEditor(host: HTMLElement): void {
     setView('native')
     scrollToBlock(block)
   })
+  configureDocumentNavigation((block) => {
+    setView('pages')
+    if (scrollToPageBlock(block)) return
+    setView('native')
+    scrollToBlock(block)
+  })
   mountSourceView(main)
-  mountDocFind(main, () => docView === 'native')
+  mountDocFind(main, () => docView !== 'source')
   mountProblems(main)
 
   // "edit LaTeX here" requests (island dblclick, error rows in source
@@ -741,14 +763,15 @@ export function mountEditor(host: HTMLElement): void {
     closeDocFind()
     if (on) {
       deactivateTable()
-      // a fresh doc always opens in the native view
-      docView = 'native'
-      segNative.classList.add('dn-on')
-      segPages.classList.remove('dn-on')
+      // compiled pages are the stable editing surface; semantic HTML is the
+      // explicit fallback before a first successful compile.
+      docView = 'pages'
+      segNative.classList.remove('dn-on')
+      segPages.classList.add('dn-on')
       segSource.classList.remove('dn-on')
       deactivateSource()
-      deactivatePages()
-      activateDoc()
+      deactivateDoc()
+      activatePages()
     } else {
       deactivateSource()
       deactivatePages()
@@ -770,7 +793,7 @@ export function mountEditor(host: HTMLElement): void {
     if (state.doc) {
       state.setCurrentBlock(state.currentBlock + d)
       const b = state.blocks()[state.currentBlock]
-      if (b) scrollToBlock(b)
+      if (b) navigateToDocumentBlock(b)
       return
     }
     state.setCurrentSlide(state.currentSlide + d)
@@ -786,6 +809,13 @@ export function mountEditor(host: HTMLElement): void {
   async function doOpen(): Promise<void> {
     if (!confirmReplace(tick !== savedTick, 'Open another file?')) return
     await openDeck(canvasHost)
+  }
+
+  async function doOpenAs(kind: 'deck' | 'doc'): Promise<void> {
+    if (!confirmReplace(tick !== savedTick,
+      kind === 'doc' ? 'Open another document?' : 'Open another slide deck?')) return
+    if (kind === 'doc') await openDocumentFile(canvasHost)
+    else await openDeckFile(canvasHost)
   }
 
   function doNew(kind: 'deck' | 'doc'): void {
@@ -812,6 +842,7 @@ export function mountEditor(host: HTMLElement): void {
 
   function updateCrumbs(): void {
     if (state.doc) {
+      artifactSwitch.replaceChildren(h('span', 'de-artifact-icon', '▤'), document.createTextNode('document'), h('span', 'de-artifact-caret', '⌄'))
       const doc = state.doc
       const dirty = tick !== savedTick
       const stateWord = dirty ? h('span', 'de-unsaved', 'unsaved') : document.createTextNode('saved')
@@ -825,9 +856,11 @@ export function mountEditor(host: HTMLElement): void {
     }
     const d = state.deck
     if (!d) {
+      artifactSwitch.replaceChildren(h('span', 'de-artifact-icon', '◇'), document.createTextNode('workspace'), h('span', 'de-artifact-caret', '⌄'))
       crumbs.textContent = 'no deck'
       return
     }
+    artifactSwitch.replaceChildren(h('span', 'de-artifact-icon', '▣'), document.createTextNode('slides'), h('span', 'de-artifact-caret', '⌄'))
     const file = h('b', '', d.fileName)
     const n = state.slides().length
     const dirty = tick !== savedTick

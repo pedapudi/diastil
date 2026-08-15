@@ -16,7 +16,7 @@ import {
   stampHighlights, type HighlightRegion,
 } from '../editor/highlights'
 import { focusedSlide, slidesInLogicalOrder } from '../studio/focus'
-import { scrollToBlock } from '../editor/docview'
+import { navigateToDocumentBlock } from '../editor/docnavigate'
 import { compileState, onCompileState } from '../editor/doccompile'
 import { topBlockOf } from '../doc/sync'
 import { parseThreads } from '../doc/comments'
@@ -729,7 +729,7 @@ export function mountCopilot(host: HTMLElement): void {
       let where = ''
       if (state.mode === 'doc') {
         const idx = region ? state.blocks().indexOf(region) : -1
-        if (region && idx >= 0) { scrollToBlock(region); where = ` on block ${idx + 1}` }
+        if (region && idx >= 0) { navigateToDocumentBlock(region); where = ` on block ${idx + 1}` }
       } else {
         const idx = region ? state.slides().indexOf(region) : -1
         if (idx >= 0) { scrollToSlide(idx); where = ` on slide ${idx + 1}` }

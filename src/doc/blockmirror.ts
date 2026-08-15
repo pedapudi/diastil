@@ -78,6 +78,7 @@ import { SERVICE_BASE } from '../service/client'
 import { autoCompileOn, lastCompileJobId, onCompileState, texAvailable } from '../editor/doccompile'
 import { docEditableFor, isEditingText, startEdit } from '../editor/textedit'
 import { clearPageCache, getPageBitmap, pagesInfo, Y_TOP_DOWN, type PageBitmap } from './pdfpages'
+import { clearDocumentLayout, setDocumentLayout, type PageRect } from './pagelayout'
 
 /** one synctex point record: a source line, the page it landed on, the y of
  * its baseline and (from daemons that report them) the x of its left edge
@@ -977,6 +978,7 @@ export function installBlockMirror(): void {
     switch (e.type) {
       case 'doc-loaded':
         clearMirrors()
+        clearDocumentLayout()
         clearPageCache()
         shownJob = null
         pass++
@@ -1032,6 +1034,9 @@ export interface Pass {
   pages: PageSource
   /** is this still the pass the document is waiting for? */
   live: () => boolean
+  /** page editor needs attribution rectangles, not hundreds of duplicate
+   * per-block bitmaps cut from pages it already displays whole */
+  geometryOnly?: boolean
 }
 
 /** rebuild every crop from a finished job's artifacts */
@@ -1061,8 +1066,19 @@ export async function refreshMirrors(jobId: string): Promise<void> {
     measure: map.measure,
     pages: makeLivePageSource(jobId, dpi),
     live: () => mine === pass && state.doc === doc,
+    geometryOnly: true,
   }
   await cutDocument(doc, run)
+  if (mine === pass && state.doc === doc) {
+    const byBlock = new Map<string, PageRect[]>()
+    for (const block of mirrorTargets(doc.article)) {
+      const blockId = block.getAttribute('data-dia-id')
+      const claims = claimsFor(block)
+      if (!blockId || !claims?.length) continue
+      byBlock.set(blockId, claims.map((claim) => ({ ...claim, blockId })))
+    }
+    setDocumentLayout({ jobId, pages: info?.pages ?? [], byBlock })
+  }
 }
 
 /* the source a beamer frame block starts with, whatever markup a parser
@@ -1201,6 +1217,11 @@ async function cutPass(doc: Doc, run: Pass): Promise<void> {
 
     const parts = await cutBlock(run, cut)
     if (parts === null || !run.live()) return
+    if (run.geometryOnly && (claimsFor(block)?.length ?? 0) > 0) {
+      detach(block)
+      fresh.add(block)
+      continue
+    }
     if (parts.length === 0) { orphans.push({ block, range: cut.range }); continue }
     if (isOpenForEdit(block)) { revokeAll(parts); continue }
     const shaped = parts.map((p) => ({ ...p, widthPct: pctOf(p.widthPt, run.measure) }))
@@ -1419,11 +1440,12 @@ async function cutBlock(run: Pass, cut: Cut): Promise<Part[] | null> {
     const dims = run.dims.get(rect.page) ?? { wPt: 0, hPt: 0 }
     const shape = padded(toTopDown(rect, dims.hPt, run.ySemantics), dims.wPt, dims.hPt)
     if (!(shape.xMax > shape.xMin) || !(shape.yMax > shape.yMin)) continue
+    claims.push({ ...shape, page: rect.page, ...(cut.fullPages ? { whole: true } : {}) })
+    if (run.geometryOnly) continue
     const url = await run.pages.rasterize(rect.page, shape)
     if (!run.live()) { if (url) revoke(url); return abort() }
     if (url === null) continue
     parts.push({ url, widthPt: shape.xMax - shape.xMin })
-    claims.push({ ...shape, page: rect.page, ...(cut.fullPages ? { whole: true } : {}) })
   }
   heldClaims.set(cut.block, claims)
   return parts

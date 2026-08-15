@@ -6,7 +6,7 @@
 
 import type { Doc } from '../model/doc'
 import { state } from '../state'
-import { batch, insertEl, neighbourBlock, setAttr, setInlineHtml } from '../model/ops'
+import { batch, insertEl, neighbourBlock, setAttr, setInlineHtml, setText } from '../model/ops'
 import { renderTex } from './math'
 import { mathToMathml } from '../latex/render'
 import { commitDocEdit, insertDocBlock, joinDocBlocks, removeDocBlock, splitDocBlock, topBlockOf } from '../doc/sync'
@@ -442,6 +442,34 @@ function commitDocLeaf(el: HTMLElement, original: string, html: string, text: st
   if (enriched === original) return
   el.innerHTML = original // the op captures the true previous children
   commitDocEdit(doc, el, [setInlineHtml(el, enriched)], 'Edit text')
+}
+
+/** Commit a detached page-editor draft through the ordinary source-safe
+ * document path.  Page editing never mutates a presentation clone directly
+ * into the model: this real semantic leaf remains the operation target. */
+export function commitDocDraft(el: HTMLElement, value: string, math = false): boolean {
+  const doc = state.doc
+  if (!doc || !doc.article.contains(el)) return false
+  const original = el.innerHTML
+  const raw = Boolean(el.closest('.dia-tex-island'))
+  const before = math ? (el.getAttribute('data-dia-tex') ?? '') : raw ? (el.textContent ?? '') : original
+  if (value === before) return false
+  if (raw) {
+    commitDocEdit(doc, el, [setText(el, value)], 'Edit LaTeX island')
+    return el.textContent !== before
+  }
+  const box = document.createElement('div')
+  box.innerHTML = math ? '' : value
+  commitDocLeaf(el, original, value, math ? value.trim() : (box.textContent ?? '').trim(), math)
+  return math
+    ? (el.getAttribute('data-dia-tex') ?? '') !== before
+    : el.innerHTML !== original
+}
+
+export function docDraftValue(el: HTMLElement): { value: string; math: boolean } {
+  const math = el.classList.contains('dia-math')
+  const raw = Boolean(el.closest('.dia-tex-island'))
+  return { value: math ? (el.getAttribute('data-dia-tex') ?? '') : raw ? (el.textContent ?? '') : el.innerHTML, math }
 }
 
 /** replace $…$ runs in text nodes (outside existing math) with rendered
