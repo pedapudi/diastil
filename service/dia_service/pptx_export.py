@@ -1434,9 +1434,18 @@ class Part:
     el: El
 
 
-# Class -> band, most specific first. `dia-body`/`dia-list` land on prose
-# because their contents are paragraphs; the roles above them are their own
-# band because they carry their own type, color and place in the flow.
+# Class -> band, most specific first. `dia-body` lands on prose because its
+# contents are paragraphs; the roles above it are their own band because they
+# carry their own type, color and place in the flow.
+#
+# `dia-subtitle`, `dia-quote`, `dia-attribution`, `dia-code` and `dia-list`
+# are NOT profile roles (§2 Class vocabulary names five text roles and five
+# layout containers, and coins nothing for a quotation or a list). They are
+# here because decks in the wild carry them — earlier revisions of
+# `translate-slide` told models to emit them — and giving them a band of
+# their own reads better than the prose fallback. Nothing depends on them:
+# remove a row and its class falls through to prose, which is the whole point
+# of the mapping being total.
 _ROLE_BY_CLASS = (
     ("dia-notes", "notes"),
     ("dia-island", "island"),

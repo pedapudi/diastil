@@ -113,7 +113,10 @@ TITLE = '<h2 class="dia-title">A title</h2>'
 
 # One canary per region that used to leave the deck in silence. Every entry
 # here was measured dropping on the shape of this module before the partition
-# replaced the role enumeration -- ten roles, one bug.
+# replaced the role enumeration -- ten roles, one bug. Several of the classes
+# are not profile roles at all (§2 coins none for a quote, a list or a
+# subtitle); they are here because decks carry them, which is exactly the
+# case an allowlist cannot serve.
 DROPPED = [
     ("subtitle", '<p class="dia-subtitle">CANARY</p>'),
     ("quote", '<blockquote class="dia-quote">CANARY</blockquote>'),
@@ -225,9 +228,12 @@ def test_a_second_table_renders_as_a_table():
 
 
 def test_subtitle_is_rendered():
-    """`dia-subtitle` is in the vocabulary translate-slide tells the model to
-    emit, but `_render_slide` never looked for it, so it was always dropped.
-    This is the one guaranteed to bite anyone following the skill as written."""
+    """`dia-subtitle` is not a profile role — §2's class vocabulary coins no
+    class for a subtitle, and prose with no role of its own is `dia-body`.
+    Decks carry it anyway, because earlier revisions of `translate-slide`
+    told models to emit it, and it has to reach the slide whether or not the
+    class was ever a good idea. It gets a band of its own here rather than
+    the prose fallback because a subtitle is a distinct run of text."""
     prs, _ = render(TITLE + '<p class="dia-subtitle">SUBCANARY text</p>')
     assert "SUBCANARY" in all_text(prs)
 

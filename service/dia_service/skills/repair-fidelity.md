@@ -74,10 +74,12 @@ full corrected slide, ready to replace the current one.
    trim, or "improve" any text while repairing. If the mismatch is itself
    missing text, restore it verbatim from the source excerpt.
 3. **Same dialect rules as translation.** Dialect classes only
-   (`dia-title`, `dia-list`, `dia-columns`, ...); tokens over hardcoded
-   values; no invented classes; no `<style>` or `<script>`.
+   (`dia-title`, `dia-body`, `dia-columns`, ...), with plain HTML inside
+   them for structures that have no role class — a list is `ul`/`li`;
+   tokens over hardcoded values; no invented classes; no `<style>` or
+   `<script>`.
 4. **Prefer structural fixes.** A mismatch is usually a wrong role
-   mapping (subtitle marked as body, columns flattened, list nesting
+   mapping (a heading marked as body, columns flattened, list nesting
    lost). Fix the structure before reaching for style.
 5. **Style escalation order.** If structure alone cannot close the gap:
    first a dialect token (`var(--dia-...)`), then a dialect utility class

@@ -48,11 +48,49 @@ export rasterize a single frame), and motion must respect
 amplitudes are exempt). No rule fires on animation elements; `content/
 script` and `content/event-handler` still apply inside the svg.
 
-Text roles (`dia-title`, `dia-kicker`, `dia-body`, `dia-caption`,
-`dia-footnote`) and layout containers (`dia-stack`, `dia-columns`,
-`dia-split`, `dia-cover`, `dia-figure`) are class conventions bound to
-theme rules; unknown classes are permitted (they are deck-owned styling
-hooks) and are not flagged.
+### Class vocabulary
+
+Classes carry role and layout; the theme binds them to type, color, and
+geometry. No rule validates them — unknown classes are permitted, because
+a deck owns its own styling hooks — so the list below is a convention, and
+the default bindings live in `defaultThemeCss()`
+(`src/model/parse.ts`).
+
+**Text roles**: `dia-title` (with `dia-cover-title` for the outsized
+variant a cover uses), `dia-kicker`, `dia-body`, `dia-caption`,
+`dia-footnote`.
+
+**Layout containers**: `dia-cover`, `dia-columns`, `dia-stack`,
+`dia-split`, `dia-figure`.
+
+**Lists**: a list is `ul`/`ol`/`li`. The bullet is a role rather than a
+literal — the list sets `--dia-marker` (and optionally
+`--dia-marker-ink`) once and `li::before` renders it on every item. An
+item that needs a richer marker (an icon, a numbered chip) puts it in a
+`span.dia-marker`, `dia-marker-chip` for the filled circle, which lays
+the item out on a hanging grid.
+
+**Figures and data**: `dia-scene` with its `dia-node-shape`,
+`dia-node-label`, `dia-edge-path`, and `dia-edge-label` parts (§3);
+`dia-chart` with its derived `dia-chart-derived` group (§4); `dia-draw`
+for a freehand stroke; `dia-math` (§2); `dia-notes` for speaker
+notes (§5).
+
+**Everything else is plain HTML.** A quotation is a `blockquote`, code is
+a `pre` or `code`, a picture is an `img` (usually inside a
+`figure.dia-figure`), a table is a `table`, a subordinate heading is
+whatever `h*` fits. None of these has a class of its own, and a coined
+one — `dia-quote`, `dia-list`, `dia-subtitle` — binds to no theme rule,
+so it reads as unstyled prose in a browser and as an unknown class to
+everything else.
+
+That permissiveness is an obligation on anything that READS a deck rather
+than writing one — export, ingest, analysis, a copilot resolving a
+target. Since unknown classes are in-profile, a reader cannot enumerate
+the roles it knows and pass over the rest: its mapping has to be total,
+with a defined fallback for content it does not recognize. An allowlist
+loses content silently here, and a deck that has quietly lost a paragraph
+still opens and still looks finished.
 
 ### Math
 

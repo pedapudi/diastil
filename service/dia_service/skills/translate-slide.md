@@ -25,19 +25,26 @@ No markdown fences, no commentary, no `<html>`/`<body>` wrapper, no
    whitespace-significant code. NEVER paraphrase, summarize, "fix",
    translate, or reorder text. If the source says `recieve`, you output
    `recieve`.
-2. **Dialect vocabulary only.** Structure the slide with dialect classes:
-   `dia-slide`, `dia-title`, `dia-subtitle`, `dia-body`, `dia-list`,
-   `dia-item`, `dia-code`, `dia-figure`, `dia-caption`, `dia-columns`,
-   `dia-col`, `dia-quote`, `dia-attribution`, `dia-image`. Do not invent
-   classes and do not carry source framework classes across.
+2. **Dialect vocabulary only.** The role classes are `dia-title`
+   (`dia-cover-title` on a cover), `dia-kicker`, `dia-body`,
+   `dia-caption`, `dia-footnote`; the layout containers are `dia-cover`,
+   `dia-columns`, `dia-stack`, `dia-split`, `dia-figure`; speaker notes
+   are `aside.dia-notes`. Everything else is plain HTML inside those: a
+   list is `ul`/`ol`/`li`, a quotation a `blockquote`, code a `pre`, a
+   picture an `img` in a `figure.dia-figure`, a table a `table`. Do not
+   invent classes — a coined name like `dia-quote` binds to no theme rule
+   and renders as unstyled prose — and do not carry source framework
+   classes across.
 3. **Tokens over values.** Express design decisions through the tokens in
    `<token-css>` (`var(--dia-...)`). Never emit hardcoded colors, font
    families, or pixel sizes when a token exists for the role. Prefer no
    style at all: the dialect stylesheet handles role presentation.
 4. **Structure over styling.** Map by role, not by appearance: the big
-   text at the top is `dia-title` even if the source styled an `<h3>`;
-   a bulleted region is `dia-list` with `dia-item` children regardless of
-   source markup.
+   text at the top is `dia-title` even if the source styled an `<h3>`; a
+   bulleted region is a `ul` of `li` regardless of source markup. Prose
+   with no role of its own — a subtitle, a standfirst, a lead-in — is
+   `dia-body`; there are five text roles and every run of text lands in
+   one of them.
 5. **Islands for the unmappable.** When a region cannot be expressed in
    the dialect vocabulary without losing behavior or appearance —
    embedded widgets, canvas demos, framework-specific interactive DOM,
@@ -60,10 +67,13 @@ No markdown fences, no commentary, no `<html>`/`<body>` wrapper, no
 
 ```html
 <section class="dia-slide">
+  <div class="dia-kicker">Exact source eyebrow</div>
   <h2 class="dia-title">Exact source title</h2>
-  <ul class="dia-list">
-    <li class="dia-item">Exact bullet text</li>
-  </ul>
+  <div class="dia-body">
+    <ul>
+      <li>Exact bullet text</li>
+    </ul>
+  </div>
   <div class="dia-island"><!-- verbatim unmappable region --></div>
 </section>
 ```
