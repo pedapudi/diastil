@@ -360,8 +360,15 @@ def cmd_export(path: str, out: str | None, pdf: str | None = None) -> int:
     else:
         safe = re.sub(r"[^\w .-]+", " ", deck_title(html)).strip() or p.stem
         out_path = p.with_name(f"{safe}.pptx")
-    n = export_file(str(p), str(out_path))
+    notes: list[str] = []
+    n = export_file(str(p), str(out_path), notes)
     print(f"dia: wrote {out_path} ({n} slides)")
+    # Anything the exporter could not place faithfully. Content that reaches
+    # the deck in a poorer form than the dialect held it has to be said out
+    # loud: a conversion that looks complete and is not is the one failure
+    # nobody catches until they are presenting.
+    for note in notes:
+        print(f"dia: {note}", file=sys.stderr)
     return 0
 
 

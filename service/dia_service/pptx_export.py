@@ -24,8 +24,18 @@ yields clean, on-brand, editable Slides rather than a pixel tracing.
 The dialect design space is 1280x720 px (16:9); a px maps to EMU at
 9525 EMU/px (914400/96), so the deck fills a 12192000x6858000 EMU slide.
 
+What a slide is allowed to lose: nothing, silently. The dialect profile
+permits unknown classes by design, so the exporter cannot be an allowlist of
+roles it recognizes — it partitions a slide into parts with prose as the
+fallback (`_partition`, coverage) and deals those parts down a column as
+disjoint bands (`_stack`, tiling). Content that survives the trip in a poorer
+form than the dialect held it — an islanded region reduced to its text, a
+slide compressed to fit — goes to the optional `warnings` sink rather than
+passing quietly.
+
 Stdlib-only HTML parsing (html.parser); python-pptx is the only third-party
-dep. Entry points: `deck_to_pptx(html) -> bytes`, `export_file(src, dst)`.
+dep. Entry points: `deck_to_pptx(html, warnings=None) -> bytes`,
+`export_file(src, dst, warnings=None)`.
 """
 
 from __future__ import annotations
@@ -33,6 +43,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 import io
+import math
 import re
 
 import pptx
@@ -806,24 +817,46 @@ def _draw_prim(slide, theme: Theme, el: El, m, scale: float) -> None:
         if not txt:
             return
         fs = _svg_font_px(el, 12.0)
+        size = fs * scale
         x, y = m(_svg_f(el, "x"), _svg_f(el, "y"))
+        # Box the label to its own text and honour `text-anchor`. A fixed
+        # 420px box hung off the glyph origin drew every `middle`- or
+        # `end`-anchored label a box-width to the right of where the svg put
+        # it — 46 such labels across the two example decks — and ran off the
+        # page for anything in the right half of a scene.
+        anchor = (
+            el.attrs.get("text-anchor")
+            or _style_prop(el, "text-anchor")
+            or "start"
+        ).strip()
+        bw = max(size, len(txt) * size * ADVANCE_EM) + 8
+        bh = size * 1.6 + 8
+        if anchor == "middle":
+            bx, align = x - bw / 2, PP_ALIGN.CENTER
+        elif anchor == "end":
+            bx, align = x - bw + 4, PP_ALIGN.RIGHT
+        else:
+            bx, align = x - 4, PP_ALIGN.LEFT
+        bx = max(0.0, min(bx, DESIGN_W - bw))
+        by = max(0.0, min(y - size, DESIGN_H - bh))
         _textbox(
             slide,
-            x - 4,
-            y - fs * scale,
-            420,
-            fs * scale * 1.6 + 8,
+            bx,
+            by,
+            bw,
+            bh,
             [
                 [
                     (
                         txt,
-                        _pt(fs * scale),
+                        _pt(size),
                         fill or theme.rgb("ink-soft"),
                         False,
                         theme.face_body,
                     )
                 ]
             ],
+            align=align,
         )
 
 
@@ -1071,6 +1104,41 @@ def _fmt(v: float) -> str:
 
 
 # ---------------------------------------------------------------------------
+# text measurement — how a string becomes a height
+# ---------------------------------------------------------------------------
+
+# Average glyph advance as a fraction of the font size. Every height in the
+# layout comes from this number, so the DIRECTION of its error is what
+# matters: over-estimating leaves whitespace, under-estimating puts one band's
+# text on top of the next. The exporter cannot ask the renderer that will
+# really lay the text out — Google Slides substitutes its own face for
+# whatever the theme names — so these sit above the widest realistic case
+# rather than at the average. Measured at 100px over Liberation Sans (Arial
+# metrics), Liberation Mono and DejaVu Sans: mixed proportional prose runs
+# 0.41–0.55 em/char, a monospace body face (what the `what-is-dia` theme sets
+# for prose) is exactly 0.600, and text this module uppercases itself —
+# kickers and table headers — reaches 0.674.
+ADVANCE_EM = 0.62
+ADVANCE_EM_CAPS = 0.70
+
+
+def _lines_of(text: str, w: float, size: float, caps: bool = False) -> int:
+    per_char = max(0.1, size) * (ADVANCE_EM_CAPS if caps else ADVANCE_EM)
+    per_line = max(4.0, w / per_char)
+    total = 0
+    for seg in (text or "").split("\n"):
+        total += max(1, math.ceil(len(seg) / per_line))
+    return max(1, total)
+
+
+def _text_h(
+    text: str, w: float, size: float, leading: float = 1.4, caps: bool = False
+) -> float:
+    """The height `text` needs at `size` in a `w`-wide box."""
+    return _lines_of(text, w, size, caps) * size * leading
+
+
+# ---------------------------------------------------------------------------
 # table rendering — native pptx table, styled per the house conventions
 # ---------------------------------------------------------------------------
 
@@ -1098,21 +1166,100 @@ def _cell_rule_bottom(cell, color: RGBColor, w_pt: float) -> None:
     tc_pr.insert(0, ln)
 
 
-def _draw_table(slide, theme: Theme, tbl: El, box) -> None:
-    """A dialect <table> -> a native, editable pptx table. House conventions:
-    label-face uppercase th over a rule, body-face td, `.num` right-aligned."""
-    bx, by, bw, bh = box
+# Cell padding this module writes, in design px (a side each way).
+_CELL_PAD_X = 16.0
+_CELL_PAD_Y = 10.0
+_ROW_MIN = 26.0
+# How far the type may be taken down before a table is unreadable rather than
+# merely tight.
+_TABLE_MIN_SCALE = 0.55
+
+
+@dataclass
+class TablePlan:
+    """A table's own geometry: what `_draw_table` writes, and what the layout
+    reserves. One object so the two cannot disagree."""
+
+    grid: list[list[El]]
+    ncols: int
+    rows: list[float]  # row heights, design px
+    col_w: list[float]
+    height: float
+    scale: float
+    fits: bool
+    th_px: float
+    td_px: float
+
+    def size_px(self, is_th: bool) -> float:
+        return self.th_px if is_th else self.td_px
+
+
+def _table_plan(
+    theme: Theme, tbl: El, w: float, max_h: float | None = None
+) -> TablePlan | None:
+    """Measure a table at width `w`, shrinking the type to fit `max_h`.
+
+    A table's height is not a guess made at the call site. Every row height
+    here is written back as an explicit row height, so the table occupies the
+    space the layout reserved for it. The exporter used to hand a table
+    whatever box was left over and let the renderer grow the rows past it,
+    which is how reserving a band beneath one turned a clipped table into two
+    shapes drawn on top of each other."""
     grid = [
         r.find_all(lambda e: e.tag in ("th", "td"))
         for r in tbl.find_all(lambda e: e.tag == "tr")
     ]
     grid = [g for g in grid if g]
     if not grid:
-        return
+        return None
     ncols = max(len(g) for g in grid)
-    th_px = min(bh, 34.0 * len(grid))
+    col_w = w / ncols
+    inner = max(24.0, col_w - _CELL_PAD_X)
+    scale = 1.0
+    while True:
+        th_px = theme.scale[1] * scale
+        td_px = theme.scale[2] * scale
+        rows = []
+        for cells in grid:
+            row_h = _ROW_MIN * scale
+            for cell in cells:
+                is_th = cell.tag == "th"
+                row_h = max(
+                    row_h,
+                    _text_h(
+                        cell.all_text(), inner,
+                        th_px if is_th else td_px, 1.25, caps=is_th,
+                    )
+                    + _CELL_PAD_Y,
+                )
+            rows.append(row_h)
+        total = sum(rows)
+        if max_h is None or total <= max_h or scale <= _TABLE_MIN_SCALE:
+            return TablePlan(
+                grid, ncols, rows, [col_w] * ncols, total, scale,
+                max_h is None or total <= max_h, th_px, td_px,
+            )
+        # sqrt of the overshoot: smaller type also fits more per line, so a
+        # linear step overshoots and the loop chatters toward the floor.
+        scale = max(_TABLE_MIN_SCALE, scale * (max_h / total) ** 0.5)
+
+
+def _draw_table(slide, theme: Theme, tbl: El, box, plan=None) -> None:
+    """A dialect <table> -> a native, editable pptx table. House conventions:
+    label-face uppercase th over a rule, body-face td, `.num` right-aligned.
+
+    Every row height and column width is written explicitly, from the same
+    `_table_plan` the layout reserved space with, so the table occupies the
+    box it was given. Leaving them to the renderer is what used to make a
+    reserved footnote band collide with a table that grew past its box."""
+    bx, by, bw, bh = box
+    if plan is None:
+        plan = _table_plan(theme, tbl, bw, bh)
+    if plan is None:
+        return
     frame = slide.shapes.add_table(
-        len(grid), ncols, _emu(bx), _emu(by), _emu(bw), _emu(th_px)
+        len(plan.rows), plan.ncols, _emu(bx), _emu(by), _emu(bw),
+        _emu(plan.height),
     )
     table = frame.table
     try:  # strip the template's banded style; ignore layout-internal misses
@@ -1125,12 +1272,15 @@ def _draw_table(slide, theme: Theme, tbl: El, box) -> None:
         pass
     table.first_row = False
     table.horz_banding = False
-    for i, cells in enumerate(grid):
-        for j in range(ncols):
+    for col, w_px in zip(table.columns, plan.col_w):
+        col.width = Emu(_emu(w_px))
+    for i, cells in enumerate(plan.grid):
+        table.rows[i].height = Emu(_emu(plan.rows[i]))
+        for j in range(plan.ncols):
             cell = table.cell(i, j)
             cell.fill.background()
-            cell.margin_left = cell.margin_right = Emu(_emu(8))
-            cell.margin_top = cell.margin_bottom = Emu(_emu(5))
+            cell.margin_left = cell.margin_right = Emu(_emu(_CELL_PAD_X / 2))
+            cell.margin_top = cell.margin_bottom = Emu(_emu(_CELL_PAD_Y / 2))
             src = cells[j] if j < len(cells) else None
             if src is None:
                 continue
@@ -1144,9 +1294,7 @@ def _draw_table(slide, theme: Theme, tbl: El, box) -> None:
             run = p.add_run()
             txt = src.all_text()
             run.text = txt.upper() if is_th else txt
-            run.font.size = _font_pt(
-                _pt(theme.scale[1] if is_th else theme.scale[2])
-            )
+            run.font.size = _font_pt(_pt(plan.size_px(is_th)))
             run.font.bold = is_th
             run.font.name = (
                 theme.face_label
@@ -1157,105 +1305,8 @@ def _draw_table(slide, theme: Theme, tbl: El, box) -> None:
 
 
 # ---------------------------------------------------------------------------
-# slide layout — semantic mapping of dialect layout + roles to geometry
+# figures — the primary visual of a slide, drawn natively
 # ---------------------------------------------------------------------------
-
-
-def _role_text(el: El) -> str:
-    return el.all_text()
-
-
-def _in_subtree(el: El, root: El | None) -> bool:
-    return root is not None and (
-        el is root or _ancestor_matches(el, lambda p: p is root)
-    )
-
-
-def _text_excl(el: El, exclude: El | None) -> str:
-    """all_text() minus an excluded subtree (the natively-drawn visual)."""
-    parts = [
-        e.text for e in el.walk() if e.text and not _in_subtree(e, exclude)
-    ]
-    return re.sub(r"\s+", " ", "".join(parts)).strip()
-
-
-def _paras_of_body(body: El, theme: Theme, exclude: El | None = None):
-    """A body region -> paragraphs (list of runs). <p>/<li> become lines.
-
-    `exclude` is the slide's drawn visual (e.g. a table inside the body): its
-    text renders natively elsewhere, so it must not double as body prose."""
-    blocks = body.find_all(
-        lambda e: e.tag in ("p", "li") and not _in_subtree(e, exclude)
-    )
-    runs = []
-    for b in blocks:
-        txt = b.all_text()
-        if not txt:
-            continue
-        if b.tag == "li":
-            runs.append(
-                [
-                    (
-                        "•  ",
-                        _pt(theme.scale[2]),
-                        theme.rgb("accent"),
-                        True,
-                        theme.face_body,
-                    ),
-                    (
-                        txt,
-                        _pt(theme.scale[2]),
-                        theme.rgb("ink-soft"),
-                        False,
-                        theme.face_body,
-                    ),
-                ]
-            )
-        else:
-            runs.append(
-                [
-                    (
-                        txt,
-                        _pt(theme.scale[2]),
-                        theme.rgb("ink-soft"),
-                        False,
-                        theme.face_body,
-                    )
-                ]
-            )
-    if not runs:
-        txt = _text_excl(body, exclude)
-        if txt:
-            runs = [
-                [
-                    (
-                        txt,
-                        _pt(theme.scale[2]),
-                        theme.rgb("ink-soft"),
-                        False,
-                        theme.face_body,
-                    )
-                ]
-            ]
-    return runs
-
-
-def _figure_of(slide_el: El) -> El | None:
-    """The primary visual: a scene, chart, table, image, or — the house
-    style's dominant case — pictorial artwork: any svg inside a
-    `figure.dia-figure`. A bare svg outside a figure (the brand mark on a
-    cover) stays decorative and renders at its declared size instead."""
-    return slide_el.find(
-        lambda e: (
-            e.tag == "svg"
-            and (
-                e.has("dia-scene")
-                or e.has("dia-chart")
-                or _ancestor_matches(e, lambda p: p.has("dia-figure"))
-            )
-        )
-        or e.tag in ("img", "table")
-    )
 
 
 def _draw_visual(slide, theme: Theme, vis: El, box) -> None:
@@ -1278,9 +1329,17 @@ def _draw_image(slide, theme: Theme, img: El, box) -> None:
 
         try:
             raw = base64.b64decode(m.group(2))
-            slide.shapes.add_picture(
-                io.BytesIO(raw), _emu(bx), _emu(by), _emu(bw), _emu(bh)
-            )
+            # Placed at its native size first, then fitted: giving both width
+            # and height stretches the picture to the box, and the box is the
+            # room the layout had rather than the picture's own proportions.
+            pic = slide.shapes.add_picture(io.BytesIO(raw), _emu(bx), _emu(by))
+            if pic.width and pic.height:
+                k = min(_emu(bw) / pic.width, _emu(bh) / pic.height)
+                pic.width, pic.height = (
+                    int(pic.width * k), int(pic.height * k)
+                )
+                pic.left = _emu(bx + (bw - pic.width / EMU_PER_PX) / 2)
+                pic.top = _emu(by + (bh - pic.height / EMU_PER_PX) / 2)
             return
         except (ValueError, OSError):
             pass
@@ -1340,279 +1399,633 @@ def _draw_image(slide, theme: Theme, img: El, box) -> None:
     )
 
 
-def _add_notes(slide, slide_el: El) -> None:
-    aside = slide_el.find(lambda e: e.tag == "aside" and e.has("dia-notes"))
-    if aside:
-        txt = aside.all_text()
-        if txt:
-            slide.notes_slide.notes_text_frame.text = txt
+# ---------------------------------------------------------------------------
+# slide layout — a total partition of the slide, then disjoint bands
+# ---------------------------------------------------------------------------
+#
+# Two invariants stand in for what used to be a single forward pass over a
+# hardcoded list of role names:
+#
+#   coverage — `_partition` assigns EVERY element of a slide to a part, with
+#     prose as the fallback, so `unplaced_text()` comes back empty for any
+#     slide. The old shape drew what a fixed set of `find()` calls named and
+#     said nothing about the rest, so a subtitle, a quote, an attribution, a
+#     code block, an island, a bare paragraph, a bulleted list outside
+#     `dia-body`, a second table, a second figure and a second column all left
+#     the deck without a word — ten roles, one bug. An allowlist cannot be
+#     sound here in the first place: the profile permits unknown classes by
+#     design ("unknown classes are permitted ... and are not flagged"), so the
+#     mapping has to be total and the unrecognized case has to render.
+#
+#   tiling — `_stack` deals bands down a column from one moving cursor, so two
+#     bands cannot overlap and none can leave the column. When a column is
+#     over-subscribed the bands shrink toward their floors together and the
+#     leftover is reported through the warning sink. The old shape advanced a
+#     cursor by a character-count estimate and drew wherever it landed, which
+#     is how a long footnote ended up below the page edge and a table grew
+#     under the band reserved beneath it.
 
 
-def _render_slide(prs, theme: Theme, slide_el: El) -> None:
+@dataclass
+class Part:
+    """One role-tagged piece of a slide, and the subtree it accounts for."""
+
+    role: str
+    el: El
+
+
+# Class -> band, most specific first. `dia-body`/`dia-list` land on prose
+# because their contents are paragraphs; the roles above them are their own
+# band because they carry their own type, color and place in the flow.
+_ROLE_BY_CLASS = (
+    ("dia-notes", "notes"),
+    ("dia-island", "island"),
+    ("dia-columns", "columns"),
+    ("dia-math", "math"),
+    ("dia-kicker", "kicker"),
+    ("dia-title", "title"),
+    ("dia-subtitle", "subtitle"),
+    ("dia-caption", "caption"),
+    ("dia-footnote", "footnote"),
+    ("dia-quote", "quote"),
+    ("dia-attribution", "attribution"),
+    ("dia-code", "code"),
+    ("dia-body", "prose"),
+    ("dia-list", "prose"),
+)
+
+# Tags that carry text of their own rather than wrapping other blocks.
+_PROSE_TAGS = {
+    "p", "ul", "ol", "dl", "li", "dt", "dd",
+    "h1", "h2", "h3", "h4", "h5", "h6",
+}
+
+# Not content: markup that lives inside a slide but has nothing to say on it.
+_MUTE_TAGS = {"style", "script", "template", "link", "meta", "br", "hr"}
+
+
+def _role_of(el: El) -> str | None:
+    """The band that draws `el`, or None for a wrapper the walk descends into.
+
+    Class first — a role class is the deck's own statement of what a region
+    is — then tag. None must always mean "look inside", never "skip": the
+    only thing that drops out of the partition is `_MUTE_TAGS`, and that is
+    an explicit decision rather than an omission."""
+    if el.tag in _MUTE_TAGS:
+        return "mute"
+    for cls, role in _ROLE_BY_CLASS:
+        if el.has(cls):
+            return role
+    if el.tag == "aside":
+        return "notes"
+    if el.tag == "svg":
+        # A scene, a chart, or artwork inside a `dia-figure` IS the figure; a
+        # bare svg (the brand mark on a cover) is decoration drawn at the size
+        # it declares.
+        if (
+            el.has("dia-scene")
+            or el.has("dia-chart")
+            or _ancestor_matches(el, lambda p: p.has("dia-figure"))
+        ):
+            return "figure"
+        return "deco"
+    if el.tag in ("img", "table"):
+        return "figure"
+    if el.tag == "figcaption":
+        return "caption"
+    if el.tag == "pre":
+        return "code"
+    if el.tag == "blockquote":
+        return "quote"
+    if el.tag == "math":
+        return "math"
+    if el.tag in _PROSE_TAGS:
+        return "prose"
+    return None
+
+
+def _holds_only_prose(el: El) -> bool:
+    """No descendant of `el` carries a band of its own.
+
+    Such an element is one run of prose, not a container to descend into:
+    `<div>text <em>emphasis</em> more</div>` is one paragraph, and splitting
+    it at the inline boundaries would set three."""
+    return all(
+        _role_of(d) in (None, "mute")
+        for d in el.walk()
+        if d is not el and d.tag != "#text"
+    )
+
+
+def _partition(root: El) -> list[Part]:
+    """Every element under `root`, in document order, as role-tagged parts.
+
+    A part claims its whole subtree, so the parts are disjoint and their union
+    is `root`. An element with no role of its own is descended into; one whose
+    descendants have none either becomes prose. That total is what the
+    coverage invariant rests on: nothing falls between the cases."""
+    parts: list[Part] = []
+
+    def visit(el: El) -> None:
+        for c in el.children:
+            if c.tag == "#text":
+                if c.text and c.text.strip():
+                    parts.append(Part("prose", c))
+                continue
+            role = _role_of(c)
+            if role is not None:
+                parts.append(Part(role, c))
+            elif _holds_only_prose(c):
+                if c.all_text():
+                    parts.append(Part("prose", c))
+            else:
+                visit(c)
+
+    visit(root)
+    return parts
+
+
+def unplaced_text(slide_el: El) -> str:
+    """Text on a slide that the partition does not account for.
+
+    Always empty — `_partition` is total. Exported because an invariant no
+    test can read is a promise, not a guarantee, and silent loss here is the
+    one failure that looks like success."""
+    claimed: set[int] = set()
+    for part in _partition(slide_el):
+        for el in part.el.walk():
+            claimed.add(id(el))
+    loose = [
+        el.text
+        for el in slide_el.walk()
+        if el.text and el.text.strip() and id(el) not in claimed
+    ]
+    return re.sub(r"\s+", " ", " ".join(loose)).strip()
+
+
+@dataclass
+class Band:
+    """One thing to draw and the vertical room it needs.
+
+    `ask` is its height at the width it was measured for, `floor` the least it
+    can be squeezed to, and `grow` marks the band that absorbs a column's
+    slack (the primary figure, which has no natural size of its own)."""
+
+    kind: str
+    ask: float
+    paint: object  # (slide, theme, x, y, w, h) -> None
+    floor: float = 0.0
+    grow: bool = False
+    push: bool = False  # a column's slack goes in front of this band
+    gap_after: float = 12.0
+
+
+def _stack(slide, theme, bands, x, y, w, h, center: bool = False) -> float:
+    """Deal `bands` down a column as disjoint rects; return the shortfall px.
+
+    Because every rect comes off one cursor, bands cannot overlap and cannot
+    leave the column, whatever the measurement said. Over-subscription is
+    absorbed by shrinking every band toward its floor by one common factor;
+    a column that still does not fit reports how much it is over instead of
+    drawing past the bottom edge."""
+    if not bands:
+        return 0.0
+    gaps = sum(b.gap_after for b in bands[:-1])
+    avail = max(0.0, h - gaps)
+    ask = sum(b.ask for b in bands)
+    floor = sum(b.floor for b in bands)
+    shortfall = 0.0
+    heights = [b.ask for b in bands]
+    if ask > avail:
+        if floor >= avail:
+            shrink = avail / max(1e-6, floor)
+            heights = [b.floor * shrink for b in bands]
+            shortfall = floor - avail
+        else:
+            keep = (avail - floor) / max(1e-6, ask - floor)
+            heights = [b.floor + (b.ask - b.floor) * keep for b in bands]
+    lead = 0.0
+    if ask <= avail:
+        growers = [i for i, b in enumerate(bands) if b.grow]
+        pushed = next((i for i, b in enumerate(bands) if b.push), None)
+        if growers:
+            share = (avail - ask) / len(growers)
+            for i in growers:
+                heights[i] += share
+        elif pushed is not None and not center:
+            # `.foot { margin-top: auto }` in the dialect's own stylesheet: a
+            # trailing caption sits at the foot of its column, not under the
+            # last paragraph. A centered column is already placed by its own
+            # rule, so the two must not both spend the same slack.
+            lead = avail - ask
+    cy = y
+    if center:
+        cy += max(0.0, (h - (sum(heights) + gaps)) / 2)
+    for i, (band, bh) in enumerate(zip(bands, heights)):
+        if lead and band.push:
+            cy += lead
+            lead = 0.0
+        band.paint(slide, theme, x, cy, w, bh)
+        cy += bh + band.gap_after
+    return shortfall
+
+
+# ---------------------------------------------------------------------------
+# bands — one builder per role
+# ---------------------------------------------------------------------------
+
+
+def _prose_runs(els, theme: Theme, size: float, color, face: str):
+    """`<p>`/`<li>` across `els` as paragraphs, a bullet run leading each item.
+
+    The fallback matters: an element with text but no block children — a bare
+    text node, a `<div>` of loose prose, an islanded region — contributes its
+    own text rather than being passed over for not looking like a paragraph."""
+    paras = []
+    for el in els:
+        blocks = [e for e in el.walk() if e.tag in ("p", "li")]
+        if not blocks:
+            txt = el.all_text()
+            if txt:
+                paras.append([(txt, _pt(size), color, False, face)])
+            continue
+        for b in blocks:
+            txt = b.all_text()
+            if not txt:
+                continue
+            if b.tag == "li":
+                paras.append(
+                    [
+                        ("•  ", _pt(size), theme.rgb("accent"), True, face),
+                        (txt, _pt(size), color, False, face),
+                    ]
+                )
+            else:
+                paras.append([(txt, _pt(size), color, False, face)])
+    return paras
+
+
+def _paras_h(paras, w: float, size: float, leading: float, space_after: float):
+    h = 0.0
+    for i, para in enumerate(paras):
+        h += _text_h("".join(t for t, *_ in para), w, size, leading)
+        if i:
+            h += space_after
+    return h
+
+
+def _fit_size(text: str, w: float, h: float, start: float, leading: float,
+              caps: bool = False, floor: float = 7.0) -> float:
+    """The largest size at or below `start` whose text fits `w` x `h`."""
+    size = start
+    while size > floor and _text_h(text, w, size, leading, caps) > h:
+        size -= 0.5
+    return size
+
+
+def _text_band(kind, text, w, *, size, color, face, bold=False, leading=1.4,
+               caps=False, align=PP_ALIGN.LEFT, gap_after=12.0, extra=6.0):
+    body = text.upper() if caps else text
+    ask = _text_h(body, w, size, leading, caps) + extra
+
+    def paint(slide, theme, x, y, bw, bh):
+        _textbox(
+            slide, x, y, bw, bh,
+            [[(body, _pt(size), color, bold, face)]],
+            align=align, leading=leading, space_after=0.0,
+        )
+
+    return Band(kind, ask, paint, floor=min(ask, size * leading + extra),
+                gap_after=gap_after)
+
+
+def _prose_band(kind, els, w, *, theme, size, color, face, leading=1.5,
+                space_after=10.0, gap_after=12.0):
+    paras = _prose_runs(els, theme, size, color, face)
+    if not paras:
+        return None
+    ask = _paras_h(paras, w, size, leading, space_after) + 6
+
+    def paint(slide, theme_, x, y, bw, bh):
+        _textbox(slide, x, y, bw, bh, paras, leading=leading,
+                 space_after=space_after)
+
+    return Band(kind, ask, paint, floor=min(ask, size * leading + 6),
+                gap_after=gap_after)
+
+
+def _figure_band(el: El, w: float, theme: Theme, primary: bool, warn):
+    """A figure's band. A table declares its real height; a scene, chart or
+    image has none of its own and grows into whatever the column has left."""
+    if el.tag == "table":
+        plan = _table_plan(theme, el, w)
+        if plan is None:
+            return None
+
+        def paint(slide, theme_, x, y, bw, bh):
+            fitted = _table_plan(theme_, el, bw, bh)
+            if fitted is not None and not fitted.fits and warn is not None:
+                warn(
+                    f"a {len(fitted.rows)}-row table needs "
+                    f"{fitted.height:.0f}px and the column had {bh:.0f}px; it "
+                    "is drawn at the smallest type that still reads"
+                )
+            _draw_table(slide, theme_, el, (x, y, bw, bh), fitted)
+
+        return Band("figure", plan.height, paint,
+                    floor=min(plan.height, 3 * _ROW_MIN), gap_after=14.0)
+
+    def paint(slide, theme_, x, y, bw, bh):
+        _draw_visual(slide, theme_, el, (x, y, bw, bh))
+
+    nominal = 240.0 if primary else 150.0
+    return Band("figure", nominal, paint, floor=80.0, grow=primary,
+                gap_after=14.0)
+
+
+def _island_band(el: El, w: float, theme: Theme, warn):
+    """An islanded region, recovered as its own text.
+
+    An island is markup the translation could not express in the dialect, so
+    the exporter renders its TEXT and says it did. Laying out its internals
+    would be exactly the plausible reconstruction the import rule forbids —
+    but dropping it, which is what used to happen, is worse: `translate-slide`
+    tells the model to island whatever it cannot express, so the more honest
+    the translation the more of the deck went missing."""
+    text = el.all_text()
+    if not text:
+        return None
+    if warn is not None:
+        warn(
+            "an islanded region cannot be laid out natively; its text is on "
+            "the slide but its markup and appearance are not"
+        )
+    size = theme.scale[2] * 0.92
+    return _text_band("island", text, w, size=size,
+                      color=theme.rgb("ink-soft"), face=theme.face_body,
+                      leading=1.4)
+
+
+def _deco_band(el: El, theme: Theme):
+    _, dh = _svg_declared_size(el)
+
+    def paint(slide, theme_, x, y, bw, bh):
+        _draw_decorative(slide, theme_, el, x, y)
+
+    return Band("deco", dh, paint, floor=dh, gap_after=14.0)
+
+
+def _math_band(el: El, w: float, theme: Theme):
+    """A formula, as the LaTeX the profile calls its truth.
+
+    The rendered MathML is derived content whose element text concatenates
+    into nonsense ("E = m c 2"), so the source is both more faithful and more
+    readable in a deck that has no MathML renderer."""
+    tex = (el.attrs.get("data-dia-tex") or "").strip() or el.all_text()
+    if not tex:
+        return None
+    return _text_band("math", tex, w, size=theme.scale[2],
+                      color=theme.rgb("ink"), face=theme.face_label,
+                      leading=1.35)
+
+
+def _band_for(part: Part, theme: Theme, w: float, title_px: float,
+              primary_figure: bool, warn):
+    role, el = part.role, part.el
+    if role == "kicker":
+        txt = el.all_text()
+        if not txt:
+            return None
+        return _text_band("kicker", txt, w, size=theme.scale[1],
+                          color=theme.rgb("accent"), face=theme.face_label,
+                          bold=True, leading=1.2, caps=True, gap_after=12.0)
+    if role == "title":
+        txt = el.all_text()
+        if not txt:
+            return None
+        return _text_band("title", txt, w, size=title_px,
+                          color=theme.rgb("ink"), face=theme.face_display,
+                          bold=True, leading=1.14, extra=10.0, gap_after=14.0)
+    if role == "subtitle":
+        txt = el.all_text()
+        if not txt:
+            return None
+        return _text_band("subtitle", txt, w, size=theme.scale[4],
+                          color=theme.rgb("ink-soft"), face=theme.face_body,
+                          leading=1.3, gap_after=10.0)
+    if role == "quote":
+        return _prose_band("quote", [el], w, theme=theme, size=theme.scale[4],
+                           color=theme.rgb("ink"), face=theme.face_body,
+                           leading=1.4, gap_after=8.0)
+    if role == "attribution":
+        txt = el.all_text()
+        if not txt:
+            return None
+        return _text_band("attribution", txt, w, size=theme.scale[1],
+                          color=theme.rgb("ink-faint"), face=theme.face_label,
+                          leading=1.3)
+    if role == "code":
+        txt = el.all_text()
+        if not txt:
+            return None
+        return _text_band("code", txt, w, size=theme.scale[2] * 0.92,
+                          color=theme.rgb("ink-soft"), face=theme.face_label,
+                          leading=1.35)
+    if role == "caption":
+        txt = el.all_text()
+        if not txt:
+            return None
+        return _text_band("caption", txt, w, size=theme.scale[1],
+                          color=theme.rgb("ink-soft"), face=theme.face_label,
+                          leading=1.4)
+    if role == "island":
+        return _island_band(el, w, theme, warn)
+    if role == "math":
+        return _math_band(el, w, theme)
+    if role == "deco":
+        return _deco_band(el, theme)
+    if role == "figure":
+        return _figure_band(el, w, theme, primary_figure, warn)
+    if role == "columns":
+        return _columns_band(el, w, theme, title_px, warn)
+    return _prose_band("prose", [el], w, theme=theme, size=theme.scale[2],
+                       color=theme.rgb("ink-soft"), face=theme.face_body)
+
+
+def _column_bands(parts, theme: Theme, w: float, title_px: float, warn):
+    """Parts -> bands at width `w`, consecutive prose merged into one band.
+
+    Merging matters for text that arrives in fragments (mixed content around
+    an inline element): a band each would space them like separate blocks."""
+    parts = [p for p in parts if p.role not in ("mute", "notes")]
+    bands = []
+    seen_figure = False
+    i = 0
+    while i < len(parts):
+        part = parts[i]
+        if part.role == "prose":
+            group = []
+            while i < len(parts) and parts[i].role == "prose":
+                group.append(parts[i].el)
+                i += 1
+            band = _prose_band("prose", group, w, theme=theme,
+                               size=theme.scale[2],
+                               color=theme.rgb("ink-soft"),
+                               face=theme.face_body)
+            if band is not None:
+                bands.append(band)
+            continue
+        primary = False
+        if part.role == "figure" and part.el.tag != "table" and not seen_figure:
+            primary = seen_figure = True
+        band = _band_for(part, theme, w, title_px, primary, warn)
+        if band is not None:
+            bands.append(band)
+        i += 1
+    if bands and bands[-1].kind in ("caption", "attribution"):
+        bands[-1].push = True
+    return bands
+
+
+def _columns_band(el: El, w: float, theme: Theme, title_px: float, warn):
+    """A `dia-columns` container: its children side by side, each its own stack.
+
+    The exporter used to read only the FIRST `dia-body` on a slide, so a
+    second column left the deck entirely; the `what-is-dia` example puts
+    `dia-columns` on a div inside the slide rather than on the section, which
+    is the shape that used to lose half its text."""
+    cols = [c for c in el.children if c.tag != "#text" and _role_of(c) != "mute"]
+    if not cols:
+        return None
+    gap = theme.gap
+    if len(cols) == 2:  # 1.05fr 1fr, mirroring the dialect's own grid
+        widths = [(w - gap) * 1.05 / 2.05, (w - gap) * 1.0 / 2.05]
+    else:
+        each = (w - gap * (len(cols) - 1)) / len(cols)
+        widths = [each] * len(cols)
+    stacks = [
+        _column_bands(_partition(c), theme, cw, title_px, warn)
+        for c, cw in zip(cols, widths)
+    ]
+    ask = max(
+        (sum(b.ask for b in s) + sum(b.gap_after for b in s[:-1]))
+        for s in stacks
+    ) if any(stacks) else 0.0
+    if ask <= 0:
+        return None
+
+    def paint(slide, theme_, x, y, bw, bh):
+        cx = x
+        for stack, cw in zip(stacks, widths):
+            _stack(slide, theme_, stack, cx, y, cw, bh)
+            cx += cw + gap
+
+    # The dialect lays a slide out as a flex column, so a `dia-columns` grid
+    # stretches: let it take the slack rather than leaving a hole under it.
+    return Band("columns", ask, paint, floor=min(ask, 80.0), grow=True,
+                gap_after=14.0)
+
+
+# ---------------------------------------------------------------------------
+# the slide
+# ---------------------------------------------------------------------------
+
+
+def _add_notes(slide, note_els) -> None:
+    txt = " ".join(el.all_text() for el in note_els).strip()
+    if txt:
+        slide.notes_slide.notes_text_frame.text = txt
+
+
+def _footnote_band(parts, theme: Theme, w: float, h: float):
+    """(band, height) for the footnote, or (None, 0).
+
+    The footnote's room comes off the pool BEFORE anything else is measured,
+    so reserving it can only make the content area smaller — it can never
+    land under a band that was placed without knowing about it. It used to be
+    a fixed 20px box pinned at `DESIGN_H - pad + 4`, below the bottom of the
+    padded box: a note of any length ran off the page and the renderer clipped
+    it. Real provenance notes run to ~1000 characters."""
+    text = " ".join(p.el.all_text() for p in parts).strip()
+    if not text:
+        return None, 0.0
+    # A third of the slide is as much as a footnote may take before it is the
+    # slide; past that it shrinks instead of pushing the content out.
+    cap = DESIGN_H * 0.34
+    size = _fit_size(text, w, cap, theme.scale[1], 1.32)
+    fh = min(cap, _text_h(text, w, size, 1.32) + 4)
+
+    def paint(slide, theme_, x, y, bw, bh):
+        _textbox(
+            slide, x, y, bw, bh,
+            [[(text, _pt(size), theme_.rgb("ink-faint"), False,
+               theme_.face_label)]],
+            leading=1.32, space_after=0.0,
+        )
+
+    return Band("footnote", fh, paint, floor=fh), fh
+
+
+def _render_slide(prs, theme: Theme, slide_el: El, warn=None) -> None:
     blank = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank)
     _bg(slide, theme, slide_el)
 
+    parts = _partition(slide_el)
+    _add_notes(slide, [p.el for p in parts if p.role == "notes"])
+    parts = [p for p in parts if p.role not in ("mute", "notes")]
+
     pad = theme.pad
-    content_w = DESIGN_W - 2 * pad
-    content_h = DESIGN_H - 2 * pad
-    is_cover = slide_el.has("dia-cover")
-    is_columns = slide_el.has("dia-columns")
+    x, y = pad, pad
+    w = DESIGN_W - 2 * pad
+    h = DESIGN_H - 2 * pad
 
-    kicker = slide_el.find(lambda e: e.has("dia-kicker"))
-    title = slide_el.find(lambda e: e.has("dia-title"))
-    body = slide_el.find(lambda e: e.has("dia-body"))
-    caption = slide_el.find(lambda e: e.has("dia-caption"))
-    footnote = slide_el.find(lambda e: e.has("dia-footnote"))
-    vis = _figure_of(slide_el)
-    # A standalone decorative svg (brand mark, rule art) that is NOT the figure
-    # scene/chart — rendered inline at the top of the head so it isn't dropped.
-    deco = slide_el.find(
-        lambda e: e.tag == "svg"
-        and not e.has("dia-scene")
-        and not e.has("dia-chart")
-        and e is not vis
-    )
-
+    title_el = next((p.el for p in parts if p.role == "title"), None)
     title_px = (
         theme.scale[7]
-        if (title and title.has("dia-cover-title"))
+        if (title_el is not None and title_el.has("dia-cover-title"))
         else theme.scale[5]
     )
 
-    if is_columns and vis is not None:
-        # 1.05fr / 1fr with a gap (mirrors .dia-columns).
+    foot_band, foot_h = _footnote_band(
+        [p for p in parts if p.role == "footnote"], theme, w, h
+    )
+    parts = [p for p in parts if p.role != "footnote"]
+    if foot_band is not None:
+        h = max(120.0, h - (foot_h + 10))
+        foot_band.paint(slide, theme, x, DESIGN_H - 12 - foot_h, w, foot_h)
+
+    figures = [p for p in parts if p.role == "figure"]
+    shortfall = 0.0
+    if slide_el.has("dia-columns") and figures:
+        # The section itself declares the two-column layout: text left, the
+        # figure and its caption right.
         gap = theme.gap
-        left_w = (content_w - gap) * (1.05 / 2.05)
-        right_w = (content_w - gap) - left_w
-        lx, rx = pad, pad + left_w + gap
-        # left: text column, flowed
-        y = pad
-        y = _flow_head(slide, theme, kicker, title, title_px, lx, y, left_w)
-        if body is not None:
-            _textbox(
-                slide,
-                lx,
-                y + 6,
-                left_w,
-                pad + content_h - y,
-                _paras_of_body(body, theme, exclude=vis),
-                leading=1.5,
-                space_after=10,
-                anchor=MSO_ANCHOR.TOP,
-            )
-        # right: the visual, filling most of the column height
-        vis_box = (rx, pad + 6, right_w, content_h - 40)
-        _draw_visual(slide, theme, vis, vis_box)
-        if caption is not None:
-            _textbox(
-                slide,
-                rx,
-                pad + content_h - 22,
-                right_w,
-                22,
-                [
-                    [
-                        (
-                            caption.all_text(),
-                            _pt(theme.scale[1]),
-                            theme.rgb("ink-soft"),
-                            False,
-                            theme.face_label,
-                        )
-                    ]
-                ],
-            )
-    elif is_cover:
-        # vertically centered stack in the padded box
-        stack = []
-        if kicker is not None:
-            stack.append(("kicker", kicker.all_text()))
-        if title is not None:
-            stack.append(("title", title.all_text()))
-        if body is not None:
-            stack.append(("body", _text_excl(body, vis)))
-        if caption is not None:
-            stack.append(("caption", caption.all_text()))
-        # estimate block heights to center
-        est = 0.0
-        for kind, txt in stack:
-            est += _est_height(theme, kind, txt, content_w, title_px)
-        deco_h = 0.0
-        if deco is not None:
-            _, deco_h = _svg_declared_size(deco)
-            est += deco_h + 14  # brand mark + its margin-bottom
-        vis_h = 0.0
-        if vis is not None:  # a cover CAN carry a figure — reserve room for it
-            vis_h = min(280.0, content_h * 0.42)
-            est += vis_h + 16
-        y = pad + max(0, (content_h - est) / 2)
-        if deco is not None:
-            _draw_decorative(slide, theme, deco, pad, y)
-            y += deco_h + 14
-        y = _flow_head(slide, theme, kicker, title, title_px, pad, y, content_w)
-        if body is not None:
-            h = _est_height(
-                theme, "body", _text_excl(body, vis), content_w, title_px
-            )
-            _textbox(
-                slide,
-                pad,
-                y + 6,
-                content_w,
-                h + 20,
-                _paras_of_body(body, theme, exclude=vis),
-                leading=1.5,
-            )
-            y += h + 12
-        if caption is not None:
-            _textbox(
-                slide,
-                pad,
-                y + 10,
-                content_w,
-                30,
-                [
-                    [
-                        (
-                            caption.all_text(),
-                            _pt(theme.scale[1]),
-                            theme.rgb("ink-soft"),
-                            False,
-                            theme.face_label,
-                        )
-                    ]
-                ],
-            )
-            y += 40
-        if vis is not None:
-            _draw_visual(slide, theme, vis, (pad, y + 16, content_w, vis_h))
+        left_w = (w - gap) * 1.05 / 2.05
+        right_w = (w - gap) - left_w
+        right_roles = {id(figures[0])} | {
+            id(p) for p in parts if p.role == "caption"
+        }
+        left = [p for p in parts if id(p) not in right_roles]
+        right = [p for p in parts if id(p) in right_roles]
+        shortfall = _stack(
+            slide, theme, _column_bands(left, theme, left_w, title_px, warn),
+            x, y, left_w, h,
+        )
+        shortfall = max(shortfall, _stack(
+            slide, theme, _column_bands(right, theme, right_w, title_px, warn),
+            x + left_w + gap, y, right_w, h,
+        ))
     else:
-        # default flow: head, then body, then any visual below
-        y = pad
-        y = _flow_head(slide, theme, kicker, title, title_px, pad, y, content_w)
-        if body is not None:
-            h = _est_height(
-                theme, "body", _text_excl(body, vis), content_w, title_px
-            )
-            _textbox(
-                slide,
-                pad,
-                y + 6,
-                content_w,
-                max(h + 20, 120),
-                _paras_of_body(body, theme, exclude=vis),
-                leading=1.5,
-                space_after=10,
-            )
-            y += h + 24
-        if vis is not None:
-            # Clamp: an overflowing head/body can push y past the content box; keep a
-            # positive height so the visual renders (small) rather than collapsing.
-            cap_h = 26 if caption is not None else 0
-            vis_h = max(80.0, pad + content_h - y - 10 - cap_h)
-            _draw_visual(slide, theme, vis, (pad, y, content_w, vis_h))
-        if caption is not None:
-            _textbox(
-                slide,
-                pad,
-                pad + content_h - 22,
-                content_w,
-                22,
-                [
-                    [
-                        (
-                            caption.all_text(),
-                            _pt(theme.scale[1]),
-                            theme.rgb("ink-soft"),
-                            False,
-                            theme.face_label,
-                        )
-                    ]
-                ],
-            )
-    if footnote is not None:
-        _textbox(
-            slide,
-            pad,
-            DESIGN_H - pad + 4,
-            content_w,
-            20,
-            [
-                [
-                    (
-                        footnote.all_text(),
-                        _pt(theme.scale[1]),
-                        theme.rgb("ink-faint"),
-                        False,
-                        theme.face_label,
-                    )
-                ]
-            ],
+        bands = _column_bands(parts, theme, w, title_px, warn)
+        shortfall = _stack(
+            slide, theme, bands, x, y, w, h, center=slide_el.has("dia-cover")
         )
-    _add_notes(slide, slide_el)
-
-
-def _flow_head(slide, theme, kicker, title, title_px, x, y, w) -> float:
-    if kicker is not None and kicker.all_text():
-        _textbox(
-            slide,
-            x,
-            y,
-            w,
-            24,
-            [
-                [
-                    (
-                        kicker.all_text().upper(),
-                        _pt(theme.scale[1]),
-                        theme.rgb("accent"),
-                        True,
-                        theme.face_label,
-                    )
-                ]
-            ],
+    if shortfall > 1.0 and warn is not None:
+        warn(
+            f"the content needs {shortfall:.0f}px more than the slide has; "
+            "every band was compressed to keep it on the page"
         )
-        y += theme.scale[1] + 12
-    if title is not None and title.all_text():
-        h = _est_height(theme, "title", title.all_text(), w, title_px)
-        _textbox(
-            slide,
-            x,
-            y,
-            w,
-            h + 10,
-            [
-                [
-                    (
-                        title.all_text(),
-                        _pt(title_px),
-                        theme.rgb("ink"),
-                        True,
-                        theme.face_display,
-                    )
-                ]
-            ],
-            leading=1.14,
-        )
-        y += h + 14
-    return y
-
-
-def _est_height(
-    theme: Theme, kind: str, text: str, w: float, title_px: float
-) -> float:
-    """Rough block height in px from text length + font size (for flow/centering)."""
-    if kind == "title":
-        size, lead, cpl = title_px, 1.14, max(8, w / (title_px * 0.56))
-    elif kind == "kicker":
-        return theme.scale[1] + 12
-    elif kind == "caption":
-        size, lead, cpl = theme.scale[1], 1.4, w / (theme.scale[1] * 0.55)
-    else:  # body
-        size, lead, cpl = theme.scale[2], 1.55, w / (theme.scale[2] * 0.52)
-    lines = max(1, int(len(text) / max(1, cpl)) + 1)
-    return lines * size * lead + 6
 
 
 # ---------------------------------------------------------------------------
@@ -1620,18 +2033,27 @@ def _est_height(
 # ---------------------------------------------------------------------------
 
 
-def deck_to_pptx(html: str) -> bytes:
-    """Convert a dialect deck (HTML string) to .pptx bytes."""
+def deck_to_pptx(html: str, warnings: list[str] | None = None) -> bytes:
+    """Convert a dialect deck (HTML string) to .pptx bytes.
+
+    `warnings` is an optional sink. The exporter maps text SEMANTICALLY and
+    estimates block heights, so some slides are placed approximately; anything
+    it had to recover or could not place cleanly is appended here rather than
+    passing silently. A caller that ignores it behaves exactly as before."""
     root = _parse(html)
     theme = _read_theme(root)
     slides = root.find_all(lambda e: e.tag == "section" and e.has("dia-slide"))
     prs = pptx.Presentation()
     prs.slide_width = SLIDE_W
     prs.slide_height = SLIDE_H
-    for slide_el in slides:
+    for _i, slide_el in enumerate(slides, 1):
+        def _warn(msg: str, _n=_i) -> None:
+            if warnings is not None:
+                warnings.append(f"slide {_n}: {msg}")
         try:
-            _render_slide(prs, theme, slide_el)
+            _render_slide(prs, theme, slide_el, _warn)
         except Exception:  # pylint: disable=broad-except
+            _warn("render failed; emitted a blank slide in its place")
             # One malformed slide (common with imported foreign decks) must never
             # abort the whole export — emit a blank slide in its place and continue.
             try:
@@ -1661,10 +2083,10 @@ def deck_slide_count(html: str) -> int:
     )
 
 
-def export_file(src: str, dst: str) -> int:
+def export_file(src: str, dst: str, warnings: list[str] | None = None) -> int:
     with open(src, "r", encoding="utf-8") as f:
         html = f.read()
-    data = deck_to_pptx(html)
+    data = deck_to_pptx(html, warnings)
     with open(dst, "wb") as f:
         f.write(data)
     root = _parse(html)
