@@ -1348,7 +1348,27 @@ def _add_notes(slide, slide_el: El) -> None:
             slide.notes_slide.notes_text_frame.text = txt
 
 
-def _render_slide(prs, theme: Theme, slide_el: El) -> None:
+def _footnote_layout(theme: Theme, text: str, w: float) -> tuple[float, float]:
+    """(font_px, block_height_px) for the footnote, shrunk to fit its band.
+
+    The old code drew the footnote in a FIXED 20px box pinned at
+    `DESIGN_H - pad + 4`, which leaves ~49px above the page edge. A long
+    provenance note (these run to ~1000 chars in practice) therefore ran off
+    the bottom of the slide and Google's renderer clipped it -- silent text
+    loss that no warning surfaced. Size it instead, and cap the band at a
+    third of the slide so a runaway note cannot eat the content area."""
+    size = float(theme.scale[1])
+    cap = DESIGN_H * 0.34
+    while True:
+        cpl = max(8.0, w / (size * 0.5))
+        lines = max(1, int(len(text) / cpl) + 1)
+        h = lines * size * 1.32 + 4
+        if h <= cap or size <= 8.0:
+            return size, min(h, cap)
+        size -= 0.5
+
+
+def _render_slide(prs, theme: Theme, slide_el: El, warn=None) -> None:
     blank = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank)
     _bg(slide, theme, slide_el)
@@ -1356,11 +1376,19 @@ def _render_slide(prs, theme: Theme, slide_el: El) -> None:
     pad = theme.pad
     content_w = DESIGN_W - 2 * pad
     content_h = DESIGN_H - 2 * pad
+    # Reserve the footnote band up front so the content area shrinks to make
+    # room, instead of the footnote being pinned over/past the page edge.
+    _foot_el = slide_el.find(lambda e: e.has("dia-footnote"))
+    _foot_size = _foot_h = 0.0
+    if _foot_el is not None and _foot_el.all_text():
+        _foot_size, _foot_h = _footnote_layout(theme, _foot_el.all_text(), content_w)
+        content_h = max(120.0, content_h - (_foot_h + 10))
     is_cover = slide_el.has("dia-cover")
     is_columns = slide_el.has("dia-columns")
 
     kicker = slide_el.find(lambda e: e.has("dia-kicker"))
     title = slide_el.find(lambda e: e.has("dia-title"))
+    subtitle = slide_el.find(lambda e: e.has("dia-subtitle"))
     body = slide_el.find(lambda e: e.has("dia-body"))
     caption = slide_el.find(lambda e: e.has("dia-caption"))
     footnote = slide_el.find(lambda e: e.has("dia-footnote"))
@@ -1388,7 +1416,8 @@ def _render_slide(prs, theme: Theme, slide_el: El) -> None:
         lx, rx = pad, pad + left_w + gap
         # left: text column, flowed
         y = pad
-        y = _flow_head(slide, theme, kicker, title, title_px, lx, y, left_w)
+        y = _flow_head(slide, theme, kicker, title, title_px, lx, y, left_w,
+                       subtitle=subtitle)
         if body is not None:
             _textbox(
                 slide,
@@ -1450,7 +1479,8 @@ def _render_slide(prs, theme: Theme, slide_el: El) -> None:
         if deco is not None:
             _draw_decorative(slide, theme, deco, pad, y)
             y += deco_h + 14
-        y = _flow_head(slide, theme, kicker, title, title_px, pad, y, content_w)
+        y = _flow_head(slide, theme, kicker, title, title_px, pad, y, content_w,
+                       subtitle=subtitle)
         if body is not None:
             h = _est_height(
                 theme, "body", _text_excl(body, vis), content_w, title_px
@@ -1490,7 +1520,8 @@ def _render_slide(prs, theme: Theme, slide_el: El) -> None:
     else:
         # default flow: head, then body, then any visual below
         y = pad
-        y = _flow_head(slide, theme, kicker, title, title_px, pad, y, content_w)
+        y = _flow_head(slide, theme, kicker, title, title_px, pad, y, content_w,
+                       subtitle=subtitle)
         if body is not None:
             h = _est_height(
                 theme, "body", _text_excl(body, vis), content_w, title_px
@@ -1509,8 +1540,16 @@ def _render_slide(prs, theme: Theme, slide_el: El) -> None:
         if vis is not None:
             # Clamp: an overflowing head/body can push y past the content box; keep a
             # positive height so the visual renders (small) rather than collapsing.
+            # The clamp firing means the slide did NOT fit -- say so, instead of
+            # shipping a squashed figure that looks deliberate.
             cap_h = 26 if caption is not None else 0
-            vis_h = max(80.0, pad + content_h - y - 10 - cap_h)
+            avail = pad + content_h - y - 10 - cap_h
+            vis_h = max(80.0, avail)
+            if avail < 80.0 and warn is not None:
+                warn(
+                    f"the figure had only {avail:.0f}px of room and was clamped to "
+                    f"{vis_h:.0f}px: the head/body above it overflow the content area"
+                )
             _draw_visual(slide, theme, vis, (pad, y, content_w, vis_h))
         if caption is not None:
             _textbox(
@@ -1531,29 +1570,62 @@ def _render_slide(prs, theme: Theme, slide_el: El) -> None:
                     ]
                 ],
             )
-    if footnote is not None:
+    # Anything the layout above could not place: extra tables beyond the first
+    # (only `vis` is drawn) and dia-island regions (no code path at all). Draw
+    # their text in the remaining space rather than dropping them silently.
+    _extra = []
+    for _t in slide_el.find_all(lambda e: e.tag == "table"):
+        if _t is not vis:
+            _extra.append(" · ".join(
+                c.all_text() for c in _t.find_all(
+                    lambda e: e.tag in ("td", "th")) if c.all_text()))
+    for _i in slide_el.find_all(lambda e: e.has("dia-island")):
+        if _i.all_text():
+            _extra.append(_i.all_text())
+    _extra = [t for t in _extra if t.strip()]
+    if _extra:
+        if warn is not None:
+            warn(f"recovered {len(_extra)} region(s) the layout could not place "
+                 "(extra table or dia-island); their text is appended above the "
+                 "footnote and is NOT laid out faithfully")
+        _txt = "  ".join(_extra)
+        _sz, _h = _footnote_layout(theme, _txt, content_w)
+        _top = max(pad, DESIGN_H - 12 - _foot_h - _h - 6)
         _textbox(
             slide,
             pad,
-            DESIGN_H - pad + 4,
+            _top,
             content_w,
-            20,
+            _h,
+            [[(_txt, _pt(_sz), theme.rgb("ink-soft"), False, theme.face_body)]],
+            leading=1.32,
+        )
+
+    if footnote is not None and footnote.all_text():
+        _textbox(
+            slide,
+            pad,
+            DESIGN_H - 12 - _foot_h,
+            content_w,
+            _foot_h,
             [
                 [
                     (
                         footnote.all_text(),
-                        _pt(theme.scale[1]),
+                        _pt(_foot_size),
                         theme.rgb("ink-faint"),
                         False,
                         theme.face_label,
                     )
                 ]
             ],
+            leading=1.32,
         )
     _add_notes(slide, slide_el)
 
 
-def _flow_head(slide, theme, kicker, title, title_px, x, y, w) -> float:
+def _flow_head(slide, theme, kicker, title, title_px, x, y, w,
+               subtitle=None) -> float:
     if kicker is not None and kicker.all_text():
         _textbox(
             slide,
@@ -1596,6 +1668,28 @@ def _flow_head(slide, theme, kicker, title, title_px, x, y, w) -> float:
             leading=1.14,
         )
         y += h + 14
+    if subtitle is not None and subtitle.all_text():
+        sh = _est_height(theme, "body", subtitle.all_text(), w, title_px)
+        _textbox(
+            slide,
+            x,
+            y,
+            w,
+            sh + 6,
+            [
+                [
+                    (
+                        subtitle.all_text(),
+                        _pt(theme.scale[4]),
+                        theme.rgb("ink-soft"),
+                        False,
+                        theme.face_body,
+                    )
+                ]
+            ],
+            leading=1.3,
+        )
+        y += sh + 10
     return y
 
 
@@ -1620,18 +1714,27 @@ def _est_height(
 # ---------------------------------------------------------------------------
 
 
-def deck_to_pptx(html: str) -> bytes:
-    """Convert a dialect deck (HTML string) to .pptx bytes."""
+def deck_to_pptx(html: str, warnings: list[str] | None = None) -> bytes:
+    """Convert a dialect deck (HTML string) to .pptx bytes.
+
+    `warnings` is an optional sink. The exporter maps text SEMANTICALLY and
+    estimates block heights, so some slides are placed approximately; anything
+    it had to recover or could not place cleanly is appended here rather than
+    passing silently. A caller that ignores it behaves exactly as before."""
     root = _parse(html)
     theme = _read_theme(root)
     slides = root.find_all(lambda e: e.tag == "section" and e.has("dia-slide"))
     prs = pptx.Presentation()
     prs.slide_width = SLIDE_W
     prs.slide_height = SLIDE_H
-    for slide_el in slides:
+    for _i, slide_el in enumerate(slides, 1):
+        def _warn(msg: str, _n=_i) -> None:
+            if warnings is not None:
+                warnings.append(f"slide {_n}: {msg}")
         try:
-            _render_slide(prs, theme, slide_el)
+            _render_slide(prs, theme, slide_el, _warn)
         except Exception:  # pylint: disable=broad-except
+            _warn("render failed; emitted a blank slide in its place")
             # One malformed slide (common with imported foreign decks) must never
             # abort the whole export — emit a blank slide in its place and continue.
             try:
@@ -1661,10 +1764,10 @@ def deck_slide_count(html: str) -> int:
     )
 
 
-def export_file(src: str, dst: str) -> int:
+def export_file(src: str, dst: str, warnings: list[str] | None = None) -> int:
     with open(src, "r", encoding="utf-8") as f:
         html = f.read()
-    data = deck_to_pptx(html)
+    data = deck_to_pptx(html, warnings)
     with open(dst, "wb") as f:
         f.write(data)
     root = _parse(html)
