@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from pathlib import Path
 from typing import Any, AsyncIterator
 
@@ -677,21 +678,26 @@ class ExportPptx(BaseModel):
     title: str | None = None
 
 
+def _header_safe(text: str, limit: int = 180) -> str:
+    """A response header carries latin-1 bytes on one line."""
+    flat = re.sub(r"\s+", " ", text)
+    return flat.encode("latin-1", "replace").decode("latin-1")[:limit]
+
+
 @app.post("/export/pptx")
 async def export_pptx(req: ExportPptx) -> Response:
     """Render the dialect deck to a .pptx and return it as a download. The file
     opens in PowerPoint / Keynote and converts to native, editable Google Slides
     on import (text roles -> text boxes, scenes -> shapes + connectors, charts ->
     vector shapes, inline SVG -> shapes, speaker notes -> notes)."""
-    import re
-
     from .pptx_export import deck_slide_count, deck_title, deck_to_pptx
 
     if deck_slide_count(req.html) == 0:
         raise HTTPException(
             status_code=422, detail="no dia-slide sections found in the deck")
+    notes: list[str] = []
     try:
-        data = deck_to_pptx(req.html)
+        data = deck_to_pptx(req.html, notes)
     except Exception as exc:  # noqa: BLE001 - never surface a raw 500 traceback
         raise HTTPException(
             status_code=500, detail=f"deck render failed: {exc}") from exc
@@ -702,7 +708,14 @@ async def export_pptx(req: ExportPptx) -> Response:
         media_type=(
             "application/vnd.openxmlformats-officedocument"
             ".presentationml.presentation"),
-        headers={"Content-Disposition": f'attachment; filename="{safe}.pptx"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe}.pptx"',
+            # What the exporter could not place faithfully. A .pptx download
+            # has no body left to say it in, and a conversion that quietly
+            # loses fidelity is the failure this whole path guards against.
+            "X-Dia-Export-Warnings": str(len(notes)),
+            "X-Dia-Export-Warning-1": _header_safe(notes[0]) if notes else "",
+        },
     )
 
 
