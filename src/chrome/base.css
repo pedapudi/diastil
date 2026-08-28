@@ -28,6 +28,10 @@
 .dn-btn.dn-btn-on { background: var(--accent); color: var(--paper); border-color: var(--accent); }
 
 .dn-seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 5px; overflow: hidden; }
+/* the display above out-ranks the UA [hidden] rule, so a segment asked to
+ * hide itself stays on screen without this: the document view toggle was
+ * drawn over every deck, three buttons that did nothing */
+.dn-seg[hidden] { display: none; }
 .dn-seg button {
   font-family: var(--sans); font-size: calc(11px * var(--dt-font-scale, 1));
   border: 0; background: transparent; color: var(--ink-soft);
