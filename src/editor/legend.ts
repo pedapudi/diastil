@@ -48,6 +48,12 @@ const SECTIONS: Array<[string, Array<[string, string]>]> = [
     ['pen / line (toolbar)', 'draw — release commits, Esc exits the tool'],
     ['Delete / Backspace', 'delete the selection'],
   ]],
+  ['document', [
+    [`${MOD}E`, 'the LaTeX source, and the same keys back to the document'],
+    [`${MOD}F · ${MOD}H`, 'find · find and replace'],
+    ['double-click a block', 'edit it where it sits — on the compiled page or in the HTML'],
+    ['double-click an island', 'jump to its lines in the LaTeX'],
+  ]],
   ['import review', [
     ['← · →', 'previous · next slide'],
     ['Esc', 'cancel the import'],

@@ -168,7 +168,29 @@
   overflow: hidden; clip: rect(0, 0, 0, 0); white-space: normal; border: 0; }
 /* the article centers itself (theme measure); the wrap only caps width to
  * the zoom preset so s·m·l keep meaning something for documents */
-.de-docwrap { max-width: min(var(--de-deck-w, 980px), 100%); margin: 0 auto; padding: 0 24px; }
+.de-docwrap { max-width: min(var(--de-deck-w, 980px), 100%); margin: 0 auto; padding: 0 24px;
+  position: relative; z-index: 1; }
+
+/* ---------- page sheets on the semantic surface ----------
+ * The paper the article floats over, one sheet per page the engine set.
+ * Absolutely placed in the scroller's coordinates (the .de-docrail idiom),
+ * so it scrolls with the prose instead of being replaced every frame, and
+ * behind it, so nothing here can intercept a click meant for the text. */
+.de-sheets { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.de-sheet { position: absolute; background: var(--dia-paper, #fff);
+  border: 1px solid rgba(0, 0, 0, 0.14); box-shadow: 0 1px 5px rgba(0, 0, 0, 0.10); }
+.de-sheet-page { position: absolute; right: 100%; bottom: 6px; margin-right: 10px;
+  font: 10px/1 var(--mono, ui-monospace); color: var(--ink-faint); white-space: nowrap; }
+/* the engine broke inside the block at the top of this sheet, so the page
+ * before it holds some of the same prose — a dashed edge is the only honest
+ * thing to draw where synctex reports a block and not a line */
+.de-sheet.is-straddled { border-top-style: dashed; }
+/* the document has moved since the compile these breaks came from. They stay
+ * on screen — still the best answer anyone has — and stop claiming to be
+ * current, the doctrine doc/auxnumbers.ts applies to \ref numbers */
+.de-docscroll.is-provisional .de-sheet { border-color: rgba(0, 0, 0, 0.09); box-shadow: none; }
+.de-docscroll.is-provisional .de-sheet-page { opacity: .45; font-style: italic; }
+.de-docscroll.is-paginated .de-docwrap { padding-top: 30px; padding-bottom: 30px; }
 .de-doc-flash { outline: 2px solid var(--accent); outline-offset: 4px;
   transition: outline-color .9s ease .2s; outline-color: transparent; }
 

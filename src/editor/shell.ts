@@ -208,28 +208,47 @@ export function mountEditor(host: HTMLElement): void {
   // doc mode's view toggle: the native dialect surface, the compiled pages,
   // or the raw LaTeX. Leaving source commits ONE Edit-source op (nothing
   // happens when clean).
+  // ⌘ on macOS, Ctrl elsewhere — the handlers bind metaKey OR ctrlKey, so
+  // the label has to match the platform the way editor/legend.ts does
+  const MOD_KEY = /Mac|iP(hone|ad|od)/.test(navigator.platform) ? '⌘' : 'Ctrl+'
   const viewSeg = h('div', 'dn-seg')
   viewSeg.hidden = true
   const segNative = segButton('semantic', () => setView('native'))
-  segNative.title = 'the accessible HTML projection — fallback when compiled pages are unavailable'
+  segNative.title = 'the HTML projection — searchable and editable with no engine, '
+    + 'broken at the pages the last compile set'
   const segPages = segButton('pages', () => setView('pages'))
   segPages.classList.add('dn-on')
   segPages.title = 'the compiled document — double-click a block to edit without moving the page'
-  const segSource = segButton('source', () => setView('source'))
-  segSource.title = 'the raw LaTeX — the truth this document is compiled from'
-  viewSeg.append(segNative, segPages, segSource)
+  /* Source is not a third view OF the document, it is the document — the
+   * other two are projections of it. So it takes the toolbar over instead of
+   * sitting beside them: while it is open this button is the way back and
+   * the two above are hidden, which keeps the bar at two positions and makes
+   * "you are editing the LaTeX" a state you can see rather than infer. */
+  const segLeaveSource = segButton('◀ document', () => setView(lastProjection))
+  segLeaveSource.hidden = true
+  segLeaveSource.title = `leave the LaTeX and go back to the document (${MOD_KEY}E)`
+  viewSeg.append(segNative, segPages, segLeaveSource)
 
   type DocView = 'native' | 'pages' | 'source'
   // which doc view is showing — the find bar's Ctrl+F belongs to the native
   // surface only (the source view runs its own find, the pages view shows
   // pictures of type there is no DOM text to search)
   let docView: DocView = 'pages'
-  function setView(view: DocView): void {
-    if (!state.doc) return
-    docView = view
+  // the projection to come back to when the source closes
+  let lastProjection: 'native' | 'pages' = 'pages'
+  function syncViewButtons(view: DocView): void {
+    const inSource = view === 'source'
+    segNative.hidden = inSource
+    segPages.hidden = inSource
+    segLeaveSource.hidden = !inSource
     segNative.classList.toggle('dn-on', view === 'native')
     segPages.classList.toggle('dn-on', view === 'pages')
-    segSource.classList.toggle('dn-on', view === 'source')
+  }
+  function setView(view: DocView): void {
+    if (!state.doc) return
+    if (view !== 'source') lastProjection = view
+    docView = view
+    syncViewButtons(view)
     if (view === 'source') closeDocFind()
     deactivateSource() // commits when dirty; harmless when already closed
     deactivateDoc()
@@ -345,6 +364,12 @@ export function mountEditor(host: HTMLElement): void {
         run: () => toggleProblems(),
         disabled: problems === 0,
         hint: problems === 0 ? 'the engine reported nothing to show' : 'what the engine said',
+      },
+      SEP,
+      {
+        label: 'edit the LaTeX source',
+        run: () => setView('source'),
+        hint: `the truth this document is compiled from (${MOD_KEY}E)`,
       },
       SEP,
       {
@@ -642,6 +667,7 @@ export function mountEditor(host: HTMLElement): void {
 
   // "edit LaTeX here" requests (island dblclick, error rows in source
   // mode) arrive as events so their modules need no shell handle
+  window.addEventListener('dia-leave-source', () => setView(lastProjection))
   window.addEventListener('dia-open-source', (ev) => {
     const line = (ev as CustomEvent<{ line?: number }>).detail?.line
     setSourceMode(true)
@@ -666,6 +692,14 @@ export function mountEditor(host: HTMLElement): void {
 
   window.addEventListener('keydown', (e) => {
     const mod = e.metaKey || e.ctrlKey
+    // the LaTeX is one keystroke from anywhere in a document, and the same
+    // keystroke comes back. A keystroke rather than a button because source
+    // is the document's other face, not a third thing to choose between.
+    if (mod && (e.key === 'e' || e.key === 'E') && state.doc) {
+      e.preventDefault()
+      setView(docView === 'source' ? lastProjection : 'source')
+      return
+    }
     if (mod && (e.key === 's' || e.key === 'S')) {
       e.preventDefault()
       void doSave()
@@ -766,9 +800,8 @@ export function mountEditor(host: HTMLElement): void {
       // compiled pages are the stable editing surface; semantic HTML is the
       // explicit fallback before a first successful compile.
       docView = 'pages'
-      segNative.classList.remove('dn-on')
-      segPages.classList.add('dn-on')
-      segSource.classList.remove('dn-on')
+      lastProjection = 'pages'
+      syncViewButtons('pages')
       deactivateSource()
       deactivateDoc()
       activatePages()

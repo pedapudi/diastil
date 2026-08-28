@@ -1077,7 +1077,7 @@ export async function refreshMirrors(jobId: string): Promise<void> {
       if (!blockId || !claims?.length) continue
       byBlock.set(blockId, claims.map((claim) => ({ ...claim, blockId })))
     }
-    setDocumentLayout({ jobId, pages: info?.pages ?? [], byBlock })
+    setDocumentLayout({ jobId, pages: info?.pages ?? [], byBlock, source: doc.source.text })
   }
 }
 

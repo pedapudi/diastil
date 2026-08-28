@@ -16,6 +16,10 @@ export interface DocumentLayout {
   jobId: string
   pages: PageDims[]
   byBlock: Map<string, PageRect[]>
+  /** the source this compile was of, so a surface drawing the engine's page
+   * breaks can tell whether the document has moved on since — the snapshot
+   * doc/auxnumbers.ts keeps for the same reason */
+  source?: string
 }
 
 let current: DocumentLayout | null = null

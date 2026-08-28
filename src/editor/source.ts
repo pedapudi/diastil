@@ -145,6 +145,13 @@ export function mountSourceView(mainEl: HTMLElement): void {
       e.preventDefault()
       openFind(true)
     }
+    // the way back. The shell's window handler never sees a keystroke typed
+    // in here (the stopPropagation below), so the shortcut that opened the
+    // source has to be answered here too, or it would be one-way.
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'e' || e.key === 'E')) {
+      e.preventDefault()
+      window.dispatchEvent(new CustomEvent('dia-leave-source'))
+    }
     if (e.key === 'Tab') {
       // Tab types two spaces instead of leaving the field
       e.preventDefault()
