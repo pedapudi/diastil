@@ -56,6 +56,114 @@ dashed `var(--dia-rule)`, ONE accented element):
 These are metaphor seeds, not a fixed menu — draw the deck's OWN
 subject with the same economy whenever a truer image exists.
 
+## Draw the claim in its own kind
+
+A metaphor is one way to draw a claim, not the way. Before choosing an
+image, name what the slide asserts, because the kind decides the register:
+
+- **a mechanism, a sequence, a structure, an architecture, a protocol,
+  a data path** — draw the THING, not a picture of how it feels. An
+  annotated technical drawing: the real parts in their real
+  arrangement, each named object carrying its object mark (below), the
+  accent on the step or path the slide is about. A request crossing
+  four services is drawn as four services; a metaphor here costs the
+  reader the detail they came for.
+- **a scale, a proportion, a distribution, a rate** — draw it to
+  scale and say so. Quantity is its own picture.
+- **an exception, a trajectory, a search, a tradeoff, a transition** —
+  these are where a metaphor is often TRUER than the literal thing,
+  because the claim is about shape rather than parts. The seeds above
+  live here.
+- **the deck's argument as a whole** — the cover and the section
+  openers are where a whole-figure metaphor belongs, and where the
+  recurring family should be established.
+
+So a technical deck is mostly technical drawings with a metaphor at its
+covers and its turns, not a metaphor per slide. When both would work,
+the technical drawing wins on a slide the reader will act on, and the
+metaphor wins on a slide they must remember.
+
+## Object marks — the small unit
+
+An **object mark** is a ~24-unit line drawing that stands for ONE named
+noun and sits inside a box, beside a label, or at a node of a diagram.
+It is not an illustration and not an icon set: it is the same hairline
+register as the figure around it, at the smallest size that still
+reads.
+
+Marks are the highest-leverage thing in a technical figure. They
+satisfy the rule below — *give containers content* — and once the same
+mark appears on two slides the reader carries the meaning across the
+deck without a legend.
+
+Construction:
+
+- **24×24 unit box**, drawn on a 2-unit inner margin so marks of
+  different shapes optically match.
+- **stroke-width 1.5 in the mark's own box**, scaled with the mark —
+  which lands near the figure's hairline weight once placed. Never
+  filled: a filled mark reads as an accent and the figure only has one.
+- **`var(--dia-ink-faint)` like the rest of the structure.** A mark
+  turns `var(--dia-accent)` only when its object is the one the slide
+  argues, and then it is the figure's single accent.
+- **three to six strokes.** A mark that needs more detail to be
+  recognized is the wrong mark — pick a blunter noun.
+- **a mark earns its place by repeating.** One appearance is
+  decoration; the second is where it starts paying. If a noun appears
+  once in the deck, label it and move on.
+
+A seed vocabulary — the recurring nouns, and the drawing each resolves
+to. Derive new ones the same way: take the noun's most distinctive
+silhouette and cut it to five strokes.
+
+| noun | mark |
+| --- | --- |
+| a pool of like things | three rounded rects, stacked with a 3-unit offset |
+| a single instance | one rounded rect with a dot at its top-left |
+| an identity, a permission | a shield outline with one dot at its centre |
+| a rule, a policy | two circles joined by a short line, one open one dotted |
+| a store, a database | a cylinder: an ellipse over two verticals and a base arc |
+| a queue, a buffer | four short parallel bars of equal length, one gap |
+| a stream | two long parallel curves with three ticks crossing them |
+| a metadata or lookup service | a hub dot with three spokes to open dots |
+| a counter, a metric | three bars of falling height on a baseline |
+| a document, a status report | a page outline with a folded top-right corner |
+| a scheduler, a clock | a circle with two hands at 10 and 2 |
+| a key, a secret | a circle with a toothed stem |
+| a boundary, a network edge | a dashed vertical with a small gate gap |
+| a cache | a rounded rect with a second offset behind it and a lightning tick |
+| a build, an artifact | a cube in three faces, isometric |
+| a person, a caller | a circle over a shallow arc |
+
+Reuse them rather than redrawing them. `<defs><symbol id="…"
+viewBox="0 0 24 24">` once near the top of the figure — or in the first
+figure of the deck — and `<use href="#…" x y width height>` at every
+occurrence. Both are ordinary inline SVG: self-contained, no external
+href, and the validator treats them like any other figure content. A
+twenty-slide deck that copy-pastes the same twelve paths four times
+each is carrying three quarters of its path data for nothing, and the
+copies drift.
+
+```html
+<svg viewBox="0 0 430 300" role="img" aria-label="…">
+  <defs>
+    <symbol id="m-pool" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="2" y="8" width="14" height="10" rx="2"/>
+        <path d="M5 8V5h14v10h-3"/>
+        <path d="M8 5V2h14v10h-3"/>
+      </g>
+    </symbol>
+  </defs>
+  <g color="var(--dia-ink-faint)"><use href="#m-pool" x="40" y="60" width="24" height="24"/></g>
+  <g color="var(--dia-accent)"><use href="#m-pool" x="40" y="140" width="24" height="24"/></g>
+</svg>
+```
+
+`currentColor` inside the symbol and `color` on the placing `<g>` is
+what lets one definition be faint in most places and accented in the
+one place that argues — without a second copy of the path data.
+
 ## Animating figures
 
 Animation follows the same economy as ink: **motion is the accent's
@@ -117,10 +225,24 @@ Full-color pictorial pieces carry the same discipline in a richer
 palette. The style (in this repo, every piece is drawn in
 `docs/register-reference.html`): flat faceted polygon planes with a
 lit and a shadow face, recession by atmosphere or lightness, angular
-white facet glints, no gloss or 3-D shading or blur — and ONE dotted
-accent path or beam with a dot terminal, recolored per ground for
-contrast, that is the argument. Words inside stay in tokens. Two
-variety rules for a deck's pictorial set:
+white facet glints, no gloss or 3-D shading or blur — and ONE accent
+that is the argument, recolored per ground for contrast. Words inside
+stay in tokens.
+
+**The accent is not always a path.** A dotted route with a dot terminal
+is one device and the most over-used: a set where every picture has a
+line pointing at something reads as diagrammed rather than drawn, and
+the line usually restates what the composition already says. Spend the
+accent on whatever carries the claim — the one lit face among shadowed
+ones, the one object at a different scale, the single filled form among
+outlines, a gap where the eye expects continuation, the one warm
+element in a cool ground, a horizon or a threshold the composition is
+built around. Draw a route only when the claim IS a route, and draw a
+leader into a picture only when the picture is genuinely ambiguous
+without it — a picture that needs a line to be understood usually needs
+a better composition instead.
+
+Two variety rules for a deck's pictorial set:
 
 - **each piece owns a palette family** (dawn, twilight, sandstone,
   slate-green, …) — never several figures in one dominant hue;
@@ -142,12 +264,19 @@ the WHOLE deck before calling it done:
    the deck's recurring themes and the one metaphor family that could
    run through it (a route up a mountain, a river system, a survey of
    a sky). Note, per slide, the single claim worth drawing.
-2. **analogy pass** — assign each content slide a pictorial analogy:
-   the deck's own subject first, a reference piece only as fallback.
-   If two slides share a metaphor, one of them needs a truer image.
+2. **kind pass** — for each slide, name what the claim IS (mechanism,
+   scale, exception, argument — see *Draw the claim in its own kind*)
+   and let that pick the register. Mechanisms and structures get
+   technical drawings with object marks; shapes and exceptions get an
+   analogy, the deck's own subject first and a reference piece only as
+   fallback; the cover and the section openers carry the recurring
+   metaphor family. If two slides share a metaphor, one of them needs a
+   truer image — and if every slide has one, most of them are wrong.
 3. **draw pass** — build every figure to the register: faint
    structure, dashed guides, one accented element, cartographer
-   labels, a takeaway caption.
+   labels, a takeaway caption. Every named object in a technical
+   drawing gets its object mark, defined once as a `<symbol>` and
+   `<use>`d wherever the noun recurs.
 4. **improve pass** — render or preview each slide and upgrade what
    you see: sharpen generic metaphors into subject-drawn ones, delete
    marks that don't earn their place, confirm the accent is spent

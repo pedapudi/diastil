@@ -82,14 +82,16 @@ describe('the deck scaffold', () => {
   it('is profile-valid as written', () => {
     const report = validateDeckHtml(deckScaffoldHtml('Untitled'))
     expect(report.findings.filter((f) => f.level === 'error')).toEqual([])
-    expect(report.slideCount).toBe(2)
+    // cover, a scene slide, a drawn slide — the starter shows both figure
+    // registers because a generator imitates whatever the scaffold does
+    expect(report.slideCount).toBe(3)
   })
 
   it('stays valid through a load and a save', () => {
     const deck = loadDeck(deckScaffoldHtml('Untitled'), host(), 'untitled.html')
     const report = validateDeckHtml(serializeDeck(deck))
     expect(report.findings.filter((f) => f.level === 'error')).toEqual([])
-    expect(report.slideCount).toBe(2)
+    expect(report.slideCount).toBe(3)
   })
 
   it('escapes a title that carries markup', () => {

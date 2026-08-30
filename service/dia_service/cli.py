@@ -35,6 +35,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import quote
 
+from .themes import DEFAULT_THEME, THEME_NAMES
 from .validate import validate_html
 
 # NOTE: `.main` (fastapi/uvicorn/adk) is imported lazily inside the commands
@@ -141,7 +142,8 @@ def cmd_present(path: str, no_open: bool = False) -> int:
     return 0
 
 
-def cmd_new(path: str, title: str, no_open: bool = False, doc: bool = False) -> int:
+def cmd_new(path: str, title: str, no_open: bool = False, doc: bool = False,
+            theme: str = DEFAULT_THEME) -> int:
     """Scaffold a profile-valid starting deck — the generation entry point
     for agents: scaffold, edit the html, hold yourself to `dia validate`."""
     from .scaffold import deck_html
@@ -159,14 +161,18 @@ def cmd_new(path: str, title: str, no_open: bool = False, doc: bool = False) -> 
         print(f"dia: wrote {p} (LaTeX document starter)")
         print(f"dia: next — `dia edit {p}` to edit, `dia compile {p}` for a PDF")
         return 0
-    html = deck_html(title or p.stem.replace("-", " ").replace("_", " "))
+    try:
+        html = deck_html(title or p.stem.replace("-", " ").replace("_", " "), theme)
+    except KeyError as exc:
+        print(f"dia: {exc.args[0]}", file=sys.stderr)
+        return 2
     report = validate_html(html)  # the scaffold must never ship invalid
     errors = [f for f in report["findings"] if f["level"] == "error"]
     if errors:  # pragma: no cover — template regression guard
         print(f"dia: internal error — scaffold is out of profile: {errors}", file=sys.stderr)
         return 2
     p.write_text(html, encoding="utf-8")
-    print(f"dia: wrote {p} ({report['slideCount']} slides, profile-valid)")
+    print(f"dia: wrote {p} ({report['slideCount']} slides, {theme}, profile-valid)")
     print(f"dia: next — edit the html, then `dia validate {p}`")
     if not no_open and _display_available():
         webbrowser.open_new_tab(p.resolve().as_uri())
@@ -430,6 +436,10 @@ def main(argv: list[str] | None = None) -> None:
     nw.add_argument("path")
     nw.add_argument("--title", default="", help="deck title (default: derived from the filename)")
     nw.add_argument("--doc", action="store_true", help="scaffold a LaTeX document instead of a deck")
+    nw.add_argument("--theme", default=DEFAULT_THEME, choices=list(THEME_NAMES),
+                    metavar="NAME",
+                    help="colour scheme, chosen for the subject rather than left "
+                         f"at the default ({', '.join(THEME_NAMES)})")
     nw.add_argument("--no-open", action="store_true", help=no_open_help)
     sub.add_parser("agents-md",
                    help="print an AGENTS.md-ready section so any coding agent can generate and operate dia")
@@ -465,7 +475,8 @@ def main(argv: list[str] | None = None) -> None:
 
     args = parser.parse_args(argv)
     if args.cmd == "new":
-        sys.exit(cmd_new(args.path, args.title, no_open=args.no_open, doc=args.doc))
+        sys.exit(cmd_new(args.path, args.title, no_open=args.no_open, doc=args.doc,
+                         theme=args.theme))
     elif args.cmd == "agents-md":
         sys.exit(cmd_agents_md())
     elif args.cmd == "mcp":

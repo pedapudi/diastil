@@ -28,6 +28,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from .themes import DEFAULT_THEME, THEME_NAMES, subject_lines
 from .validate import validate_html
 
 SERVICE = "http://127.0.0.1:8317"
@@ -62,12 +63,28 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "dia_new",
-        "description": "Scaffold a profile-valid diastil deck at the given path (refuses to overwrite). The scaffold IS the house style: zicato paper palette, sans/mono role faces. The generation loop: scaffold, edit the html (visualize by default — see dia_manual), hold yourself to dia_validate.",
+        "description": (
+            "Scaffold a profile-valid diastil deck at the given path (refuses to overwrite). "
+            "The scaffold IS the house style: a zicato colour scheme and sans/mono role faces. "
+            "CHOOSE the theme for this deck's subject — leaving it at the default is how every "
+            "deck ends up the same cream paper. The generation loop: scaffold, edit the html "
+            "(visualize by default — see dia_manual), hold yourself to dia_validate."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "file path for the new deck (.html)"},
                 "title": {"type": "string", "description": "deck title (default: derived from the filename)"},
+                "theme": {
+                    "type": "string",
+                    "enum": list(THEME_NAMES),
+                    "description": (
+                        "colour scheme, picked for the subject and varied between decks; "
+                        + "; ".join(subject_lines())
+                        + f". Defaults to {DEFAULT_THEME}, which is the neutral choice "
+                        "rather than the right one."
+                    ),
+                },
             },
             "required": ["path"],
         },
@@ -217,9 +234,17 @@ def call_tool(name: str, args: dict[str, Any]) -> tuple[str, bool]:
         if p.exists():
             return f"{p} already exists — not overwriting", True
         title = str(args.get("title") or p.stem.replace("-", " ").replace("_", " "))
-        html = deck_html(title)
+        theme = str(args.get("theme") or DEFAULT_THEME)
+        try:
+            html = deck_html(title, theme)
+        except KeyError as exc:
+            return str(exc.args[0]), True
         p.write_text(html, encoding="utf-8")
-        return f"wrote {p} (profile-valid). Edit the html, then validate with dia_validate.", False
+        return (
+            f"wrote {p} in the {theme} scheme (profile-valid). Edit the html, "
+            "then validate with dia_validate.",
+            False,
+        )
 
     if name == "dia_validate":
         if args.get("html"):

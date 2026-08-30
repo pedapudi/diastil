@@ -199,7 +199,7 @@ argues otherwise, still rotate rather than repeat.
 ```css
 /* dracula — the vivid developer dark */
 :root {
-  --dia-paper: #282A36; --dia-ink: #F8F8F2; --dia-ink-soft: #D8D8D2;
+  --dia-paper: #282A36; --dia-ink: #F8F8F2; --dia-ink-soft: #D4D4CF;
   --dia-ink-faint: #6272A4; --dia-accent: #BD93F9; --dia-rule: #44475A;
   --dia-good: #50FA7B; --dia-bad: #FF5555;
   --dia-face-display: "Source Sans 3", system-ui, sans-serif;
@@ -213,28 +213,34 @@ argues otherwise, still rotate rather than repeat.
 
 ### The full palette set (reference)
 
-Twelve more zicato themes when a deck needs a different mood — map
+Eleven more zicato themes when a deck needs a different mood — they map
 1:1 onto the deck tokens (`paper → --dia-paper`, `ink → --dia-ink`, …).
 
-| theme | paper | ink | ink-soft | ink-faint | rule | accent |
-| --- | --- | --- | --- | --- | --- | --- |
-| google-light | `#FFFFFF` | `#474A4E` | `#5F6368` | `#9FA1A4` | `#E2E3E4` | `#1B9CB8` |
-| lunaria-light | `#EBE4E1` | `#363434` | `#484646` | `#898584` | `#CEC8C5` | `#3778A9` |
-| belafonte-day | `#D5CCBA` | `#34292D` | `#45373C` | `#7F736E` | `#BBB1A3` | `#426A79` |
-| monokai | `#1e1f1c` | `#f8f8f2` | `#c9cabf` | `#8f908a` | `#3a3b34` | `#66d9ef` |
-| solarized-dark | `#04222B` | `#93A1A1` | `#839496` | `#5E7079` | `#0E3540` | `#2AA198` |
-| google-dark | `#202124` | `#FFFFFF` | `#E8EAED` | `#989A9D` | `#444548` | `#24C1E0` |
-| lunaria-eclipse | `#323F46` | `#DFE2ED` | `#C9CDD7` | `#8D949D` | `#4D5960` | `#C8429F` |
-| belafonte-night | `#20111B` | `#D5CCBA` | `#968C83` | `#675B59` | `#35272E` | `#6F8E97` |
-| zenburn | `#3A3A3A` | `#DCDCCC` | `#C5C5B8` | `#83837C` | `#575754` | `#8CD0D3` |
-| relaxed | `#353A44` | `#F7F7F7` | `#D9D9D9` | `#7F8287` | `#53575F` | `#7EAAC7` |
-| espresso | `#323232` | `#FFFFFF` | `#D9D9D9` | `#8A8A8A` | `#4C4C4C` | `#6C99BB` |
-| dracula | `#282A36` | `#F8F8F2` | `#D4D4CF` | `#6272A4` | `#44475A` | `#BD93F9` |
+`dia new <file> --theme NAME` writes any of the sixteen straight into
+the scaffold, which is the way to get one without transcribing it; the
+table is here for editing a deck that already exists. The schemes are
+defined once in `src/chrome/tokens.css` and mirrored for the writing
+tools in `service/dia_service/themes.py`, with a test that fails if the
+two ever disagree — they did, on dracula's `ink-soft`, which is why the
+mirror exists.
 
-When a deck needs `good`/`bad` semantics (checkmarks, deltas, pass/fail
-figures), take them from the same theme (`good`/`bad` in the four
-blocks above; for table themes, look up the zicato palette or reuse
-the nearest block's pair).
+| theme | paper | ink | ink-soft | ink-faint | rule | accent | good | bad |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| google-light | `#FFFFFF` | `#474A4E` | `#5F6368` | `#9FA1A4` | `#E2E3E4` | `#1B9CB8` | `#34A853` | `#EA4335` |
+| lunaria-light | `#EBE4E1` | `#363434` | `#484646` | `#898584` | `#CEC8C5` | `#3778A9` | `#497D46` | `#783C1F` |
+| belafonte-day | `#D5CCBA` | `#34292D` | `#45373C` | `#7F736E` | `#BBB1A3` | `#426A79` | `#6E6A4E` | `#BE100E` |
+| solarized-dark | `#04222B` | `#93A1A1` | `#839496` | `#5E7079` | `#0E3540` | `#2AA198` | `#8BB80E` | `#E0483C` |
+| monokai | `#1e1f1c` | `#f8f8f2` | `#c9cabf` | `#8f908a` | `#3a3b34` | `#66d9ef` | `#a6e22e` | `#f92672` |
+| google-dark | `#202124` | `#FFFFFF` | `#E8EAED` | `#989A9D` | `#444548` | `#24C1E0` | `#34A853` | `#EA4335` |
+| lunaria-eclipse | `#323F46` | `#DFE2ED` | `#C9CDD7` | `#8D949D` | `#4D5960` | `#C8429F` | `#BEDBC1` | `#BA9088` |
+| belafonte-night | `#20111B` | `#D5CCBA` | `#968C83` | `#675B59` | `#35272E` | `#6F8E97` | `#A6A07A` | `#D6403E` |
+| zenburn | `#3A3A3A` | `#DCDCCC` | `#C5C5B8` | `#83837C` | `#575754` | `#8CD0D3` | `#8FB28F` | `#CC9393` |
+| relaxed | `#353A44` | `#F7F7F7` | `#D9D9D9` | `#7F8287` | `#53575F` | `#7EAAC7` | `#A0AC77` | `#BC5653` |
+| espresso | `#323232` | `#FFFFFF` | `#D9D9D9` | `#8A8A8A` | `#4C4C4C` | `#6C99BB` | `#A5C261` | `#D25252` |
+
+`good`/`bad` are listed for every scheme above, so a deck that needs
+pass/fail semantics (checkmarks, deltas, a red/green figure) reads them
+from its own theme rather than borrowing a neighbour's pair.
 
 ### Faces — prescriptive
 

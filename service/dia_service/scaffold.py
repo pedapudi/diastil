@@ -11,6 +11,8 @@ for every tool, because the interface (files + CLI) is tool-agnostic.
 
 from __future__ import annotations
 
+from .themes import DEFAULT_THEME, THEME_NAMES, subject_lines, theme_tokens_css
+
 DECK_TEMPLATE = """<!doctype html>
 <html lang="en" data-dia-version="1">
 <head>
@@ -19,12 +21,7 @@ DECK_TEMPLATE = """<!doctype html>
 <title>{title}</title>
 <style id="dia-theme">
 :root {{
-  --dia-paper: #F2EEDE;
-  --dia-ink: #1A1A1A;
-  --dia-ink-soft: #33312B;
-  --dia-ink-faint: #85837A;
-  --dia-accent: #1E6FCC;
-  --dia-rule: #C6C3B6;
+{tokens}
   --dia-face-display: "Source Sans 3", system-ui, sans-serif;
   --dia-face-body: "Source Sans 3", system-ui, sans-serif;
   --dia-face-label: "Source Code Pro", ui-monospace, monospace;
@@ -106,16 +103,70 @@ td.num, th.num {{ text-align: right; font-variant-numeric: tabular-nums;
       </div>
     </div>
     <figure class="dia-figure">
+      <!-- the data-dia-* attributes are the truth the editor edits and
+           re-derives from; the shapes, labels and edge path below are the
+           DERIVED rendering, so the scene shows in any browser rather than
+           only inside the editor -->
       <svg class="dia-scene" viewBox="0 0 340 220" role="img" aria-label="example diagram">
         <g data-dia-node="input" data-shape="rounded" data-x="20" data-y="24" data-w="120" data-h="40">
-          <text class="dia-node-label">input</text>
+          <rect class="dia-node-shape" x="20" y="24" width="120" height="40" rx="6"/>
+          <text class="dia-node-label" x="80" y="49" text-anchor="middle">input</text>
         </g>
         <g data-dia-node="output" data-shape="rounded" data-x="200" data-y="140" data-w="120" data-h="40">
-          <text class="dia-node-label">output</text>
+          <rect class="dia-node-shape" x="200" y="140" width="120" height="40" rx="6"/>
+          <text class="dia-node-label" x="260" y="165" text-anchor="middle">output</text>
         </g>
-        <g data-dia-edge="input->output" data-anchors="S,W" data-route="ortho" data-label="flows"></g>
+        <g data-dia-edge="input-&gt;output" data-anchors="S,W" data-route="ortho" data-label="flows">
+          <path class="dia-edge-path" d="M80 64V160h120"/>
+          <text class="dia-edge-label" x="88" y="120">flows</text>
+        </g>
       </svg>
       <figcaption class="dia-caption">fig 1 — scenes route their own edges</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="dia-slide">
+  <div class="dia-kicker">section</div>
+  <h2 class="dia-title">A drawn slide</h2>
+  <div class="dia-columns">
+    <div class="dia-stack">
+      <div class="dia-body">
+        <p>Most content slides carry a drawing, not a node diagram. Give
+        every named thing an OBJECT MARK — a 24-unit, 3-6 stroke glyph —
+        defined once and placed wherever the noun recurs.</p>
+      </div>
+    </div>
+    <figure class="dia-figure">
+      <svg viewBox="0 0 340 150" role="img" aria-label="a pool of workers reading one store">
+        <defs>
+          <symbol id="m-pool" viewBox="0 0 24 24">
+            <g fill="none" stroke="currentColor" stroke-width="1.5"
+               stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="8" width="14" height="10" rx="2"/>
+              <path d="M5 8V5h14v10h-3"/><path d="M8 5V2h14v10h-3"/>
+            </g>
+          </symbol>
+          <symbol id="m-store" viewBox="0 0 24 24">
+            <g fill="none" stroke="currentColor" stroke-width="1.5"
+               stroke-linecap="round" stroke-linejoin="round">
+              <ellipse cx="12" cy="5" rx="8" ry="3"/>
+              <path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/>
+              <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>
+            </g>
+          </symbol>
+        </defs>
+        <!-- `color` on the placing group is what lets ONE definition be faint
+             here and accent there, with no second copy of the path data -->
+        <g color="var(--dia-accent)"><use href="#m-pool" x="46" y="40" width="30" height="30"/></g>
+        <g color="var(--dia-ink-faint)"><use href="#m-store" x="230" y="40" width="30" height="30"/></g>
+        <path d="M84 55h138" fill="none" stroke="var(--dia-rule)" stroke-width="1.1"/>
+        <text x="61" y="94" text-anchor="middle" font-size="10.5"
+              fill="var(--dia-accent)" font-family="var(--dia-face-label)">workers</text>
+        <text x="245" y="94" text-anchor="middle" font-size="10.5"
+              fill="var(--dia-ink-faint)" font-family="var(--dia-face-label)">store</text>
+      </svg>
+      <figcaption class="dia-caption">fig 2 — one accent, spent on what the slide argues</figcaption>
     </figure>
   </div>
 </section>
@@ -165,17 +216,49 @@ step and no private data model.
      exempt from validation
    - no `<script>` and no `on*=` handlers outside islands
 3. Follow the HOUSE STYLE (the scaffold already does):
-   - light zicato palettes — the scaffold's tokens ARE the default
-     (paper #F2EEDE · ink #1A1A1A · accent #1E6FCC); never invent warm
-     cream + terracotta + serif palettes (a known LLM tell)
+   - CHOOSE A COLOUR SCHEME for the deck's subject, and vary it between
+     decks. `dia new --theme NAME` (or the `theme` argument of the MCP
+     `dia_new`) writes any of the sixteen zicato palettes; a body of
+     decks that are all `paper` reads as one author who stopped
+     deciding. paper — technical work, reports, the neutral default ·
+     solarized-light — teaching, essays · lunaria-light — design,
+     product · belafonte-day — archival and literary · selenized-black
+     — systems and terminal subjects · ubuntu — community and
+     open-source · solarized-dark — data-heavy evening venues ·
+     dracula — developer-culture audiences. NEVER invent a palette:
+     warm cream + terracotta + serif is a known LLM tell, and every
+     colour comes from the `--dia-*` tokens in the theme block.
    - sans for prose (`--dia-face-display/body`), mono ONLY for labels
      (`--dia-face-label`)
-   - VISUALIZE BY DEFAULT: nearly every content slide carries a
-     hand-drawn `<figure class="dia-figure">` with one inline
-     `<svg viewBox="…">` — evocative token-bound line art (hairline
-     strokes ≈0.9–1.6 in var(--dia-ink-faint), layered opacity, dashed
-     envelopes) with the ACCENT spent on the one element that carries
-     the meaning. A text-only slide must earn its plainness.
+   - VISUALIZE BY DEFAULT: roughly one figure per content slide,
+     planned before the prose, in a `<figure class="dia-figure">` with
+     one inline `<svg viewBox="…">`. A text-only slide must earn its
+     plainness. THREE registers, and the slide's claim picks:
+     * a mechanism, a sequence, a structure, an architecture → a
+       technical drawing of the real parts in their real arrangement,
+       hairline strokes ≈0.9–1.6 in `var(--dia-ink-faint)`, with an
+       OBJECT MARK beside every named noun (a ~24-unit, 3–6 stroke line
+       glyph: three stacked rects for a pool, a shield with a dot for
+       an identity, a cylinder for a store, a hub with three spokes for
+       a lookup service, three falling bars for a counter, a folded-
+       corner page for a document). Define each once in
+       `<defs><symbol viewBox="0 0 24 24">` with `stroke="currentColor"`
+       and `<use href="#id">` it wherever the noun recurs — set `color`
+       on the placing `<g>` so one definition is faint in most places
+       and accent in the one that argues.
+     * a scale, a proportion, a rate → draw it to scale and say so.
+     * an exception, a trajectory, a tradeoff, and the COVER → an
+       evocative metaphor: layered opacity, dashed envelopes, or a
+       full-colour pictorial piece (flat faceted planes, a lit and a
+       shadow face, recession by lightness). Do not put a metaphor on
+       every slide — a technical deck is mostly technical drawings with
+       a metaphor at its covers and its turns.
+     Spend `var(--dia-accent)` exactly ONCE per figure, on the element
+     that carries the meaning — and not always as a line pointing at
+     something: a lit face, a differing scale, the one filled form
+     among outlines, or a gap all carry an accent, and a picture that
+     needs a leader line to be understood usually needs a better
+     composition instead.
    - never `border-left` accent stripes on panels/callouts — the
      validator flags them (`style/left-rail`); panels are full hairline
      borders with an accent label
@@ -206,17 +289,26 @@ step and no private data model.
 
 ### Deeper reference
 
-The repository ships agent-agnostic skills in `skills/` — one file each
-for authoring, scenes/diagrams, validation rules and fixes, the CLI, the
-import pipeline, the editor UI, and extending diastil. Read
-`skills/README.md` for the index. Claude Code users can install these as
-a plugin: `/plugin marketplace add pedapudi/diastil`.
+Everything above is what an agent needs to generate a deck; the fuller
+craft guidance lives in the repository's agent-agnostic skills — one
+file each for authoring, artwork, scenes/diagrams, validation rules and
+fixes, the CLI, the import pipeline, the editor UI, and extending
+diastil. Read `skills/README.md` for the index if you have the
+repository checked out; over MCP you do not, so treat this manual as
+the whole contract. Claude Code users can install the skills as a
+plugin: `/plugin marketplace add pedapudi/diastil`.
 """
 
 
-def deck_html(title: str) -> str:
+def deck_html(title: str, theme: str = DEFAULT_THEME) -> str:
+    """A profile-valid starting deck in one of the house colour schemes.
+
+    The scheme is an argument rather than a constant because it is an
+    authoring decision: every deck coming out in `paper` is the tell of a
+    generator that never chose. `themes.palette` raises on an unknown name,
+    so a typo cannot quietly produce the default."""
     safe = title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    return DECK_TEMPLATE.format(title=safe)
+    return DECK_TEMPLATE.format(title=safe, tokens=theme_tokens_css(theme))
 
 
 DOC_TEMPLATE = r"""\documentclass{article}

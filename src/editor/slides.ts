@@ -687,6 +687,8 @@ const DECK_SCAFFOLD_HTML = `<!doctype html>
   --dia-ink-faint: #85837A;
   --dia-accent: #1E6FCC;
   --dia-rule: #C6C3B6;
+  --dia-good: #216609;
+  --dia-bad: #CC3E28;
   --dia-face-display: "Source Sans 3", system-ui, sans-serif;
   --dia-face-body: "Source Sans 3", system-ui, sans-serif;
   --dia-face-label: "Source Code Pro", ui-monospace, monospace;
@@ -768,16 +770,70 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums;
       </div>
     </div>
     <figure class="dia-figure">
+      <!-- the data-dia-* attributes are the truth the editor edits and
+           re-derives from; the shapes, labels and edge path below are the
+           DERIVED rendering, so the scene shows in any browser rather than
+           only inside the editor -->
       <svg class="dia-scene" viewBox="0 0 340 220" role="img" aria-label="example diagram">
         <g data-dia-node="input" data-shape="rounded" data-x="20" data-y="24" data-w="120" data-h="40">
-          <text class="dia-node-label">input</text>
+          <rect class="dia-node-shape" x="20" y="24" width="120" height="40" rx="6"/>
+          <text class="dia-node-label" x="80" y="49" text-anchor="middle">input</text>
         </g>
         <g data-dia-node="output" data-shape="rounded" data-x="200" data-y="140" data-w="120" data-h="40">
-          <text class="dia-node-label">output</text>
+          <rect class="dia-node-shape" x="200" y="140" width="120" height="40" rx="6"/>
+          <text class="dia-node-label" x="260" y="165" text-anchor="middle">output</text>
         </g>
-        <g data-dia-edge="input->output" data-anchors="S,W" data-route="ortho" data-label="flows"></g>
+        <g data-dia-edge="input-&gt;output" data-anchors="S,W" data-route="ortho" data-label="flows">
+          <path class="dia-edge-path" d="M80 64V160h120"/>
+          <text class="dia-edge-label" x="88" y="120">flows</text>
+        </g>
       </svg>
       <figcaption class="dia-caption">fig 1 — scenes route their own edges</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="dia-slide">
+  <div class="dia-kicker">section</div>
+  <h2 class="dia-title">A drawn slide</h2>
+  <div class="dia-columns">
+    <div class="dia-stack">
+      <div class="dia-body">
+        <p>Most content slides carry a drawing, not a node diagram. Give
+        every named thing an OBJECT MARK — a 24-unit, 3-6 stroke glyph —
+        defined once and placed wherever the noun recurs.</p>
+      </div>
+    </div>
+    <figure class="dia-figure">
+      <svg viewBox="0 0 340 150" role="img" aria-label="a pool of workers reading one store">
+        <defs>
+          <symbol id="m-pool" viewBox="0 0 24 24">
+            <g fill="none" stroke="currentColor" stroke-width="1.5"
+               stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="8" width="14" height="10" rx="2"/>
+              <path d="M5 8V5h14v10h-3"/><path d="M8 5V2h14v10h-3"/>
+            </g>
+          </symbol>
+          <symbol id="m-store" viewBox="0 0 24 24">
+            <g fill="none" stroke="currentColor" stroke-width="1.5"
+               stroke-linecap="round" stroke-linejoin="round">
+              <ellipse cx="12" cy="5" rx="8" ry="3"/>
+              <path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/>
+              <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>
+            </g>
+          </symbol>
+        </defs>
+        <!-- \`color\` on the placing group is what lets ONE definition be faint
+             here and accent there, with no second copy of the path data -->
+        <g color="var(--dia-accent)"><use href="#m-pool" x="46" y="40" width="30" height="30"/></g>
+        <g color="var(--dia-ink-faint)"><use href="#m-store" x="230" y="40" width="30" height="30"/></g>
+        <path d="M84 55h138" fill="none" stroke="var(--dia-rule)" stroke-width="1.1"/>
+        <text x="61" y="94" text-anchor="middle" font-size="10.5"
+              fill="var(--dia-accent)" font-family="var(--dia-face-label)">workers</text>
+        <text x="245" y="94" text-anchor="middle" font-size="10.5"
+              fill="var(--dia-ink-faint)" font-family="var(--dia-face-label)">store</text>
+      </svg>
+      <figcaption class="dia-caption">fig 2 — one accent, spent on what the slide argues</figcaption>
     </figure>
   </div>
 </section>
