@@ -1190,6 +1190,21 @@ _ROW_MIN = 26.0
 # merely tight.
 _TABLE_MIN_SCALE = 0.55
 
+# The type sizes a table is allowed to take, largest first. A LADDER rather
+# than a solve: the previous shape multiplied the scale by
+# `sqrt(max_h / total)` until the height fit, and that factor approaches 1
+# whenever the height sits just above the box — so the scale crawled and the
+# loop never reached its floor. Measured on an 8-row table at 560px: 6 of 280
+# sampled box heights never settled inside 200 passes, and `deck_to_pptx`
+# hung. A fixed ladder cannot fail to terminate, and nine rungs from 1.0 to
+# the floor is finer than a reader can see.
+_TABLE_SCALES = (1.0, 0.94, 0.88, 0.82, 0.76, 0.70, 0.64, 0.58, _TABLE_MIN_SCALE)
+
+# How much of a column a cell may fill before this module stops calling it a
+# one-line cell. The 8% left over covers a renderer whose substituted face is
+# a little wider than ADVANCE_EM assumes.
+_ONE_LINE_MARGIN = 0.92
+
 
 @dataclass
 class TablePlan:
@@ -1205,6 +1220,9 @@ class TablePlan:
     fits: bool
     th_px: float
     td_px: float
+    #: every cell holds on one line at this type size, so the row heights
+    #: below are exact rather than estimated — see `_table_plan`
+    nowrap: bool = False
 
     def size_px(self, is_th: bool) -> float:
         return self.th_px if is_th else self.td_px
@@ -1213,14 +1231,24 @@ class TablePlan:
 def _table_plan(
     theme: Theme, tbl: El, w: float, max_h: float | None = None
 ) -> TablePlan | None:
-    """Measure a table at width `w`, shrinking the type to fit `max_h`.
+    """Measure a table at width `w`, taking the type down a ladder to fit `max_h`.
 
     A table's height is not a guess made at the call site. Every row height
     here is written back as an explicit row height, so the table occupies the
     space the layout reserved for it. The exporter used to hand a table
     whatever box was left over and let the renderer grow the rows past it,
     which is how reserving a band beneath one turned a clipped table into two
-    shapes drawn on top of each other."""
+    shapes drawn on top of each other.
+
+    A table row is the one thing on a slide that GROWS: text boxes are drawn
+    at a size and overflow, a row gets taller. So the height of a wrapping
+    row is only as good as the line count predicted for it, and a renderer
+    substituting its own face for the theme's can wrap where this module did
+    not. The plan therefore prefers a size at which every cell holds on ONE
+    line: a single line's height needs no line count, so the reservation
+    stops being an estimate at all and nothing below the table can be pushed
+    off the slide. Wrapping is the fallback for a cell too long to fit at any
+    legible size, and the caller is told when it happens."""
     grid = [
         r.find_all(lambda e: e.tag in ("th", "td"))
         for r in tbl.find_all(lambda e: e.tag == "tr")
@@ -1231,33 +1259,61 @@ def _table_plan(
     ncols = max(len(g) for g in grid)
     col_w = w / ncols
     inner = max(24.0, col_w - _CELL_PAD_X)
-    scale = 1.0
-    while True:
+    # one pass over the cells; the ladder only rescales what it measured
+    text = [[(c.tag == "th", c.all_text()) for c in cells] for cells in grid]
+
+    def plan_at(scale: float, wrap: bool) -> TablePlan:
         th_px = theme.scale[1] * scale
         td_px = theme.scale[2] * scale
         rows = []
-        for cells in grid:
+        for cells in text:
             row_h = _ROW_MIN * scale
-            for cell in cells:
-                is_th = cell.tag == "th"
-                row_h = max(
-                    row_h,
-                    _text_h(
-                        cell.all_text(), inner,
-                        th_px if is_th else td_px, 1.25, caps=is_th,
-                    )
-                    + _CELL_PAD_Y,
-                )
+            for is_th, body in cells:
+                size = th_px if is_th else td_px
+                lines = _lines_of(body, inner, size, is_th) if wrap else 1
+                row_h = max(row_h, lines * size * 1.25 + _CELL_PAD_Y)
             rows.append(row_h)
         total = sum(rows)
-        if max_h is None or total <= max_h or scale <= _TABLE_MIN_SCALE:
-            return TablePlan(
-                grid, ncols, rows, [col_w] * ncols, total, scale,
-                max_h is None or total <= max_h, th_px, td_px,
-            )
-        # sqrt of the overshoot: smaller type also fits more per line, so a
-        # linear step overshoots and the loop chatters toward the floor.
-        scale = max(_TABLE_MIN_SCALE, scale * (max_h / total) ** 0.5)
+        return TablePlan(
+            grid, ncols, rows, [col_w] * ncols, total, scale,
+            max_h is None or total <= max_h, th_px, td_px, nowrap=not wrap,
+        )
+
+    def holds_one_line(scale: float) -> bool:
+        # ONE_LINE_MARGIN is headroom, not caution for its own sake. Turning
+        # wrapping off trades a row that grows downward for text that runs
+        # sideways out of its column, and the renderer picks its own
+        # substitute for the theme's face — so the line has to fit with room
+        # for a face a little wider than the advance this module assumes.
+        room = inner * _ONE_LINE_MARGIN
+        th_px = theme.scale[1] * scale
+        td_px = theme.scale[2] * scale
+        return all(
+            _lines_of(body, room, th_px if is_th else td_px, is_th) == 1
+            for cells in text for is_th, body in cells
+        )
+
+    # A table holding one line per cell at some size holds one line at every
+    # smaller size, so the ladder's first fitting rung is the largest type
+    # that works; the last rung that still holds a line is the shortest the
+    # table can be without wrapping.
+    shortest_unwrapped: TablePlan | None = None
+    for scale in _TABLE_SCALES:
+        if not holds_one_line(scale):
+            break
+        plan = plan_at(scale, wrap=False)
+        if plan.fits:
+            return plan
+        shortest_unwrapped = plan
+    if shortest_unwrapped is not None:
+        # nothing wraps and it is still too tall — a wrapping plan can only be
+        # taller, so this is the best answer and `fits` says it is not enough
+        return shortest_unwrapped
+    for scale in _TABLE_SCALES:
+        plan = plan_at(scale, wrap=True)
+        if plan.fits:
+            return plan
+    return plan_at(_TABLE_MIN_SCALE, wrap=True)
 
 
 def _draw_table(slide, theme: Theme, tbl: El, box, plan=None) -> None:
@@ -1304,7 +1360,12 @@ def _draw_table(slide, theme: Theme, tbl: El, box, plan=None) -> None:
             if is_th:
                 _cell_rule_bottom(cell, theme.rgb("rule"), 1.0)
             tf = cell.text_frame
-            tf.word_wrap = True
+            # wrap=False is what makes the row height above exact: with no
+            # wrapping there is no line count to predict, so no renderer can
+            # grow the row past the space the layout reserved. The plan only
+            # chooses it at a size where every cell already holds one line,
+            # so nothing runs out of its column.
+            tf.word_wrap = not plan.nowrap
             p = tf.paragraphs[0]
             p.alignment = PP_ALIGN.RIGHT if src.has("num") else PP_ALIGN.LEFT
             run = p.add_run()
