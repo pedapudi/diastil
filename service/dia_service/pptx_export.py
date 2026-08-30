@@ -107,7 +107,12 @@ VOID = {
 }
 
 
-@dataclass
+# eq=False for the reason validate.py's El carries it: a dataclass's generated
+# __eq__ compares fields STRUCTURALLY, so comparing two nodes recurses through
+# their children and a pair of identically-shaped deep figures can run past
+# Python's frame limit. A parse node is only ever equal to itself. It also
+# leaves __hash__ inherited rather than None, so an El can go in a set.
+@dataclass(eq=False)
 class El:
     tag: str
     attrs: dict[str, str]
@@ -131,9 +136,20 @@ class El:
         return [el for el in self.walk() if el is not self and pred(el)]
 
     def walk(self):
-        yield self
-        for c in self.children:
-            yield from c.walk()
+        """Every node from here down, in document order.
+
+        Iterative, not `yield from c.walk()`: tree DEPTH would otherwise cap
+        at Python's ~1000 frames, and a deck carrying one generated hero
+        `<svg>` — or any markup whose tags do not nest cleanly — goes past
+        that. Measured: a 1200-deep tree raised RecursionError here before
+        the stack replaced the recursion. Everything that reads a slide comes
+        through this method, so a crash here is the whole export."""
+        stack = [self]
+        while stack:
+            el = stack.pop()
+            yield el
+            # reversed, so children pop back in document order
+            stack.extend(reversed(el.children))
 
     def all_text(self) -> str:
         # verbatim concatenation: #text nodes carry the original whitespace,
