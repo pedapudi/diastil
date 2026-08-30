@@ -42,6 +42,8 @@ from dia_service.pptx_export import (
     _parse,
     _read_theme,
     _stack,
+    _ROW_MIN,
+    _TABLE_SCALES,
     _table_plan,
     _text_h,
     deck_to_pptx,
@@ -426,6 +428,85 @@ def test_a_table_row_is_tall_enough_for_its_own_text():
     needed = _text_h(long_cell, 400.0 - 16.0, theme.scale[2], 1.25)
     assert plan.rows[1] >= needed
     assert plan.rows[1] > plan.rows[0], "a wrapping row must be the taller one"
+
+
+def test_sizing_a_table_always_terminates():
+    """The type ladder replaced a fixed-point solve that could fail to end.
+
+    The old shape multiplied the scale by `sqrt(max_h / total)` until the
+    height fit, and that factor approaches 1 whenever the height sits just
+    above the box, so the scale crawled and never reached its floor: 6 of 280
+    sampled box heights spun forever and `deck_to_pptx` hung on an ordinary
+    slide carrying a table and a footnote. Every height, not a sample — a
+    ladder either terminates for all of them or the bug is back."""
+    theme = _theme()
+    root = _parse(deck("<table>" + "".join(
+        f"<tr><td>row {i} carries a sentence long enough to wrap at this width</td>"
+        f"<td>{i * 137}</td></tr>" for i in range(8)) + "</table>"))
+    tbl = root.find(lambda e: e.tag == "table")
+    for box_h in range(40, 640):
+        plan = _table_plan(theme, tbl, 560.0, float(box_h))
+        assert plan is not None
+        assert plan.height == pytest.approx(sum(plan.rows))
+        # the size came off the ladder. A solve would hand back arbitrary
+        # floats, and it is the solving that could fail to end — so this is
+        # the property to hold, not the wall-clock time it happens to take.
+        assert plan.scale in _TABLE_SCALES, (
+            f"scale {plan.scale} is not a rung: the size is being solved for "
+            "again, and a solve is what could spin"
+        )
+
+
+def test_a_dense_slide_exports_rather_than_hanging():
+    """The shape that hung: a column of prose, a table, and a footnote on one
+    slide — the case issue #31 measured."""
+    rows = "".join(f"<tr><td>row {i}</td><td class='num'>{i * 137}</td></tr>"
+                   for i in range(8))
+    prs, warnings = render(
+        TITLE
+        + '<div class="dia-columns"><div class="dia-col"><p>'
+        + ("Prose that runs to several lines at this measure. " * 3)
+        + "</p></div></div>"
+        + f"<table><tr><th>what</th><th class='num'>count</th></tr>{rows}</table>"
+        + '<p class="dia-footnote">' + ("a note. " * 30) + "</p>"
+    )
+    assert "137" in all_text(prs)
+    assert warnings == []
+
+
+def test_a_table_that_holds_one_line_per_cell_stops_estimating():
+    """A row is the one thing on a slide that GROWS — a text box is drawn at
+    a size and overflows, a row gets taller — so a wrapping row's height is
+    only as good as its predicted line count, and a renderer substituting its
+    own face can wrap where this module did not. At a size where every cell
+    holds one line there is no line count to be wrong about, and nothing
+    below the table can be pushed off the page."""
+    theme = _theme()
+    ordinary = "<table><tr><th>region</th><th>share</th></tr>" + "".join(
+        f"<tr><td>region {i}</td><td>{i * 7}%</td></tr>" for i in range(8)) + "</table>"
+    plan = _table_plan(theme, _parse(deck(ordinary)).find(lambda e: e.tag == "table"), 560.0)
+    assert plan.nowrap, "an ordinary table of short cells must not need wrapping"
+    # every row is one line of type plus its padding, and nothing else
+    for row, cells in zip(plan.rows, plan.grid):
+        tallest = max(plan.size_px(c.tag == "th") for c in cells)
+        assert row == pytest.approx(max(_ROW_MIN * plan.scale, tallest * 1.25 + 10.0))
+
+    prs, _ = render(TITLE + ordinary)
+    table = next(sh for sh in walk(prs.slides[0].shapes) if sh.has_table).table
+    assert {c.text_frame.word_wrap for r in table.rows for c in r.cells} == {False}
+
+
+def test_a_cell_too_long_for_any_legible_size_still_wraps():
+    """Turning wrapping off trades a row that grows downward for text running
+    sideways out of its column. A cell that cannot hold a line at the
+    smallest legible type keeps wrapping instead."""
+    theme = _theme()
+    prose = "<table>" + "".join(
+        f"<tr><td>row {i} carries an entire sentence of prose, far more than "
+        f"will ever hold a single line inside a narrow column like this one</td>"
+        f"<td>{i}</td></tr>" for i in range(5)) + "</table>"
+    plan = _table_plan(theme, _parse(deck(prose)).find(lambda e: e.tag == "table"), 300.0)
+    assert not plan.nowrap
 
 
 def test_a_table_too_tall_for_its_room_shrinks_and_says_so():
