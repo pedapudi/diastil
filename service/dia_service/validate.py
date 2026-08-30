@@ -58,7 +58,15 @@ def _is_left_rail(value: str) -> bool:
     return m is not None and float(m.group(1)) >= 2
 
 
-@dataclass
+# eq=False gives identity equality (object.__eq__). A dataclass's generated
+# __eq__ compares fields STRUCTURALLY, recursing through `children` — and
+# path() does `parent.children.index(cur)`, where list.index() compares cur
+# against each preceding sibling. A slide holding several identically-shaped
+# deep figures (a generated hero <svg>, repeated charts) therefore recursed
+# past Python's frame limit and raised RecursionError inside validate_html.
+# A parse node is only ever equal to itself, so identity is both correct and
+# O(1): index() matches by `is` and never walks a subtree.
+@dataclass(eq=False)
 class El:
     tag: str
     attrs: dict[str, str]
@@ -70,9 +78,19 @@ class El:
         return set((self.attrs.get("class") or "").split())
 
     def walk(self):
-        yield self
-        for c in self.children:
-            yield from c.walk()
+        # Iterative pre-order DFS, in document order. A recursive
+        # `yield from c.walk()` blew Python's ~1000-frame limit on deeply
+        # nested trees — e.g. a hero <svg> with a mismatched tag, which
+        # _TreeBuilder.handle_endtag can only pop to a MATCHING tag, so every
+        # following element nests one level deeper. validate_html reaches
+        # walk() through find_all, so that took down the whole validation.
+        # An explicit stack is depth-independent.
+        stack: list["El"] = [self]
+        while stack:
+            el = stack.pop()
+            yield el
+            # Push children reversed so they pop back in document order.
+            stack.extend(reversed(el.children))
 
     def find_all(self, tag: str | None = None, cls: str | None = None):
         for el in self.walk():

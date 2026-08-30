@@ -155,6 +155,31 @@ def test_a_region_never_leaves_the_deck_in_silence(name, frag):
     assert "CANARY" in all_text(prs), f"{name} did not reach the slide"
 
 
+def test_a_deeply_nested_slide_still_exports():
+    """The same RecursionError `validate.py` carried, in the exporter's own
+    parse tree: `El.walk()` recursed, so tree DEPTH capped at Python's ~1000
+    frames. A generated hero `<svg>`, or any markup whose tags do not nest
+    cleanly, goes past that — and the partition walks every slide, so the
+    crash would be the whole export rather than one figure."""
+    deep = "<div>" * 2500 + "CANARY" + "</div>" * 2500
+    prs, _ = render(TITLE + deep)  # must not raise RecursionError
+    assert "CANARY" in all_text(prs)
+
+
+def test_identical_deep_siblings_still_export():
+    """`El` was a dataclass with the default eq=True, whose __eq__ compares
+    nodes structurally and recurses through `children`. Two identically
+    shaped deep figures on one slide were enough, without either being deep
+    enough to trip the walk."""
+    figure = '<figure class="dia-figure">' + "<svg>" * 900 + "</svg>" * 900 + "</figure>"
+    root = _parse(deck(TITLE + figure * 3))
+    slide = root.find(lambda e: e.has("dia-slide"))
+    kids = [c for c in slide.children if c.tag == "figure"]
+    assert len(kids) == 3
+    assert kids[0] != kids[1], "a parse node is only ever equal to itself"
+    assert kids.index(kids[2]) == 2, "index() must match by identity, not by shape"
+
+
 def test_the_partition_accounts_for_every_word():
     """The invariant the coverage cases rest on, read directly.
 
